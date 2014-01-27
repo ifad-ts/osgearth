@@ -34,8 +34,9 @@ namespace
     struct CustomProjClamper : public osg::CullSettings::ClampProjectionMatrixCallback
     {
         double _minNear, _maxFar, _nearFarRatio;
+        double _nearPlaneClamp;
 
-        CustomProjClamper() : _minNear( -DBL_MAX ), _maxFar( DBL_MAX ), _nearFarRatio( 0.00015 ) { }
+        CustomProjClamper(double nearPlaneClamp) : _minNear( -DBL_MAX ), _maxFar( DBL_MAX ), _nearFarRatio( 0.00015 ), _nearPlaneClamp(nearPlaneClamp) { }
 
         // NOTE: this code is just copied from CullVisitor. I could not find a way to simply 
         // call into it from a custom callback..
@@ -100,8 +101,8 @@ namespace
                 if (desired_znear<min_near_plane) desired_znear=min_near_plane;
                 //if (desired_znear > min_near_plane) desired_znear=min_near_plane;
 
-                if ( desired_znear < 1.0 )
-                    desired_znear = 1.0;
+                if ( desired_znear < _nearPlaneClamp )
+                    desired_znear = _nearPlaneClamp;
 
 #if 0
                 OE_INFO << std::fixed
@@ -170,7 +171,8 @@ _maxNearFarRatio     ( 0.00005 ),
 _haeThreshold        ( 250.0 ),
 _rp                  ( -1 ),
 _rp2                 ( -1 ),
-_autoFarPlaneClamping( true )
+_autoFarPlaneClamping( true ),
+_nearPlaneClamp(1.0)
 {
     if ( mapNode )
     {
@@ -212,7 +214,7 @@ AutoClipPlaneCullCallback::operator()( osg::Node* node, osg::NodeVisitor* nv )
             osg::ref_ptr<osg::CullSettings::ClampProjectionMatrixCallback>& clamper = _clampers.get(cam);
             if ( !clamper.valid() )
             {
-                clamper = new CustomProjClamper();
+                clamper = new CustomProjClamper(_nearPlaneClamp);
                 cam->setClampProjectionMatrixCallback( clamper.get() );
                 OE_INFO << LC << "Installed custom projeciton matrix clamper" << std::endl;
             }

@@ -84,11 +84,18 @@ namespace osgEarth { namespace Util
         void setClampFarClipPlane( bool value ) { _autoFarPlaneClamping = value; }
         bool getClampFarClipPlane() const { return _autoFarPlaneClamping; }
 
+        /**
+         * Sets the minimal near plane value. desired_znear will be clamped to this.
+         */
+        void setNearPlaneClamp( double value ) { _nearPlaneClamp = value; }
+        double getNearPlaneClamp() const { return _nearPlaneClamp; }
+
     public:
         virtual void operator()( osg::Node* node, osg::NodeVisitor* nv );
         
     protected:
         bool   _active;
+        double _nearPlaneClamp;
         double _minNearFarRatio, _maxNearFarRatio;
         double _haeThreshold;
         double _rp2, _rp;
