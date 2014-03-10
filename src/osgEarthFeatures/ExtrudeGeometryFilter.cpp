@@ -248,6 +248,9 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
         colors->assign( numWallVerts, wallColor );
         walls->setColorArray( colors );
         walls->setColorBinding( osg::Geometry::BIND_PER_VERTEX );
+
+		for(unsigned i=1;i<numWallVerts;i+=2)
+			(*colors)[i]=wallBaseColor;
     }
 
     // set up rooftop tessellation and texturing, if necessary:
@@ -474,11 +477,6 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
 
             (*verts)[p] = roofPt;
             (*verts)[p+1] = basePt;
-
-            if ( useColor )
-            {
-                (*colors)[p+1] = wallBaseColor;
-            }
 
             if ( outline )
             {
