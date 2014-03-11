@@ -149,6 +149,9 @@ namespace osgEarth { namespace Features
             const SkinResource*  wallSkin,
             const SkinResource*  roofSkin,
             FilterContext&       cx );
+
+		bool createPitchedRoof(
+			osg::Geometry*          roof);
     };
 
 } } // namespace osgEarth::Features
