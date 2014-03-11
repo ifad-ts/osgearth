@@ -152,6 +152,11 @@ namespace osgEarth { namespace Features
 
 		bool createPitchedRoof(
 			osg::Geometry*          roof);
+
+		bool createPitchedRoof_Terra_Vista_Style(
+			osg::Geometry*          roof,
+			double					roofTextureSpanX,
+			double					roofTextureSpanY);
     };
 
 } } // namespace osgEarth::Features
