@@ -690,6 +690,15 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 		{
 			if(edgeNormals[i]*edgeNormals[j] < -0.99f)// parallel and facing in opposite directions 
 			{
+				osg::Vec3 dir = (*roofVerts)[(i+1)%iNumVerts]-(*roofVerts)[i];
+				float l = dir.length();
+				dir /= l;
+				osg::Vec3 d1 = (*roofVerts)[j]-(*roofVerts)[i];
+				osg::Vec3 d2 = (*roofVerts)[(j+1)%iNumVerts]-(*roofVerts)[i];
+				float dot1 = d1*dir;
+				float dot2 = d2*dir;
+				if((dot1 < 0 && dot2 < 0) || (dot1>l && dot2>l)) // check that edges overlap
+					continue;
 				float fEdgeDist = ((*roofVerts)[j]-(*roofVerts)[i])*edgeNormals[i];
 				if(fEdgeDist>0 && fEdgeDist < fMinEdgeLength)
 					fMinEdgeLength = fEdgeDist;
