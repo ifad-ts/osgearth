@@ -658,10 +658,18 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 		unsigned iNext = (i+2)%iNumVerts;
 
 		osg::Vec3 edgeDir = (*roofVerts)[iEnd]-(*roofVerts)[iStart];
-		edgeNormals[i].x() = -edgeDir.y();
-		edgeNormals[i].y() = edgeDir.x();
-		edgeNormals[i].z() = 0;
-		edgeNormals[i].normalize();
+
+		if(edgeDir.length2()>0.1f)
+		{
+			edgeNormals[i].x() = -edgeDir.y();
+			edgeNormals[i].y() = edgeDir.x();
+			edgeNormals[i].z() = 0;
+			edgeNormals[i].normalize();
+		}
+		else if(i>0)
+		{
+			edgeNormals[i] = edgeNormals[i-1];
+		}
 
 		// check if prev & next vertex are in the positive halfplane 
 		float d1 = ((*roofVerts)[iPrev]-(*roofVerts)[iStart])*edgeNormals[i];
@@ -697,12 +705,12 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 
 	float offset =fMinEdgeLength/2.0f;
 	for(int i=0;i<iNumVerts;i++)
-	{		
-		unsigned iStart=i;
-		unsigned iEnd = (i+1)%iNumVerts;
+	{	
+		unsigned iPrev = i==0 ? iNumVerts-1 : i-1;
 
-		vertOffsets[iStart] += edgeNormals[iStart]*offset;
-		vertOffsets[iEnd] += edgeNormals[iStart]*offset;
+		vertOffsets[i] = edgeNormals[iPrev] + edgeNormals[i];
+		vertOffsets[i].normalize();
+		vertOffsets[i] *= offset;
 	}
 
 	//copy outline, and shrink original and move up, since it has been tesselated
