@@ -710,7 +710,11 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 
 		vertOffsets[i] = edgeNormals[iPrev] + edgeNormals[i];
 		vertOffsets[i].normalize();
-		vertOffsets[i] *= offset;
+
+		//determine length of vertOffset so projection on to normals has length offset
+		//(n_edge . k*n_offset) = offset
+		float k = offset/(edgeNormals[i]*vertOffsets[i]);
+		vertOffsets[i] *= k;
 	}
 
 	//copy outline, and shrink original and move up, since it has been tesselated
