@@ -618,7 +618,7 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
 		bool bCreatePitchedRoof = (_extrusionSymbol.valid() && _extrusionSymbol->roofPitch()>0.0f);
 		if (bCreatePitchedRoof && isPolygon)
 		{
-			if(((const Polygon*)input)->getNumGeometries()==1) // if polygon has holes this will be > 1
+			if(input->getNumGeometries()==1) // if polygon has holes this will be > 1
 			{	
 				if(pointCount == 4)
 				{
@@ -645,7 +645,6 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 {
 	osg::Vec3Array*		roofVerts = dynamic_cast<osg::Vec3Array*>(roof->getVertexArray());
 	int iNumVerts = roofVerts->getNumElements();
-
 
 	osg::Vec3* edgeNormals = new osg::Vec3[iNumVerts];
 	// find min gable edge length, limits shrinking,
