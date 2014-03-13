@@ -264,22 +264,22 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
 
     if ( roof )
     {
-        roofVerts = new osg::Vec3Array( pointCount );
+        roofVerts = new osg::Vec3Array( pointCount);
         roof->setVertexArray( roofVerts );
 
         // per-vertex colors are necessary if we are going to use the MeshConsolidator -gw
         if ( useColor )
         {
             osg::Vec4Array* roofColors = new osg::Vec4Array();
-            roofColors->reserve( pointCount );
-            roofColors->assign( pointCount, roofColor );
+            roofColors->reserve( pointCount);
+            roofColors->assign( pointCount , roofColor );
             roof->setColorArray( roofColors );
             roof->setColorBinding( osg::Geometry::BIND_PER_VERTEX );
         }
 
         if ( roofSkin )
         {
-            roofTexcoords = new osg::Vec2Array( pointCount );
+            roofTexcoords = new osg::Vec2Array( pointCount);
             roof->setTexCoordArray( 0, roofTexcoords );
 
             roofBounds = input->getBounds();
@@ -561,9 +561,9 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
 
         if ( roof )
         {
-            roof->addPrimitiveSet( new osg::DrawArrays(
-                osg::PrimitiveSet::LINE_LOOP,
-                roofPartPtr, roofVertPtr - roofPartPtr ) );
+			roof->addPrimitiveSet( new osg::DrawArrays(
+				osg::PrimitiveSet::LINE_LOOP,
+				roofPartPtr, roofVertPtr - roofPartPtr ) );
         }
 
         if ( base )
@@ -607,8 +607,464 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
         }
     }
 
+	if(roof)
+	{
+		bool bCreatePitchedRoof = (_extrusionSymbol.valid() && _extrusionSymbol->roofPitch()>0.0f);
+		if (bCreatePitchedRoof && isPolygon)
+		{
+			if(input->getNumGeometries()==1) // if polygon has holes this will be > 1
+			{	
+				if(pointCount == 4)
+				{
+					//tesselate roof
+					osgUtil::Tessellator tess;
+					tess.setTessellationType( osgUtil::Tessellator::TESS_TYPE_GEOMETRY );
+					tess.setWindingType( osgUtil::Tessellator::TESS_WINDING_ODD );
+					tess.retessellatePolygons( (*roof) );
+
+					createPitchedRoof(roof);
+				}
+				else
+				{
+					createPitchedRoof_Terra_Vista_Style(roof, roofTexSpanX, roofTexSpanY);
+				}
+			}
+		}
+	}
+	
     return made_geom;
 }
+
+
+// creates a copy of the roof outline, shrinks the orignal, and moves it up
+// creating a roof with pitched sides and a flat top
+bool 
+ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*          roof,
+														double					roofTextureSpanX,
+														double					roofTextureSpanY)
+{
+	osg::Vec3Array*		roofVerts = dynamic_cast<osg::Vec3Array*>(roof->getVertexArray());
+	int iNumVerts = roofVerts->getNumElements();
+
+	osg::Vec3* edgeNormals = new osg::Vec3[iNumVerts];
+	// find min gable edge length, limits shrinking,
+	float fMinEdgeLength = 123456789.0f;
+	for(int i=0;i<iNumVerts;i++)
+	{	
+		int iPrev = i-1 < 0 ? iNumVerts-1 : i-1;
+		unsigned iStart=i;
+		unsigned iEnd = (i+1)%iNumVerts;
+		unsigned iNext = (i+2)%iNumVerts;
+
+		osg::Vec3 edgeDir = (*roofVerts)[iEnd]-(*roofVerts)[iStart];
+
+		if(edgeDir.length2()>0.1f)
+		{
+			edgeNormals[i].x() = -edgeDir.y();
+			edgeNormals[i].y() = edgeDir.x();
+			edgeNormals[i].z() = 0;
+			edgeNormals[i].normalize();
+		}
+		else if(i>0)
+		{
+			edgeNormals[i] = edgeNormals[i-1];
+		}
+
+		// check if prev & next vertex are in the positive halfplane 
+		float d1 = ((*roofVerts)[iPrev]-(*roofVerts)[iStart])*edgeNormals[i];
+		float d2 = ((*roofVerts)[iNext]-(*roofVerts)[iEnd])*edgeNormals[i];
+
+		if(d1 > 0.0f  && d2 > 0.0f)
+		{
+			double len = ((*roofVerts)[iEnd] - (*roofVerts)[iStart]).length();
+			if ( len < fMinEdgeLength ) 
+			{
+				fMinEdgeLength = len;
+			}
+		}
+	}
+	//also check min dist between parallel edges facing in opposite directions, 
+	for(int i=0;i<iNumVerts;i++)
+	{
+		for(int j=i;j<iNumVerts;j++)
+		{
+			if(edgeNormals[i]*edgeNormals[j] < -0.99f)// parallel and facing in opposite directions 
+			{
+				osg::Vec3 dir = (*roofVerts)[(i+1)%iNumVerts]-(*roofVerts)[i];
+				float l = dir.length();
+				dir /= l;
+				osg::Vec3 d1 = (*roofVerts)[j]-(*roofVerts)[i];
+				osg::Vec3 d2 = (*roofVerts)[(j+1)%iNumVerts]-(*roofVerts)[i];
+				float dot1 = d1*dir;
+				float dot2 = d2*dir;
+				if((dot1 < 0 && dot2 < 0) || (dot1>l && dot2>l)) // check that edges overlap
+					continue;
+				float fEdgeDist = ((*roofVerts)[j]-(*roofVerts)[i])*edgeNormals[i];
+				if(fEdgeDist>0 && fEdgeDist < fMinEdgeLength)
+					fMinEdgeLength = fEdgeDist;
+			} 
+		}
+	}
+
+	//vertex offsets
+	osg::Vec3* vertOffsets = new osg::Vec3[iNumVerts];
+
+	float offset =fMinEdgeLength/2.0f;
+	for(int i=0;i<iNumVerts;i++)
+	{	
+		unsigned iPrev = i==0 ? iNumVerts-1 : i-1;
+
+		vertOffsets[i] = edgeNormals[iPrev] + edgeNormals[i];
+		vertOffsets[i].normalize();
+
+		//determine length of vertOffset so projection on to normals has length offset
+		//(n_edge . k*n_offset) = offset
+		float k = offset/(edgeNormals[i]*vertOffsets[i]);
+		vertOffsets[i] *= k;
+	}
+
+	
+
+	int iNumExtraVerts = iNumVerts*4;
+	osg::Vec3*	extraRoofVerts = new osg::Vec3[iNumExtraVerts];
+
+	//copy outline, and shrink original and move up, since it has been tesselated
+	//add 0.5 to offset when calculating roof height because roof width is increased by 0.5 on each side
+	float roofHeight = (offset+0.5f) * tan(osg::DegreesToRadians(_extrusionSymbol->roofPitch().get()));
+	int iExtraIndex=0;
+	for(int i=0;i<iNumVerts;i++)
+	{
+		//move bottom of roof out
+		osg::Vec3 vBottomVert = (*roofVerts)[i];
+		osg::Vec3 vEdgeOffset = vertOffsets[i];
+		vEdgeOffset.normalize();
+		vBottomVert -= vEdgeOffset*0.5f;	
+
+		//offset and raise top
+		(*roofVerts)[i] += vertOffsets[i];
+		(*roofVerts)[i].z() += roofHeight;
+
+		//copy to vertex, twice because we need independent texture coords/normals  for each roof quad
+		extraRoofVerts[iExtraIndex++]=vBottomVert;
+		extraRoofVerts[iExtraIndex++]=(*roofVerts)[i];
+
+		if(i!=0) // copies of quad 0's vertices will by added by last quad
+		{
+			extraRoofVerts[iExtraIndex++]=vBottomVert; 
+			extraRoofVerts[iExtraIndex++]=(*roofVerts)[i];
+		}
+		
+		if(i==iNumVerts-1) // last quad add copies of quad 0's vertices
+		{
+			extraRoofVerts[iExtraIndex++]=extraRoofVerts[0];
+			extraRoofVerts[iExtraIndex++]=extraRoofVerts[1];
+		}
+	}
+
+	
+
+	int iNumRoofQuads = iNumVerts; //one quad pr segment = numVerts
+
+	//tesselate roof top
+	osgUtil::Tessellator tess;
+	tess.setTessellationType( osgUtil::Tessellator::TESS_TYPE_GEOMETRY );
+	tess.setWindingType( osgUtil::Tessellator::TESS_WINDING_ODD );
+	tess.retessellatePolygons( (*roof) );
+	//this may add extra vertices, so update count
+	iNumVerts = roofVerts->getNumElements();
+
+	// add roof normals
+	osg::Vec3Array*		roofNormals = new osg::Vec3Array();
+	for(int i=0;i<iNumVerts;i++)
+	{
+		//for tesselated roof
+		roofNormals->push_back(osg::Vec3(0.0f,0.0f,1.0f));
+	}
+
+	// add extra vertices
+	for(int i=0;i<iNumExtraVerts;i++)
+		roofVerts->push_back(extraRoofVerts[i]);
+
+	
+	
+	int iNewNumVerts = roofVerts->getNumElements();
+	for(int i=iNumVerts;i<iNewNumVerts;i+=4)
+	{
+		osg::Vec3 bottomEdge = (*roofVerts)[i+2]-(*roofVerts)[i];
+		osg::Vec3 sideEdge = (*roofVerts)[i+1]-(*roofVerts)[i];
+		osg::Vec3 normal = bottomEdge^sideEdge;
+		normal.normalize();
+
+		roofNormals->push_back(normal);
+		roofNormals->push_back(normal);
+		roofNormals->push_back(normal);
+		roofNormals->push_back(normal);
+	}
+	roof->setNormalArray( roofNormals );
+	roof->setNormalBinding( osg::Geometry::BIND_PER_VERTEX );
+
+	//fix texture coords
+	osg::Vec2Array*		roofTexcoords = dynamic_cast<osg::Vec2Array*>(roof->getTexCoordArray(0));
+	float quadHeight = offset/cos(osg::DegreesToRadians(_extrusionSymbol->roofPitch().get()));
+	float uTop = quadHeight/roofTextureSpanY;
+
+	for(int i=iNumVerts;i<iNewNumVerts;i+=4)
+	{
+		osg::Vec3 vAxis = (*roofVerts)[i+2]-(*roofVerts)[i];
+		float bottomLength = vAxis.length();
+		vAxis/=bottomLength;
+		osg::Vec3 dirStartTop = (*roofVerts)[i+1]-(*roofVerts)[i];
+		osg::Vec3 uAxis = dirStartTop - vAxis*(vAxis*dirStartTop);
+		uAxis.normalize();
+		
+		//bottom edge
+		roofTexcoords->push_back(osg::Vec2(0,0));
+		roofTexcoords->push_back(osg::Vec2(uTop,(dirStartTop*vAxis)/roofTextureSpanY));
+		roofTexcoords->push_back(osg::Vec2(0, bottomLength/roofTextureSpanY));
+		osg::Vec3 dirEndTop = (*roofVerts)[i+3]-(*roofVerts)[i];
+		roofTexcoords->push_back(osg::Vec2(uTop,(dirEndTop*vAxis)/roofTextureSpanY));
+	}
+
+	osg::DrawElementsUInt* idx = new osg::DrawElementsUInt( GL_TRIANGLES );
+	for(int i=iNumVerts;i<iNewNumVerts;i+=4)
+	{
+		idx->push_back(i);
+		idx->push_back(i+2);
+		idx->push_back(i+3);
+
+		idx->push_back(i);
+		idx->push_back(i+3);
+		idx->push_back(i+1);
+	}
+	roof->addPrimitiveSet( idx );
+
+	osg::Vec4Array* colors = dynamic_cast<osg::Vec4Array*>(roof->getColorArray());
+	if(colors)
+	{
+		int nColors = colors->getNumElements();
+		int nVerts = roofVerts->getNumElements();
+		colors->resize(nVerts);
+		osg::Vec4 roofColor = (*colors)[0];
+		for(int i=nColors ; i<nVerts;i++)
+			(*colors)[i]=roofColor;
+	}
+  
+	//cleanup
+	delete [] edgeNormals;
+	delete [] vertOffsets;
+	delete [] extraRoofVerts;
+
+	return true;
+}
+
+bool 
+ExtrudeGeometryFilter::createPitchedRoof(osg::Geometry*          roof)
+{
+	osg::Vec3Array*		roofVerts = dynamic_cast<osg::Vec3Array*>(roof->getVertexArray());
+	//make room for extra verts
+	roofVerts->resize(roofVerts->getNumElements()+4);
+
+	//find shortest edge
+	float l1 = ((*roofVerts)[0] - (*roofVerts)[1]).length();
+	float l2 = ((*roofVerts)[1] - (*roofVerts)[2]).length();
+
+	//expand roof
+	if(l1<l2)
+	{
+		osg::Vec3 expandDir = ((*roofVerts)[0] - (*roofVerts)[1]);
+		expandDir.normalize();
+
+		(*roofVerts)[0] += expandDir*0.5f;
+		(*roofVerts)[1] -= expandDir*0.5f;
+		(*roofVerts)[2] -= expandDir*0.5f;
+		(*roofVerts)[3] += expandDir*0.5f;
+	}
+	else
+	{
+		osg::Vec3 expandDir = ((*roofVerts)[1] - (*roofVerts)[2]);
+		expandDir.normalize();
+
+		(*roofVerts)[0] += expandDir*0.5f;
+		(*roofVerts)[1] += expandDir*0.5f;
+		(*roofVerts)[2] -= expandDir*0.5f;
+		(*roofVerts)[3] -= expandDir*0.5f;
+	}
+
+	float roofHeight = 0.5f*(std::min(l1,l2)+1.0f) * tan(osg::DegreesToRadians(_extrusionSymbol->roofPitch().get()));
+
+	osg::Vec2Array*		roofTexcoords = dynamic_cast<osg::Vec2Array*>(roof->getTexCoordArray(0));
+	roofTexcoords->resize(roofVerts->getNumElements());
+	osg::DrawElementsUInt* idx = new osg::DrawElementsUInt( GL_TRIANGLES );
+	if(l1<l2)
+	{
+
+		osg::Vec3 v1 = ((*roofVerts)[0] + (*roofVerts)[1])*0.5f;
+		v1.z()+=roofHeight;
+		osg::Vec3 v2 = ((*roofVerts)[2] + (*roofVerts)[3])*0.5f;
+		v2.z()+=roofHeight;
+
+		osg::Vec2 t1 = ((*roofTexcoords)[0] + (*roofTexcoords)[1])*0.5f;
+		osg::Vec2 t2 = ((*roofTexcoords)[2] + (*roofTexcoords)[3])*0.5f;
+
+		(*roofTexcoords)[7] = (*roofTexcoords)[3];
+		(*roofTexcoords)[6] = t2;
+		(*roofTexcoords)[5] = t2;
+		(*roofTexcoords)[4] = (*roofTexcoords)[2];
+		(*roofTexcoords)[3] = (*roofTexcoords)[1];
+		(*roofTexcoords)[2] = t1;
+		(*roofTexcoords)[1] = t1;
+
+		(*roofVerts)[7] = (*roofVerts)[3];
+		(*roofVerts)[6] = v2;
+		(*roofVerts)[5] = v2;
+		(*roofVerts)[4] = (*roofVerts)[2];
+		(*roofVerts)[3] = (*roofVerts)[1];
+		(*roofVerts)[2] = v1;
+		(*roofVerts)[1] = v1;
+
+		idx->push_back(0);
+		idx->push_back(1);
+		idx->push_back(7);
+
+		idx->push_back(1);
+		idx->push_back(6);
+		idx->push_back(7);
+
+		idx->push_back(2);
+		idx->push_back(3);
+		idx->push_back(5);
+
+		idx->push_back(3);
+		idx->push_back(4);
+		idx->push_back(5);
+
+		//gables
+		idx->push_back(0);
+		idx->push_back(3);
+		idx->push_back(1);
+
+		idx->push_back(4);
+		idx->push_back(7);
+		idx->push_back(5);
+
+		//bottom
+		idx->push_back(3);
+		idx->push_back(0);
+		idx->push_back(7);
+
+		idx->push_back(3);
+		idx->push_back(4);
+		idx->push_back(7);
+
+		osg::Vec3Array* roofNormals = new osg::Vec3Array();
+		osg::Vec3 d1 = ((*roofVerts)[1] - (*roofVerts)[0]);
+		osg::Vec3 d2 = ((*roofVerts)[5] - (*roofVerts)[0]);
+		osg::Vec3 n1 = d1^(d2);
+		n1.normalize();
+		osg::Vec3 n2 = ((*roofVerts)[2] - (*roofVerts)[1])^((*roofVerts)[4] - (*roofVerts)[1]);
+		n2.normalize();
+		roofNormals->push_back(n1);
+		roofNormals->push_back(n1);
+		roofNormals->push_back(n2);
+		roofNormals->push_back(n2);
+		roofNormals->push_back(n2);
+		roofNormals->push_back(n2);
+		roofNormals->push_back(n1);
+		roofNormals->push_back(n1);
+		roof->setNormalArray( roofNormals );
+		roof->setNormalBinding( osg::Geometry::BIND_PER_VERTEX );
+	}
+	else
+	{
+		osg::Vec3 v1 = ((*roofVerts)[1] + (*roofVerts)[2])*0.5f;
+		v1.z()+=roofHeight;
+		osg::Vec3 v2 = ((*roofVerts)[0] + (*roofVerts)[3])*0.5f;
+		v2.z()+=roofHeight;
+
+		osg::Vec2 t1 = ((*roofTexcoords)[1] + (*roofTexcoords)[2])*0.5f;
+		osg::Vec2 t2 = ((*roofTexcoords)[0] + (*roofTexcoords)[3])*0.5f;
+
+		(*roofTexcoords)[7] = t2;
+		(*roofTexcoords)[6] = t2;
+		(*roofTexcoords)[5] = (*roofTexcoords)[3];
+		(*roofTexcoords)[4] = (*roofTexcoords)[2];
+		(*roofTexcoords)[3] = t1;
+		(*roofTexcoords)[2] = t1;
+
+		(*roofVerts)[7] = v2;
+		(*roofVerts)[6] = v2;
+		(*roofVerts)[5] = (*roofVerts)[3];
+		(*roofVerts)[4] = (*roofVerts)[2];
+		(*roofVerts)[3] = v1;
+		(*roofVerts)[2] = v1;
+
+		idx->push_back(0);
+		idx->push_back(1);
+		idx->push_back(2);
+
+		idx->push_back(2);
+		idx->push_back(7);
+		idx->push_back(0);
+
+		idx->push_back(3);
+		idx->push_back(4);
+		idx->push_back(6);
+
+		idx->push_back(4);
+		idx->push_back(5);
+		idx->push_back(6);
+
+		//gables
+		idx->push_back(1);
+		idx->push_back(4);
+		idx->push_back(3);
+
+		idx->push_back(5);
+		idx->push_back(0);
+		idx->push_back(7);
+
+		//bottom
+		idx->push_back(1);
+		idx->push_back(0);
+		idx->push_back(4);
+
+		idx->push_back(4);
+		idx->push_back(5);
+		idx->push_back(0);
+
+		osg::Vec3Array* roofNormals = new osg::Vec3Array();
+		osg::Vec3 n1 = ((*roofVerts)[2] - (*roofVerts)[1])^((*roofVerts)[0] - (*roofVerts)[1]);
+		n1.normalize();
+		osg::Vec3 n2 = ((*roofVerts)[3] - (*roofVerts)[2])^((*roofVerts)[5] - (*roofVerts)[2]);
+		n2.normalize();
+		roofNormals->push_back(n1);
+		roofNormals->push_back(n1);
+		roofNormals->push_back(n1);
+		roofNormals->push_back(n2);
+		roofNormals->push_back(n2);
+		roofNormals->push_back(n2);
+		roofNormals->push_back(n2);
+		roofNormals->push_back(n1);
+		roof->setNormalArray( roofNormals );
+		roof->setNormalBinding( osg::Geometry::BIND_PER_VERTEX );
+	}
+
+	osg::Vec4Array* colors = dynamic_cast<osg::Vec4Array*>(roof->getColorArray());
+	if(colors)
+	{
+		int nColors = colors->getNumElements();
+		int nVerts = roofVerts->getNumElements();
+		colors->resize(nVerts);
+		osg::Vec4 roofColor = (*colors)[0];
+		for(int i=nColors ; i<nVerts;i++)
+			(*colors)[i]=roofColor;
+	}
+	
+	roof->addPrimitiveSet( idx );
+	return true;
+}
+
+
 
 void
 ExtrudeGeometryFilter::addDrawable(osg::Drawable*      drawable,
@@ -792,15 +1248,18 @@ ExtrudeGeometryFilter::process( FeatureList& features, FilterContext& context )
                 // tessellate and add the roofs if necessary:
                 if ( rooflines.valid() )
                 {
-                    osgUtil::Tessellator tess;
-                    tess.setTessellationType( osgUtil::Tessellator::TESS_TYPE_GEOMETRY );
-                    tess.setWindingType( osgUtil::Tessellator::TESS_WINDING_ODD );
-                    tess.retessellatePolygons( *(rooflines.get()) );
+					if(rooflines->getNormalArray()==NULL) // no normals created for roof
+					{
+						osgUtil::Tessellator tess;
+						tess.setTessellationType( osgUtil::Tessellator::TESS_TYPE_GEOMETRY );
+						tess.setWindingType( osgUtil::Tessellator::TESS_WINDING_ODD );
+						tess.retessellatePolygons( *(rooflines.get()) );
 
-                    // generate default normals (no crease angle necessary; they are all pointing up)
-                    // TODO do this manually; probably faster
-                    if ( !_makeStencilVolume )
-                        osgUtil::SmoothingVisitor::smooth( *rooflines.get() );
+						// generate default normals (no crease angle necessary; they are all pointing up)
+						// TODO do this manually; probably faster
+						if ( !_makeStencilVolume )
+							osgUtil::SmoothingVisitor::smooth( *rooflines.get() );
+					}
 
                     if ( roofSkin )
                     {
