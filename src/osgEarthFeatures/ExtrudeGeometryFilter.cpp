@@ -609,12 +609,6 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
 
 	if(roof)
 	{
-		//tesselate roof
-		osgUtil::Tessellator tess;
-		tess.setTessellationType( osgUtil::Tessellator::TESS_TYPE_GEOMETRY );
-		tess.setWindingType( osgUtil::Tessellator::TESS_WINDING_ODD );
-		tess.retessellatePolygons( (*roof) );
-
 		bool bCreatePitchedRoof = (_extrusionSymbol.valid() && _extrusionSymbol->roofPitch()>0.0f);
 		if (bCreatePitchedRoof && isPolygon)
 		{
@@ -622,6 +616,12 @@ ExtrudeGeometryFilter::extrudeGeometry(const Geometry*         input,
 			{	
 				if(pointCount == 4)
 				{
+					//tesselate roof
+					osgUtil::Tessellator tess;
+					tess.setTessellationType( osgUtil::Tessellator::TESS_TYPE_GEOMETRY );
+					tess.setWindingType( osgUtil::Tessellator::TESS_WINDING_ODD );
+					tess.retessellatePolygons( (*roof) );
+
 					createPitchedRoof(roof);
 				}
 				else
@@ -708,8 +708,6 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 
 	//vertex offsets
 	osg::Vec3* vertOffsets = new osg::Vec3[iNumVerts];
-	for(int i=0;i<iNumVerts;i++)
-		vertOffsets[i]=osg::Vec3(0,0,0);
 
 	float offset =fMinEdgeLength/2.0f;
 	for(int i=0;i<iNumVerts;i++)
@@ -725,9 +723,15 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 		vertOffsets[i] *= k;
 	}
 
+	
+
+	int iNumExtraVerts = iNumVerts*4;
+	osg::Vec3*	extraRoofVerts = new osg::Vec3[iNumExtraVerts];
+
 	//copy outline, and shrink original and move up, since it has been tesselated
 	//add 0.5 to offset when calculating roof height because roof width is increased by 0.5 on each side
 	float roofHeight = (offset+0.5f) * tan(osg::DegreesToRadians(_extrusionSymbol->roofPitch().get()));
+	int iExtraIndex=0;
 	for(int i=0;i<iNumVerts;i++)
 	{
 		//move bottom of roof out
@@ -741,23 +745,33 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 		(*roofVerts)[i].z() += roofHeight;
 
 		//copy to vertex, twice because we need independent texture coords/normals  for each roof quad
-		roofVerts->push_back(vBottomVert);
-		roofVerts->push_back((*roofVerts)[i]);
+		extraRoofVerts[iExtraIndex++]=vBottomVert;
+		extraRoofVerts[iExtraIndex++]=(*roofVerts)[i];
 
 		if(i!=0) // copies of quad 0's vertices will by added by last quad
 		{
-			roofVerts->push_back(vBottomVert); 
-			roofVerts->push_back((*roofVerts)[i]);
+			extraRoofVerts[iExtraIndex++]=vBottomVert; 
+			extraRoofVerts[iExtraIndex++]=(*roofVerts)[i];
 		}
 		
 		if(i==iNumVerts-1) // last quad add copies of quad 0's vertices
 		{
-			roofVerts->push_back((*roofVerts)[iNumVerts]);
-			roofVerts->push_back((*roofVerts)[iNumVerts+1]);
+			extraRoofVerts[iExtraIndex++]=extraRoofVerts[0];
+			extraRoofVerts[iExtraIndex++]=extraRoofVerts[1];
 		}
 	}
 
+	
+
 	int iNumRoofQuads = iNumVerts; //one quad pr segment = numVerts
+
+	//tesselate roof top
+	osgUtil::Tessellator tess;
+	tess.setTessellationType( osgUtil::Tessellator::TESS_TYPE_GEOMETRY );
+	tess.setWindingType( osgUtil::Tessellator::TESS_WINDING_ODD );
+	tess.retessellatePolygons( (*roof) );
+	//this may add extra vertices, so update count
+	iNumVerts = roofVerts->getNumElements();
 
 	// add roof normals
 	osg::Vec3Array*		roofNormals = new osg::Vec3Array();
@@ -766,6 +780,12 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 		//for tesselated roof
 		roofNormals->push_back(osg::Vec3(0.0f,0.0f,1.0f));
 	}
+
+	// add extra vertices
+	for(int i=0;i<iNumExtraVerts;i++)
+		roofVerts->push_back(extraRoofVerts[i]);
+
+	
 	
 	int iNewNumVerts = roofVerts->getNumElements();
 	for(int i=iNumVerts;i<iNewNumVerts;i+=4)
@@ -818,8 +838,6 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 	}
 	roof->addPrimitiveSet( idx );
 
-	delete [] vertOffsets;
-
 	osg::Vec4Array* colors = dynamic_cast<osg::Vec4Array*>(roof->getColorArray());
 	if(colors)
 	{
@@ -831,6 +849,11 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 			(*colors)[i]=roofColor;
 	}
   
+	//cleanup
+	delete [] edgeNormals;
+	delete [] vertOffsets;
+	delete [] extraRoofVerts;
+
 	return true;
 }
 
@@ -1227,10 +1250,10 @@ ExtrudeGeometryFilter::process( FeatureList& features, FilterContext& context )
                 {
 					if(rooflines->getNormalArray()==NULL) // no normals created for roof
 					{
-						/*osgUtil::Tessellator tess;
+						osgUtil::Tessellator tess;
 						tess.setTessellationType( osgUtil::Tessellator::TESS_TYPE_GEOMETRY );
 						tess.setWindingType( osgUtil::Tessellator::TESS_WINDING_ODD );
-						tess.retessellatePolygons( *(rooflines.get()) );*/
+						tess.retessellatePolygons( *(rooflines.get()) );
 
 						// generate default normals (no crease angle necessary; they are all pointing up)
 						// TODO do this manually; probably faster
