@@ -719,7 +719,10 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 
 		//determine length of vertOffset so projection on to normals has length offset
 		//(n_edge . k*n_offset) = offset
-		float k = offset/(edgeNormals[i]*vertOffsets[i]);
+		float dot = (edgeNormals[i]*vertOffsets[i]);
+		if(fabs(dot)<0.01f)
+			continue;
+		float k = offset/dot;
 		vertOffsets[i] *= k;
 	}
 
