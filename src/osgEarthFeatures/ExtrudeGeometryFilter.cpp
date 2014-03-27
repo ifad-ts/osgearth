@@ -741,7 +741,7 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 		osg::Vec3 vBottomVert = (*roofVerts)[i];
 		osg::Vec3 vEdgeOffset = vertOffsets[i];
 		vEdgeOffset.normalize();
-		vBottomVert -= vEdgeOffset*0.5f;	
+		//vBottomVert -= vEdgeOffset*0.5f;	
 
 		//offset and raise top
 		(*roofVerts)[i] += vertOffsets[i];
@@ -956,8 +956,8 @@ ExtrudeGeometryFilter::createPitchedRoof(osg::Geometry*          roof)
 		idx->push_back(7);
 
 		idx->push_back(3);
-		idx->push_back(4);
 		idx->push_back(7);
+		idx->push_back(4);
 
 		osg::Vec3Array* roofNormals = new osg::Vec3Array();
 		osg::Vec3 d1 = ((*roofVerts)[1] - (*roofVerts)[0]);
@@ -1032,8 +1032,8 @@ ExtrudeGeometryFilter::createPitchedRoof(osg::Geometry*          roof)
 		idx->push_back(4);
 
 		idx->push_back(4);
-		idx->push_back(5);
 		idx->push_back(0);
+		idx->push_back(5);
 
 		osg::Vec3Array* roofNormals = new osg::Vec3Array();
 		osg::Vec3 n1 = ((*roofVerts)[2] - (*roofVerts)[1])^((*roofVerts)[0] - (*roofVerts)[1]);
