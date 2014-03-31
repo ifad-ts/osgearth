@@ -22,6 +22,7 @@
 
 #include <osgEarth/Common>
 #include <osg/Uniform>
+#include <osg/GraphicsContext>
 
 namespace osgEarth
 {
@@ -123,8 +124,11 @@ namespace osgEarth
         /** whether the GPU supports writing to the depth fragment */
         bool supportsFragDepthWrite() const { return _supportsFragDepthWrite; }
 
+		Capabilities(osg::GraphicsContext* gc);
+
     protected:
         Capabilities();
+
 
         /** dtor */
         virtual ~Capabilities() { }
