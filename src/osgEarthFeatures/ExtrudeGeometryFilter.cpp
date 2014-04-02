@@ -683,6 +683,13 @@ ExtrudeGeometryFilter::createPitchedRoof_Terra_Vista_Style(osg::Geometry*       
 			}
 		}
 	}
+
+	if(fMinEdgeLength==123456789.0f) //no edgelength calculated, just make flat roof
+	{
+		delete [] edgeNormals;
+		return false;
+	}
+
 	//also check min dist between parallel edges facing in opposite directions, 
 	for(int i=0;i<iNumVerts;i++)
 	{
