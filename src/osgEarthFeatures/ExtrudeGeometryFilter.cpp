@@ -872,7 +872,7 @@ ExtrudeGeometryFilter::createPitchedRoof(osg::Geometry*          roof)
 {
 	osg::Vec3Array*		roofVerts = dynamic_cast<osg::Vec3Array*>(roof->getVertexArray());
 	//make room for extra verts
-	roofVerts->resize(roofVerts->getNumElements()+4);
+	roofVerts->resize(roofVerts->getNumElements()+14);
 
 	//find shortest edge
 	float l1 = ((*roofVerts)[0] - (*roofVerts)[1]).length();
@@ -924,6 +924,9 @@ ExtrudeGeometryFilter::createPitchedRoof(osg::Geometry*          roof)
 		(*roofTexcoords)[2] = t1;
 		(*roofTexcoords)[1] = t1;
 
+		for(unsigned int i=8;i<roofVerts->getNumElements();i++)// dummy coords
+			(*roofTexcoords)[i] = t1;
+
 		(*roofVerts)[7] = (*roofVerts)[3];
 		(*roofVerts)[6] = v2;
 		(*roofVerts)[5] = v2;
@@ -932,6 +935,22 @@ ExtrudeGeometryFilter::createPitchedRoof(osg::Geometry*          roof)
 		(*roofVerts)[2] = v1;
 		(*roofVerts)[1] = v1;
 
+		//gables
+		(*roofVerts)[8] = (*roofVerts)[0];
+		(*roofVerts)[9] = (*roofVerts)[3];
+		(*roofVerts)[10] = (*roofVerts)[1];
+
+		(*roofVerts)[11] = (*roofVerts)[4];
+		(*roofVerts)[12] = (*roofVerts)[7];
+		(*roofVerts)[13] = (*roofVerts)[5];
+
+		//bottom
+		(*roofVerts)[14] = (*roofVerts)[0];
+		(*roofVerts)[15] = (*roofVerts)[7];
+		(*roofVerts)[16] = (*roofVerts)[4];
+		(*roofVerts)[17] = (*roofVerts)[3];
+
+		//roof top
 		idx->push_back(0);
 		idx->push_back(1);
 		idx->push_back(7);
@@ -949,30 +968,32 @@ ExtrudeGeometryFilter::createPitchedRoof(osg::Geometry*          roof)
 		idx->push_back(5);
 
 		//gables
-		idx->push_back(0);
-		idx->push_back(3);
-		idx->push_back(1);
+		idx->push_back(8);
+		idx->push_back(9);
+		idx->push_back(10);
 
-		idx->push_back(4);
-		idx->push_back(7);
-		idx->push_back(5);
+		idx->push_back(11);
+		idx->push_back(12);
+		idx->push_back(13);
 
 		//bottom
-		idx->push_back(3);
-		idx->push_back(0);
-		idx->push_back(7);
+		idx->push_back(14);
+		idx->push_back(15);
+		idx->push_back(16);
 
-		idx->push_back(3);
-		idx->push_back(7);
-		idx->push_back(4);
+		idx->push_back(14);
+		idx->push_back(16);
+		idx->push_back(17);
 
 		osg::Vec3Array* roofNormals = new osg::Vec3Array();
-		osg::Vec3 d1 = ((*roofVerts)[1] - (*roofVerts)[0]);
-		osg::Vec3 d2 = ((*roofVerts)[5] - (*roofVerts)[0]);
-		osg::Vec3 n1 = d1^(d2);
+		osg::Vec3 n1 = ((*roofVerts)[1] - (*roofVerts)[0])^((*roofVerts)[7] - (*roofVerts)[0]);
 		n1.normalize();
-		osg::Vec3 n2 = ((*roofVerts)[2] - (*roofVerts)[1])^((*roofVerts)[4] - (*roofVerts)[1]);
+		osg::Vec3 n2 = ((*roofVerts)[3] - (*roofVerts)[2])^((*roofVerts)[5] - (*roofVerts)[2]);
 		n2.normalize();
+		osg::Vec3 nBottom = ((*roofVerts)[15] - (*roofVerts)[14])^((*roofVerts)[16] - (*roofVerts)[14]);
+		nBottom.normalize();
+		osg::Vec3 nGable = ((*roofVerts)[9] - (*roofVerts)[8])^((*roofVerts)[10] - (*roofVerts)[8]);
+		nGable.normalize();
 		roofNormals->push_back(n1);
 		roofNormals->push_back(n1);
 		roofNormals->push_back(n2);
@@ -981,6 +1002,16 @@ ExtrudeGeometryFilter::createPitchedRoof(osg::Geometry*          roof)
 		roofNormals->push_back(n2);
 		roofNormals->push_back(n1);
 		roofNormals->push_back(n1);
+		roofNormals->push_back(nGable);
+		roofNormals->push_back(nGable);
+		roofNormals->push_back(nGable);
+		roofNormals->push_back(-nGable);
+		roofNormals->push_back(-nGable);
+		roofNormals->push_back(-nGable);
+		roofNormals->push_back(nBottom);
+		roofNormals->push_back(nBottom);
+		roofNormals->push_back(nBottom);
+		roofNormals->push_back(nBottom);
 		roof->setNormalArray( roofNormals );
 		roof->setNormalBinding( osg::Geometry::BIND_PER_VERTEX );
 	}
@@ -1001,12 +1032,32 @@ ExtrudeGeometryFilter::createPitchedRoof(osg::Geometry*          roof)
 		(*roofTexcoords)[3] = t1;
 		(*roofTexcoords)[2] = t1;
 
+		for(unsigned int i=8;i<roofVerts->getNumElements();i++) // dummy coords
+			(*roofTexcoords)[i] = t1;
+
+		//roof top
 		(*roofVerts)[7] = v2;
 		(*roofVerts)[6] = v2;
 		(*roofVerts)[5] = (*roofVerts)[3];
 		(*roofVerts)[4] = (*roofVerts)[2];
 		(*roofVerts)[3] = v1;
 		(*roofVerts)[2] = v1;
+
+		//gables
+		(*roofVerts)[8] = (*roofVerts)[1];
+		(*roofVerts)[9] = (*roofVerts)[4];
+		(*roofVerts)[10] = (*roofVerts)[3];
+
+		(*roofVerts)[11] = (*roofVerts)[5];
+		(*roofVerts)[12] = (*roofVerts)[0];
+		(*roofVerts)[13] = (*roofVerts)[7];
+
+		//bottom
+		(*roofVerts)[14] = (*roofVerts)[0];
+		(*roofVerts)[15] = (*roofVerts)[5];
+		(*roofVerts)[16] = (*roofVerts)[4];
+		(*roofVerts)[17] = (*roofVerts)[1];
+
 
 		idx->push_back(0);
 		idx->push_back(1);
@@ -1025,28 +1076,31 @@ ExtrudeGeometryFilter::createPitchedRoof(osg::Geometry*          roof)
 		idx->push_back(6);
 
 		//gables
-		idx->push_back(1);
-		idx->push_back(4);
-		idx->push_back(3);
+		idx->push_back(8);
+		idx->push_back(9);
+		idx->push_back(10);
 
-		idx->push_back(5);
-		idx->push_back(0);
-		idx->push_back(7);
+		idx->push_back(11);
+		idx->push_back(12);
+		idx->push_back(13);
 
 		//bottom
-		idx->push_back(1);
-		idx->push_back(0);
-		idx->push_back(4);
+		idx->push_back(14);
+		idx->push_back(15);
+		idx->push_back(16);
 
-		idx->push_back(4);
-		idx->push_back(0);
-		idx->push_back(5);
+		idx->push_back(14);
+		idx->push_back(16);
+		idx->push_back(17);
 
 		osg::Vec3Array* roofNormals = new osg::Vec3Array();
 		osg::Vec3 n1 = ((*roofVerts)[2] - (*roofVerts)[1])^((*roofVerts)[0] - (*roofVerts)[1]);
 		n1.normalize();
-		osg::Vec3 n2 = ((*roofVerts)[3] - (*roofVerts)[2])^((*roofVerts)[5] - (*roofVerts)[2]);
+		osg::Vec3 n2 = ((*roofVerts)[4] - (*roofVerts)[3])^((*roofVerts)[6] - (*roofVerts)[3]);
 		n2.normalize();
+		osg::Vec3 nBottom = ((*roofVerts)[15] - (*roofVerts)[14])^((*roofVerts)[16] - (*roofVerts)[14]);
+		nBottom.normalize();
+		osg::Vec3 nGable = ((*roofVerts)[9] - (*roofVerts)[8])^((*roofVerts)[10] - (*roofVerts)[8]);
 		roofNormals->push_back(n1);
 		roofNormals->push_back(n1);
 		roofNormals->push_back(n1);
@@ -1055,8 +1109,18 @@ ExtrudeGeometryFilter::createPitchedRoof(osg::Geometry*          roof)
 		roofNormals->push_back(n2);
 		roofNormals->push_back(n2);
 		roofNormals->push_back(n1);
+		roofNormals->push_back(nGable);
+		roofNormals->push_back(nGable);
+		roofNormals->push_back(nGable);
+		roofNormals->push_back(-nGable);
+		roofNormals->push_back(-nGable);
+		roofNormals->push_back(-nGable);
+		roofNormals->push_back(nBottom);
+		roofNormals->push_back(nBottom);
+		roofNormals->push_back(nBottom);
+		roofNormals->push_back(nBottom);
 		roof->setNormalArray( roofNormals );
-		roof->setNormalBinding( osg::Geometry::BIND_PER_VERTEX );
+		roof->setNormalBinding( osg::Geometry::BIND_PER_VERTEX);
 	}
 
 	osg::Vec4Array* colors = dynamic_cast<osg::Vec4Array*>(roof->getColorArray());
