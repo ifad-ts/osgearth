@@ -90,9 +90,10 @@ TerrainNode::traverse( osg::NodeVisitor &nv )
                 // get the installed PDC so we can nest them:
                 osg::Camera::DrawCallback* cbToNest = cam->getPostDrawCallback();
 
-                // if it's another QR callback, we'll just replace it.
+                // if it's another QR callback, we'll just replace it. 
+				// IFAD FIX: IF tiles to release is the same, otherwise it ficks up with multiple map nodes
                 QuickReleaseGLObjects* previousQR = dynamic_cast<QuickReleaseGLObjects*>(cbToNest);
-                if ( previousQR )
+                if ( previousQR && previousQR->_tilesToRelease == _tilesToQuickRelease.get())
                     cbToNest = previousQR->_next.get();
 
                 cam->setPostDrawCallback( new QuickReleaseGLObjects(
