@@ -159,13 +159,13 @@ DrawInstanced::install(osg::StateSet* stateset)
         << "#extension GL_EXT_gpu_shader4 : enable \n"
         << "#extension GL_ARB_draw_instanced: enable \n"
         << "uniform sampler2D oe_di_postex; \n"
-        << "uniform float oe_di_postex_size; \n"
+        << "uniform vec2 oe_di_postex_size; \n"
         << "void oe_di_setInstancePosition(inout vec4 VertexMODEL) \n"
         << "{ \n"
-        << "    float index = float(4 * gl_InstanceID) / oe_di_postex_size; \n"
+        << "    float index = float(4 * gl_InstanceID) / oe_di_postex_size.x; \n"
         << "    float s = fract(index); \n"
-        << "    float t = floor(index)/oe_di_postex_size; \n"
-        << "    float step = 1.0 / oe_di_postex_size; \n"  // step from one vec4 to the next
+        << "    float t = floor(index)/oe_di_postex_size.y; \n"
+        << "    float step = 1.0 / oe_di_postex_size.x; \n"  // step from one vec4 to the next
         << "    vec4 m0 = texture2D(oe_di_postex, vec2(s, t)); \n"
         << "    vec4 m1 = texture2D(oe_di_postex, vec2(s+step, t)); \n"
         << "    vec4 m2 = texture2D(oe_di_postex, vec2(s+step+step, t)); \n"
@@ -318,7 +318,7 @@ DrawInstanced::convertGraphToUseDrawInstanced( osg::Group* parent )
 
             osg::StateSet* stateset = sliceGroup->getOrCreateStateSet();
             stateset->setTextureAttributeAndModes(POSTEX_TEXTURE_UNIT, postex, 1);
-            stateset->getOrCreateUniform("oe_di_postex_size", osg::Uniform::FLOAT)->set((float)texSize.x());
+            stateset->getOrCreateUniform("oe_di_postex_size", osg::Uniform::FLOAT_VEC2)->set(texSize);
 
             // could use PixelWriter but we know the format.
             GLfloat* ptr = reinterpret_cast<GLfloat*>( image->data() );
