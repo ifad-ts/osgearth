@@ -41,6 +41,7 @@
 #include <osgEarthDrivers/kml/KML>
 
 #include <osgGA/StateSetManipulator>
+#include <osgGA/AnimationPathManipulator>
 #include <osgViewer/ViewerEventHandlers>
 #include <osgDB/FileNameUtils>
 #include <osgDB/WriteFile>
@@ -540,6 +541,13 @@ MapNodeHelper::parse(MapNode*             mapNode,
 
     std::string imageExtensions;
     args.read("--image-extensions", imageExtensions);
+    
+    // animation path:
+    std::string animpath;
+    if ( args.read("--path", animpath) )
+    {
+        view->setCameraManipulator( new osgGA::AnimationPathManipulator(animpath) );
+    }
 
     // install a canvas for any UI controls we plan to create:
     ControlCanvas* canvas = ControlCanvas::get(view, false);
@@ -826,5 +834,6 @@ MapNodeHelper::usage() const
         << "  --images [path]               : finds and loads image layers from folder [path]\n"
         << "  --image-extensions [ext,...]  : with --images, extensions to use\n"
         << "  --out-earth [file]            : write the loaded map to an earth file\n"
-        << "  --uniform [name] [min] [max]  : create a uniform controller with min/max values\n";
+        << "  --uniform [name] [min] [max]  : create a uniform controller with min/max values\n"
+        << "  --path [file]                 : load and playback an animation path\n";
 }
