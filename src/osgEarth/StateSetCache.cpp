@@ -93,7 +93,8 @@ namespace
 
         void apply(osg::Node& node)
         {
-            if ( isEligible(node.getStateSet()) )
+			if (node.getStateSet() && 
+				node.getStateSet()->getDataVariance() != osg::Object::DYNAMIC )
             {
                 applyStateSet( node.getStateSet() );
             }
@@ -106,7 +107,9 @@ namespace
             for( unsigned i=0; i<numDrawables; ++i )
             {
                 osg::Drawable* d = geode.getDrawable(i);
-                if ( d && isEligible(d->getStateSet()) )
+				if (d &&
+					d->getStateSet() &&
+					d->getStateSet()->getDataVariance() != osg::Object::DYNAMIC )
                 {
                     applyStateSet( d->getStateSet() );
                 }
