@@ -52,6 +52,7 @@ namespace osgEarth { namespace Symbology
          * @param output Result goes here.
          */
         bool getOrCreateStateSet( SkinResource* skin, osg::ref_ptr<osg::StateSet>& output );
+		bool cloneOrCreateInstanceNode( InstanceResource* instance, osg::ref_ptr<osg::Node>& output );
 
         /**
          * Get the statistics collected from the skin cache.
