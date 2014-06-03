@@ -441,6 +441,13 @@ VirtualProgram::cloneOrCreate(const osg::StateSet* src, osg::StateSet* dest)
     }
 }
 
+
+VirtualProgram*
+VirtualProgram::cloneOrCreate(osg::StateSet* stateset)
+{
+	return cloneOrCreate(stateset, stateset);
+}
+
 //------------------------------------------------------------------------
 
 
