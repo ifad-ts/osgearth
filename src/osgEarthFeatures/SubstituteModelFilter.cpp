@@ -127,8 +127,8 @@ SubstituteModelFilter::process(const FeatureList&           features,
                                Session*                     session,
                                osg::Group*                  attachPoint,
                                FilterContext&               context )
-{
-    // Establish SRS information:
+{  
+	// Establish SRS information:
     bool makeECEF = context.getSession()->getMapInfo().isGeocentric();
     const SpatialReference* targetSRS = context.getSession()->getMapInfo().getSRS();
 
@@ -152,10 +152,10 @@ SubstituteModelFilter::process(const FeatureList&           features,
     for( FeatureList::const_iterator f = features.begin(); f != features.end(); ++f )
     {
         Feature* input = f->get();
-
+		
         // evaluate the instance URI expression:
-        StringExpression uriEx = *symbol->url();
-        URI instanceURI( input->eval(uriEx, &context), uriEx.uriContext() );
+		StringExpression  uriEx   = *symbol->url();
+		URI instanceURI( input->eval(uriEx, &context), uriEx.uriContext() );
 
         // find the corresponding marker in the cache
         osg::ref_ptr<InstanceResource> instance;
@@ -185,13 +185,18 @@ SubstituteModelFilter::process(const FeatureList&           features,
         }
 
         // how that we have a marker source, create a node for it
-        std::pair<URI,float> key( instanceURI, scale );
+		std::pair<URI,float> key( instanceURI, scale );
 
         // cache nodes per instance.
         osg::ref_ptr<osg::Node>& model = uniqueModels[key];
         if ( !model.valid() )
         {
-            context.resourceCache()->getOrCreateInstanceNode( instance.get(), model );
+			// for DI, we must clone the instances since we intend to change them
+			// (i.e. we will convert their primsets to drawinstanced)
+			if ( _useDrawInstanced )
+				context.resourceCache()->cloneOrCreateInstanceNode( instance.get(), model );
+			else
+				context.resourceCache()->getOrCreateInstanceNode( instance.get(), model );
 
             // if icon decluttering is off, install an AutoTransform.
             if ( iconSymbol )
@@ -288,7 +293,7 @@ SubstituteModelFilter::process(const FeatureList&           features,
 
         // install a shader program to render draw-instanced.
         DrawInstanced::install( attachPoint->getOrCreateStateSet() );
-    }
+	}
 
     return true;
 }
