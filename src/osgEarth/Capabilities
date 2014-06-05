@@ -23,6 +23,7 @@
 #include <osgEarth/Common>
 #include <osg/Uniform>
 #include <osg/Texture>
+#include <osg/GraphicsContext>
 
 namespace osgEarth
 {
@@ -140,6 +141,8 @@ namespace osgEarth
         
         /** whether the GPU supports a texture compression scheme */
         bool supportsTextureCompression(const osg::Texture::InternalFormatMode& mode) const;
+
+		Capabilities(osg::GraphicsContext* gc);
 
     protected:
         Capabilities();
