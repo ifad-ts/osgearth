@@ -58,15 +58,43 @@ TerrainNode::traverse( osg::NodeVisitor &nv )
         // draw callback now.
         if ( !_quickReleaseCallbackInstalled && _tilesToQuickRelease.valid() )
         {
-            osg::Camera* cam = findFirstParentOfType<osg::Camera>( this );
+			//osg::Camera* cam = findFirstParentOfType<osg::Camera>( this );
+			//iterate through node path to find parent camera, use findFirstParentOfType as fallback 
+			osg::Camera* cam=NULL;
+			osg::NodePath& path=nv.getNodePath();
+			if(path.size()>0)
+			{
+				//check for root camera
+				osg::Node* pNode = (*path.begin());
+				if(pNode->getNumParents()>0)
+				{
+					pNode = pNode->getParent(0);
+					cam = dynamic_cast<osg::Camera*>(pNode);
+				}
+			}
+
+			for( osg::NodePath::const_reverse_iterator i = path.rbegin(); cam==NULL && i != path.rend(); ++i ) 
+			{
+				osg::Camera* result = dynamic_cast<osg::Camera*>(*i);
+				if (result)
+				{
+					cam = result;
+					break;
+				}
+			}
+
+			if(cam==NULL)
+				cam = findFirstParentOfType<osg::Camera>( this );
+
             if ( cam )
             {
                 // get the installed PDC so we can nest them:
                 osg::Camera::DrawCallback* cbToNest = cam->getPostDrawCallback();
 
-                // if it's another QR callback, we'll just replace it.
-                QuickReleaseGLObjects* previousQR = dynamic_cast<QuickReleaseGLObjects*>(cbToNest);
-                if ( previousQR )
+				// if it's another QR callback, we'll just replace it. 
+				// IFAD FIX: IF tiles to release is the same, otherwise it ficks up with multiple map nodes
+				QuickReleaseGLObjects* previousQR = dynamic_cast<QuickReleaseGLObjects*>(cbToNest);
+				if ( previousQR && previousQR->_tilesToRelease == _tilesToQuickRelease.get())
                     cbToNest = previousQR->_next.get();
 
                 cam->setPostDrawCallback( new QuickReleaseGLObjects(
