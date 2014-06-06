@@ -88,6 +88,10 @@ namespace osgEarth { namespace Symbology
         optional<float>& wallGradientPercentage() { return _wallGradientPercentage; }
         const optional<float>& wallGradientPercentage() const { return _wallGradientPercentage; }
         
+		 /** pitch of the roof in degrees, (default=0.0, (flat roof) range=[0..90[ */
+        optional<float>& roofPitch() { return _roofPitch; }
+        const optional<float>& roofPitch() const { return _roofPitch; }
+
     public:
         virtual Config getConfig() const;
         virtual void mergeConfig( const Config& conf );
@@ -101,6 +105,7 @@ namespace osgEarth { namespace Symbology
         optional<std::string>       _wallStyleName;
         optional<std::string>       _roofStyleName;
         optional<float>             _wallGradientPercentage;
+		optional<float>             _roofPitch;
     };
 
 } } // namespace osgEarth::Symbology

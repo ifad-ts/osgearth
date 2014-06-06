@@ -41,7 +41,8 @@ Symbol    ( conf ),
 _height   ( 10.0 ),
 _flatten  ( true ),
 _heightRef( HEIGHT_REFERENCE_Z ),
-_wallGradientPercentage( 0.0f )
+_wallGradientPercentage( 0.0f ),
+_roofPitch ( 0.0f )
 {
     if ( !conf.empty() )
         mergeConfig(conf);
@@ -60,6 +61,7 @@ ExtrusionSymbol::getConfig() const
     conf.addIfSet   ( "wall_style", _wallStyleName );
     conf.addIfSet   ( "roof_style", _roofStyleName );
     conf.addIfSet   ( "wall_gradient", _wallGradientPercentage );
+	conf.addIfSet   ( "roof_pitch", _roofPitch );
     return conf;
 }
 
@@ -74,6 +76,7 @@ ExtrusionSymbol::mergeConfig( const Config& conf )
     conf.getIfSet   ( "wall_style", _wallStyleName );
     conf.getIfSet   ( "roof_style", _roofStyleName );
     conf.getIfSet   ( "wall_gradient", _wallGradientPercentage );
+	conf.getIfSet   ( "roof_pitch", _roofPitch );
 }
 
 void
@@ -97,4 +100,7 @@ ExtrusionSymbol::parseSLD(const Config& c, Style& style)
     else if ( match(c.key(), "extrusion-script") ) {
         style.getOrCreate<ExtrusionSymbol>()->script() = StringExpression(c.value());
     }
+	else if ( match(c.key(), "extrusion-roof-pitch") ) {
+		style.getOrCreate<ExtrusionSymbol>()->roofPitch() = as<float>(c.value(), 0.0f);
+	}
 }
