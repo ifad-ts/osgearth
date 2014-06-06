@@ -129,6 +129,17 @@ namespace osgEarth { namespace Features
             unsigned getNumPoints() const {
                 return faces.size() * 6;
             }
+
+			unsigned getNumSourcePoints() const {
+				unsigned c=0;
+                for(Faces::const_iterator f = faces.begin(); f != faces.end(); ++f)
+				{
+					if ( f->left.isFromSource ){
+						c++;
+					}
+				}
+				return c;
+            }
         };
         typedef std::vector<Elevation> Elevations;
 
@@ -142,6 +153,14 @@ namespace osgEarth { namespace Features
                 unsigned c = 0;
                 for(Elevations::const_iterator e = elevations.begin(); e != elevations.end(); ++e ) {
                     c += e->getNumPoints();
+                }
+                return c;
+            }
+
+			unsigned getNumSourcePoints() const {
+                unsigned c = 0;
+                for(Elevations::const_iterator e = elevations.begin(); e != elevations.end(); ++e ) {
+                    c += e->getNumSourcePoints();
                 }
                 return c;
             }
@@ -206,6 +225,15 @@ namespace osgEarth { namespace Features
                                const SkinResource*  wallSkin);
 
         bool buildRoofGeometry(const Structure&     structure,
+                               osg::Geometry*       roof,
+                               const osg::Vec4&     roofColor,
+                               const SkinResource*  roofSkin);
+
+		bool buildSquarePitchedRoofGeometry(const Structure&     structure,
+                               osg::Geometry*       roof,
+                               const osg::Vec4&     roofColor,
+                               const SkinResource*  roofSkin);
+		bool buildTVPitchedRoofGeometry(const Structure&     structure,
                                osg::Geometry*       roof,
                                const osg::Vec4&     roofColor,
                                const SkinResource*  roofSkin);
