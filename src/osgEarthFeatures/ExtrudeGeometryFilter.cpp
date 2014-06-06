@@ -1784,7 +1784,7 @@ ExtrudeGeometryFilter::process( FeatureList& features, FilterContext& context )
                 }
 
 				bool createPitchedRoof = (_extrusionSymbol.valid() && _extrusionSymbol->roofPitch()>0.0f);
-				if(createPitchedRoof)
+				if(createPitchedRoof && part->getNumGeometries()==1)
 				{
 					if(structure.getNumSourcePoints()==4)
 						buildSquarePitchedRoofGeometry(structure, rooflines.get(), roofColor, roofSkin);
