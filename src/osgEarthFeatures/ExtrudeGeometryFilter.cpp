@@ -1956,5 +1956,17 @@ ExtrudeGeometryFilter::push( FeatureList& input, FilterContext& context )
             groupStateSet->setAttributeAndModes( new osg::LineWidth(*_outlineSymbol->stroke()->width()), 1 );
     }
 
+	if (osgDB::Registry::instance()->getBuildKdTreesHint()==osgDB::ReaderWriter::Options::BUILD_KDTREES &&
+		osgDB::Registry::instance()->getKdTreeBuilder())
+	{
+
+		//osg::Timer_t before = osg::Timer::instance()->tick();
+		//OSG_NOTICE<<"osgTerrain::GeometryTechnique::build kd tree"<<std::endl;
+		osg::ref_ptr<osg::KdTreeBuilder> builder = osgDB::Registry::instance()->getKdTreeBuilder()->clone();
+		group->accept(*builder);
+		//osg::Timer_t after = osg::Timer::instance()->tick();
+		//OSG_NOTICE<<"KdTree build time "<<osg::Timer::instance()->delta_m(before, after)<<std::endl;
+	}
+
     return group;
 }

@@ -16,8 +16,10 @@
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
-
+#include <osgDB/FileNameUtils>
+#include <osgDB/FileUtils>
 #include <osgViewer/Viewer>
+#include <osgEarth/Registry>
 #include <osgEarth/Notify>
 #include <osgEarthUtil/EarthManipulator>
 #include <osgEarthUtil/ExampleResources>
@@ -57,6 +59,8 @@ main(int argc, char** argv)
 
     // install our default manipulator (do this before calling load)
     viewer.setCameraManipulator( new EarthManipulator() );
+
+	osgDB::Registry::instance()->setBuildKdTreesHint(osgDB::ReaderWriter::Options::BUILD_KDTREES);
 
     // load an earth file, and support all or our example command-line options
     // and earth file <external> tags    
