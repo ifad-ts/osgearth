@@ -47,6 +47,8 @@ using namespace OpenThreads;
 
 #define LC "[Registry] "
 
+// from MimeTypes.cpp
+extern const char* builtinMimeTypeExtMappings[];
 
 Registry::Registry() :
 osg::Referenced     ( true ),
@@ -541,37 +543,37 @@ Registry::getActivities(std::set<std::string>& output)
     output = _activities;
 }
 
-std::string 
-Registry::getExtensionForMimeType(const std::string& mt)
-{            
-    std::string mt_lower = osgEarth::toLower(mt);
-
-    const osgDB::Registry::MimeTypeExtensionMap& exmap = osgDB::Registry::instance()->getMimeTypeExtensionMap();
-    for( osgDB::Registry::MimeTypeExtensionMap::const_iterator i = exmap.begin(); i != exmap.end(); ++i )
-    {
-        if ( i->first == mt_lower )
-        {
-            return i->first;
-        }
-    }
-    return std::string();
-}
-
-std::string 
-Registry::getMimeTypeForExtension(const std::string& ext)
-{            
-    std::string ext_lower = osgEarth::toLower(ext);
-
-    const osgDB::Registry::MimeTypeExtensionMap& exmap = osgDB::Registry::instance()->getMimeTypeExtensionMap();
-    for( osgDB::Registry::MimeTypeExtensionMap::const_iterator i = exmap.begin(); i != exmap.end(); ++i )
-    {
-        if ( i->second == ext_lower )
-        {
-            return i->first;
-        }
-    }
-    return std::string();
-}
+//std::string 
+//Registry::getExtensionForMimeType(const std::string& mt)
+//{            
+//    std::string mt_lower = osgEarth::toLower(mt);
+//
+//    const osgDB::Registry::MimeTypeExtensionMap& exmap = osgDB::Registry::instance()->getMimeTypeExtensionMap();
+//    for( osgDB::Registry::MimeTypeExtensionMap::const_iterator i = exmap.begin(); i != exmap.end(); ++i )
+//    {
+//        if ( i->first == mt_lower )
+//        {
+//            return i->first;
+//        }
+//    }
+//    return std::string();
+//}
+//
+//std::string 
+//Registry::getMimeTypeForExtension(const std::string& ext)
+//{            
+//    std::string ext_lower = osgEarth::toLower(ext);
+//
+//    const osgDB::Registry::MimeTypeExtensionMap& exmap = osgDB::Registry::instance()->getMimeTypeExtensionMap();
+//    for( osgDB::Registry::MimeTypeExtensionMap::const_iterator i = exmap.begin(); i != exmap.end(); ++i )
+//    {
+//        if ( i->second == ext_lower )
+//        {
+//            return i->first;
+//        }
+//    }
+//    return std::string();
+//}
 
 
 //Simple class used to add a file extension alias for the earth_tile to the earth plugin

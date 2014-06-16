@@ -410,18 +410,18 @@ TileMap::create(const std::string& url,
     tileMap->_format.setHeight( tile_height );
     profile->getNumTiles( 0, tileMap->_numTilesWide, tileMap->_numTilesHigh );
 
-    // format can be a mime-type or an extension:
-    std::string::size_type p = format.find('/');
-    if ( p == std::string::npos )
-    {
-        tileMap->_format.setExtension(format);
-        tileMap->_format.setMimeType( Registry::instance()->getMimeTypeForExtension(format) );
-    }
-    else
-    {
-        tileMap->_format.setMimeType(format);
-        tileMap->_format.setExtension( Registry::instance()->getExtensionForMimeType(format) );
-    }
+    //// format can be a mime-type or an extension:
+    //std::string::size_type p = format.find('/');
+    //if ( p == std::string::npos )
+    //{
+    //    tileMap->_format.setExtension(format);
+    //    tileMap->_format.setMimeType( Registry::instance()->getMimeTypeForExtension(format) );
+    //}
+    //else
+    //{
+    //    tileMap->_format.setMimeType(format);
+    //    tileMap->_format.setExtension( Registry::instance()->getExtensionForMimeType(format) );
+    //}
 
     tileMap->generateTileSets();
     tileMap->computeMinMaxLevel();
