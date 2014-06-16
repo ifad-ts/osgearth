@@ -321,7 +321,7 @@ TileSource::createImage(const TileKey&        key,
     // Try to get it from the memcache fist
     if (_memCache.valid())
     {
-        ReadResult r = _memCache->getOrCreateDefaultBin()->readImage( key.str(), 0 );
+        ReadResult r = _memCache->getOrCreateDefaultBin()->readImage( key.str() );
         if ( r.succeeded() )
             return r.releaseImage();
     }
@@ -351,7 +351,7 @@ TileSource::createHeightField(const TileKey&        key,
     // Try to get it from the memcache first:
     if (_memCache.valid())
     {
-        ReadResult r = _memCache->getOrCreateDefaultBin()->readObject( key.str(), 0 );
+        ReadResult r = _memCache->getOrCreateDefaultBin()->readObject( key.str() );
         if ( r.succeeded() )
             return r.release<osg::HeightField>();
     }
@@ -392,6 +392,23 @@ TileSource::createHeightField(const TileKey&        key,
         hf = conv.convert( image.get() );
     }      
     return hf;
+}
+
+bool
+TileSource::storeHeightField(const TileKey&     key,
+                             osg::HeightField*  hf,
+                              ProgressCallback* progress)
+{
+    if ( _status != STATUS_OK || hf == 0L )
+        return 0L;
+
+    ImageToHeightFieldConverter conv;
+    osg::ref_ptr<osg::Image> image = conv.convert(hf, 32);
+    if (image.valid())
+    {
+        return storeImage(key, image.get(), progress);
+    }
+    return false;
 }
 
 bool
