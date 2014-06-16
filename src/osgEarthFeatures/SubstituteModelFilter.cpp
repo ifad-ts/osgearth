@@ -229,6 +229,10 @@ SubstituteModelFilter::process(const FeatureList&           features,
 
         if ( model.valid() )
         {
+			bool autoHeading=false;
+			if ( modelSymbol )
+				autoHeading = *modelSymbol->autoHeading();
+
             GeometryIterator gi( input->getGeometry(), false );
             while( gi.hasMore() )
             {
@@ -239,6 +243,9 @@ SubstituteModelFilter::process(const FeatureList&           features,
                 {
                     context.profile()->getSRS()->transform( geom->asVector(), targetSRS );
                 }
+
+				osg::Vec3 oldDir(0,0,0);
+				unsigned geomSize=geom->size();
 
                 for( unsigned i=0; i<geom->size(); ++i )
                 {
@@ -262,6 +269,25 @@ SubstituteModelFilter::process(const FeatureList&           features,
                     }
 
                     osg::Vec3d point = (*geom)[i];
+					if(autoHeading && geomSize > 1)
+					{
+						osg::Vec3 newDir;
+						if(i < geomSize-1)
+							newDir = ((*geom)[i+1]-(*geom)[i]);
+						else // last point
+							newDir = oldDir;
+						
+						newDir.z()=0.0f;
+						newDir.normalize();
+
+						osg::Vec3 dir =newDir+oldDir;
+						dir.normalize(); // average dir
+						
+						oldDir=newDir;
+
+						float heading = atan2(dir[1], dir[0]);
+						rotationMatrix.makeRotate( osg::Quat(heading, osg::Vec3(0,0,1)) );
+					}
                     if ( makeECEF )
                     {
                         // the "rotation" element lets us re-orient the instance to ensure it's pointing up. We
