@@ -28,6 +28,7 @@ OSGEARTH_REGISTER_SIMPLE_SYMBOL(model, ModelSymbol);
 ModelSymbol::ModelSymbol( const Config& conf ) :
 InstanceSymbol( conf ),
 _heading  ( NumericExpression(0.0) ),
+_autoHeading(false),
 _pitch    ( NumericExpression(0.0) ),
 _roll     ( NumericExpression(0.0) ),
 _autoScale( false )
@@ -41,6 +42,7 @@ ModelSymbol::getConfig() const
     Config conf = InstanceSymbol::getConfig();
     conf.key() = "model";
     conf.addObjIfSet( "heading",    _heading );
+	conf.addIfSet( "auto_heading", _autoHeading );
     conf.addObjIfSet( "pitch",      _pitch );
     conf.addObjIfSet( "roll",       _roll );
     
@@ -55,6 +57,7 @@ void
 ModelSymbol::mergeConfig( const Config& conf )
 {
     conf.getObjIfSet( "heading", _heading );
+	conf.getIfSet( "auto_heading", _autoHeading );
     conf.getObjIfSet( "pitch",   _pitch );
     conf.getObjIfSet( "roll",    _roll );
 
@@ -103,7 +106,10 @@ ModelSymbol::parseSLD(const Config& c, Style& style)
             style.getOrCreate<ModelSymbol>()->scale() = NumericExpression(c.value());
     }
     else if ( match(c.key(), "model-heading") ) {
-        style.getOrCreate<ModelSymbol>()->heading() = NumericExpression(c.value());
+		if ( match(c.value(), "auto") )
+			style.getOrCreate<ModelSymbol>()->autoHeading() = true;
+		else
+			style.getOrCreate<ModelSymbol>()->heading() = NumericExpression(c.value());
     }
 
 }
