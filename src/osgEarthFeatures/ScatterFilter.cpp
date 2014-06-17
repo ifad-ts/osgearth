@@ -139,45 +139,74 @@ ScatterFilter::lineScatter(const Geometry*         input,
         // see whether it's a ring, because rings have to connect the last two points.
         bool isRing = part->getType() == Geometry::TYPE_RING;
         
-        for( unsigned i=0; i<part->size(); ++i )
-        {
-            // done if we're not traversing a ring.
-            if ( !isRing && i+1 == part->size() )
-                break;
+		// used by interval code
+		float nextPlacedDist	=	0.0f;
+		float segmentStartDist	=	0.0f;
+		float lineLength		=	0.0f;
+		float separation		=	1000.0f / instPerKm;
 
-            // extract the segment:
-            const osg::Vec3d& p0 = (*part)[i];
-            const osg::Vec3d& p1 = isRing && i+1 == part->size() ? (*part)[0] : (*part)[i+1];
+		
+		for( unsigned i=0; i<part->size(); ++i )
+		{
+			// done if we're not traversing a ring.
+			if ( !isRing && i+1 == part->size() )
+				break;
 
-            // figure out the segment length in meters (assumed geodetic coords)
-            double seglen_m;
-            double seglen_native = (p1-p0).length();
+			// extract the segment:
+			const osg::Vec3d& p0 = (*part)[i];
+			const osg::Vec3d& p1 = isRing && i+1 == part->size() ? (*part)[0] : (*part)[i+1];
+
+			// figure out the segment length in meters (assumed geodetic coords)
+			double seglen_m;
+			double seglen_native = (p1-p0).length();
             
-            if ( isGeo )
-            {
-                seglen_m = GeoMath::distance(
-                    osg::DegreesToRadians( p0.y() ), osg::DegreesToRadians( p0.x() ),
-                    osg::DegreesToRadians( p1.y() ), osg::DegreesToRadians( p1.x() ) );
-            }
-            else // projected
-            {
-                seglen_m = seglen_native;
-            }
+			if ( isGeo )
+			{
+				seglen_m = GeoMath::distance(
+					osg::DegreesToRadians( p0.y() ), osg::DegreesToRadians( p0.x() ),
+					osg::DegreesToRadians( p1.y() ), osg::DegreesToRadians( p1.x() ) );
+			}
+			else // projected
+			{
+				seglen_m = seglen_native;
+			}
 
-            unsigned numInstances = (unsigned)((seglen_m*0.001) * instPerKm);
-            if ( numInstances > 0 )
-            {            
-                // a unit vector for scattering points along the segment
-                osg::Vec3d unit = p1-p0;
-                unit.normalize();
+			if(_random)
+			{
+				unsigned numInstances = (unsigned)((seglen_m*0.001) * instPerKm);
+				if ( numInstances > 0 )
+				{            
+					// a unit vector for scattering points along the segment
+					osg::Vec3d unit = p1-p0;
+					unit.normalize();
 
-                for( unsigned n=0; n<numInstances; ++n )
-                {
-                    double offset = _prng.next() * seglen_native;
-                    output->push_back( p0 + unit*offset );
-                }
-            }
-        }
+					for( unsigned n=0; n<numInstances; ++n )
+					{
+						double offset = _prng.next() * seglen_native;
+						output->push_back( p0 + unit*offset );
+					}
+				}
+			}
+			else
+			{
+				segmentStartDist = lineLength;
+				lineLength+=seglen_m;
+
+				if(nextPlacedDist<lineLength)
+				{
+					// a unit vector for scattering points along the segment
+					osg::Vec3d unit = p1-p0;
+					unit.normalize();
+
+					while(nextPlacedDist<lineLength)
+					{
+						float dist = nextPlacedDist-segmentStartDist;
+						output->push_back( p0 + unit*dist );
+						nextPlacedDist += separation;
+					}
+				}
+			}
+		}
     }
 }
 
