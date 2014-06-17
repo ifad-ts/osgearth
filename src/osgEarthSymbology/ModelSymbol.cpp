@@ -39,6 +39,7 @@ ModelSymbol::ModelSymbol( const Config& conf ) :
 InstanceSymbol( conf ),
 _heading  ( NumericExpression(0.0) ),
 _autoHeading(false),
+_headingBias(0.0f),
 _pitch    ( NumericExpression(0.0) ),
 _roll     ( NumericExpression(0.0) ),
 _autoScale( false )
@@ -53,6 +54,7 @@ ModelSymbol::getConfig() const
     conf.key() = "model";
     conf.addObjIfSet( "heading",    _heading );
 	conf.addIfSet( "auto_heading", _autoHeading );
+	conf.addIfSet( "headingBias",    _headingBias );
     conf.addObjIfSet( "pitch",      _pitch );
     conf.addObjIfSet( "roll",       _roll );
     
@@ -68,6 +70,7 @@ ModelSymbol::mergeConfig( const Config& conf )
 {
     conf.getObjIfSet( "heading", _heading );
 	conf.getIfSet( "auto_heading", _autoHeading );
+	conf.getIfSet( "headingBias", _headingBias );
     conf.getObjIfSet( "pitch",   _pitch );
     conf.getObjIfSet( "roll",    _roll );
 
@@ -124,5 +127,8 @@ ModelSymbol::parseSLD(const Config& c, Style& style)
     else if ( match(c.key(), "model-script") ) {
         style.getOrCreate<ModelSymbol>()->script() = StringExpression(c.value());
     }
+	else if ( match(c.key(), "model-heading-bias") ) {
+		style.getOrCreate<ModelSymbol>()->headingBias() = as<float>(c.value(), 0.0f);
+	}
 }
 

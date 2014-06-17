@@ -52,6 +52,10 @@ namespace osgEarth { namespace Symbology
         optional<bool>& autoHeading() { return _autoHeading; }
         const optional<bool>& autoHeading() const { return _autoHeading; }
 
+		/** heading bias in degrees */
+        optional<float>& headingBias() { return _headingBias; }
+        const optional<float>& headingBias() const { return _headingBias; }
+
         /** pitch in degrees */
         optional<NumericExpression>& pitch() { return _pitch; }
         const optional<NumericExpression>& pitch() const { return _pitch; }
@@ -83,6 +87,7 @@ namespace osgEarth { namespace Symbology
     protected:
         optional<NumericExpression>  _heading;
 		optional<bool>				 _autoHeading;
+		optional<float>				_headingBias;
         optional<NumericExpression>  _pitch;
         optional<NumericExpression>  _roll;
         optional<bool>               _autoScale;

@@ -151,8 +151,12 @@ SubstituteModelFilter::process(const FeatureList&           features,
     const IconSymbol*  iconSymbol  = dynamic_cast<const IconSymbol*> (symbol);
 
     NumericExpression headingEx;
+	float			  headingBias = 0.0f;
     if ( modelSymbol )
+	{
         headingEx = *modelSymbol->heading();
+		headingBias = osg::DegreesToRadians(*modelSymbol->headingBias());
+	}
 
     for( FeatureList::const_iterator f = features.begin(); f != features.end(); ++f )
     {
@@ -195,7 +199,7 @@ SubstituteModelFilter::process(const FeatureList&           features,
         if ( modelSymbol && modelSymbol->heading().isSet() )
         {
             float heading = input->eval(headingEx, &context);
-            rotationMatrix.makeRotate( osg::Quat(osg::DegreesToRadians(heading), osg::Vec3(0,0,1)) );
+            rotationMatrix.makeRotate( osg::Quat(osg::DegreesToRadians(heading)+headingBias, osg::Vec3(0,0,1)) );
         }
 
 		// how that we have a marker source, create a node for it
@@ -286,7 +290,7 @@ SubstituteModelFilter::process(const FeatureList&           features,
 						oldDir=newDir;
 
 						float heading = atan2(dir[1], dir[0]);
-						rotationMatrix.makeRotate( osg::Quat(heading, osg::Vec3(0,0,1)) );
+						rotationMatrix.makeRotate( osg::Quat(heading+headingBias, osg::Vec3(0,0,1)) );
 					}
                     if ( makeECEF )
                     {
