@@ -21,7 +21,9 @@
 #include <osgEarth/Utils>
 #include <osgEarth/Registry>
 #include <osgEarth/Capabilities>
+#include <osgDB/Registry>
 #include <osgUtil/Optimizer>
+
 
 #define LC "[ModelResource] "
 
@@ -70,6 +72,13 @@ ModelResource::createNodeFromURI( const URI& uri, const osgDB::Options* dbOption
             o.INDEX_MESH |
             o.VERTEX_PRETRANSFORM |
             o.VERTEX_POSTTRANSFORM );
+
+		if (osgDB::Registry::instance()->getBuildKdTreesHint()==osgDB::ReaderWriter::Options::BUILD_KDTREES &&
+			osgDB::Registry::instance()->getKdTreeBuilder())
+		{
+			osg::ref_ptr<osg::KdTreeBuilder> builder = osgDB::Registry::instance()->getKdTreeBuilder()->clone();
+			node->accept(*builder);
+		}
     }
     else // failing that, fall back on the old encoding format..
     {
