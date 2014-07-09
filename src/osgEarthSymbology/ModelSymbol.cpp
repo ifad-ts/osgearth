@@ -42,6 +42,7 @@ _autoHeading(false),
 _headingBias(0.0f),
 _pitch    ( NumericExpression(0.0) ),
 _roll     ( NumericExpression(0.0) ),
+_height   ( NumericExpression(0.0) ),
 _autoScale( false )
 {
     mergeConfig( conf );
@@ -59,6 +60,7 @@ ModelSymbol::getConfig() const
     conf.addObjIfSet( "roll",       _roll );
     
     conf.addIfSet( "auto_scale", _autoScale );
+	conf.addObjIfSet( "height", _height );
     conf.addIfSet( "alias_map", _uriAliasMap );
 
     conf.addNonSerializable( "ModelSymbol::node", _node.get() );
@@ -75,6 +77,7 @@ ModelSymbol::mergeConfig( const Config& conf )
     conf.getObjIfSet( "roll",    _roll );
 
     conf.getIfSet( "auto_scale", _autoScale );
+	conf.getObjIfSet( "height", _height );
     conf.getIfSet( "alias_map", _uriAliasMap );
 
     _node = conf.getNonSerializable<osg::Node>( "ModelSymbol::node" );
@@ -129,6 +132,9 @@ ModelSymbol::parseSLD(const Config& c, Style& style)
     }
 	else if ( match(c.key(), "model-heading-bias") ) {
 		style.getOrCreate<ModelSymbol>()->headingBias() = as<float>(c.value(), 0.0f);
+	}
+	else if ( match(c.key(), "model-height") ) {
+			style.getOrCreate<ModelSymbol>()->height() = NumericExpression(c.value());
 	}
 }
 

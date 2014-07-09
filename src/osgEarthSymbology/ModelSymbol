@@ -67,6 +67,10 @@ namespace osgEarth { namespace Symbology
         /** whether to automatically scale the model from meters to pixels */
         optional<bool>& autoScale() { return _autoScale; }
         const optional<bool>& autoScale() const { return _autoScale; }
+
+		 /** obsolute height of model, will scale model to have height 1, then apply height */
+        optional<NumericExpression>& height() { return _height; }
+        const optional<NumericExpression>& height() const { return _height; }
         
         
     public: // non-serialized properties (for programmatic use only)
@@ -91,6 +95,7 @@ namespace osgEarth { namespace Symbology
         optional<NumericExpression>  _pitch;
         optional<NumericExpression>  _roll;
         optional<bool>               _autoScale;
+		optional<NumericExpression>  _height;
         osg::ref_ptr<osg::Node>      _node;
     };
 

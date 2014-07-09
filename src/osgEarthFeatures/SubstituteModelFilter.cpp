@@ -30,6 +30,7 @@
 #include <osgEarth/CullingUtils>
 
 #include <osg/AutoTransform>
+#include <osg/ComputeBoundsVisitor>
 #include <osg/Drawable>
 #include <osg/Geode>
 #include <osg/MatrixTransform>
@@ -141,6 +142,9 @@ SubstituteModelFilter::process(const FeatureList&           features,
     // URI cache speeds up URI creation since it can be slow.
     osgEarth::fast_map<std::string, URI> uriCache;
 
+	std::map< osg::ref_ptr<osg::Node>, float > modelHeights;
+
+
     // keep track of failed URIs so we don't waste time or warning messages on them
     std::set< URI > missing;
 
@@ -152,10 +156,13 @@ SubstituteModelFilter::process(const FeatureList&           features,
 
     NumericExpression headingEx;
 	float			  headingBias = 0.0f;
+	NumericExpression heightEx;
+
     if ( modelSymbol )
 	{
         headingEx = *modelSymbol->heading();
 		headingBias = osg::DegreesToRadians(*modelSymbol->headingBias());
+		heightEx = *modelSymbol->height();
 	}
 
     for( FeatureList::const_iterator f = features.begin(); f != features.end(); ++f )
@@ -185,7 +192,8 @@ SubstituteModelFilter::process(const FeatureList&           features,
         // evalute the scale expression (if there is one)
         float scale = 1.0f;
         osg::Matrixd scaleMatrix;
-        if ( symbol->scale().isSet() )
+
+        if ( symbol->scale().isSet()  && !(modelSymbol && modelSymbol->height().isSet()))
         {
             scale = input->eval( scaleEx, &context );
             if ( scale == 0.0 )
@@ -236,6 +244,23 @@ SubstituteModelFilter::process(const FeatureList&           features,
 			bool autoHeading=false;
 			if ( modelSymbol )
 				autoHeading = *modelSymbol->autoHeading();
+			
+			if( modelSymbol && modelSymbol->height().isSet())
+			{
+				float modelHeight = modelHeights[model];
+				if(modelHeight==0.0)
+				{
+					// calculate the overall bounding box for the model:
+					osg::ComputeBoundsVisitor cbv;
+					model->accept( cbv );
+					const osg::BoundingBox& nodeBox = cbv.getBoundingBox();
+					modelHeight = nodeBox.zMax()-nodeBox.zMin();
+					modelHeights[model] = modelHeight;		
+				}
+				float height = input->eval(heightEx, &context);
+				scale = height/modelHeight;
+				scaleMatrix =  osg::Matrix::scale( scale, scale, scale );	
+			}
 
             GeometryIterator gi( input->getGeometry(), false );
             while( gi.hasMore() )
@@ -245,7 +270,7 @@ SubstituteModelFilter::process(const FeatureList&           features,
                 // if necessary, transform the points to the target SRS:
                 if ( !makeECEF && !targetSRS->isEquivalentTo(context.profile()->getSRS()) )
                 {
-                    context.profile()->getSRS()->transform( geom->asVector(), targetSRS );
+                    context.profile()->getSRS()->transform( geom->asVector(), targetSRS );	
                 }
 
 				osg::Vec3 oldDir(0,0,0);
