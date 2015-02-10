@@ -34,6 +34,7 @@ Symbol(rhs, copyop)
     _wallStyleName = rhs._wallStyleName;
     _roofStyleName = rhs._roofStyleName;
     _wallGradientPercentage = rhs._wallGradientPercentage;
+	_roofPitch = rhs._roofPitch;
 }
 
 ExtrusionSymbol::ExtrusionSymbol( const Config& conf ) :

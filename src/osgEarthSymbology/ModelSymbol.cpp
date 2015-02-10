@@ -28,9 +28,12 @@ OSGEARTH_REGISTER_SIMPLE_SYMBOL(model, ModelSymbol);
 ModelSymbol::ModelSymbol(const ModelSymbol& rhs,const osg::CopyOp& copyop):
 InstanceSymbol(rhs, copyop),
 _heading(rhs._heading),
+_autoHeading(rhs._autoHeading),
+_headingBias(rhs._headingBias),
 _pitch(rhs._pitch),
 _roll(rhs._roll),
 _autoScale(rhs._autoScale),
+_height(rhs._height),
 _node(rhs._node)
 {
 }
