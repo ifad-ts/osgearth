@@ -237,6 +237,10 @@ namespace osgEarth { namespace Features
                                osg::Geometry*       roof,
                                const osg::Vec4&     roofColor,
                                const SkinResource*  roofSkin);
+		bool buildTVPitchedRoofGeometryNew(const Structure&     structure,
+							   osg::Geometry*       roof,
+							   const osg::Vec4&     roofColor,
+							   const SkinResource*  roofSkin);
 
         bool buildOutlineGeometry(const Structure&  structure,
                                   osg::Geometry*    outline,

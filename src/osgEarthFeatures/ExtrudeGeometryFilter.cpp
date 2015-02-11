@@ -17,6 +17,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 #include <osgEarthFeatures/ExtrudeGeometryFilter>
+#include <osgEarthFeatures/RoofBuilder>
 #include <osgEarthFeatures/Session>
 #include <osgEarthFeatures/FeatureSourceIndexNode>
 #include <osgEarthSymbology/MeshSubdivider>
@@ -1521,6 +1522,87 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometry(const Structure&     structure
 #endif
 
 bool
+ExtrudeGeometryFilter::buildTVPitchedRoofGeometryNew(const Structure&     structure,
+													 osg::Geometry*       roof,
+													 const osg::Vec4&     roofColor,
+													 const SkinResource*  roofSkin)
+{ 
+	float EPSILON = 0.001f;
+
+	int iNumVerts = structure.getNumSourcePoints();
+	osg::Vec3* roofOutLine = new osg::Vec3[iNumVerts];
+
+	// Collect source vertices
+	int index=0;
+	for(Elevations::const_iterator e = structure.elevations.begin(); e != structure.elevations.end(); ++e)
+	{
+		for(Faces::const_iterator f = e->faces.begin(); f != e->faces.end(); ++f)
+		{
+			// Only use source verts; we skip interim verts inserted by the 
+			// structure building since they are co-linear anyway and thus we don't
+			// need them for the roof line.
+			if ( f->left.isFromSource )
+			{
+				roofOutLine[index++] = f->left.roof;
+			}
+		}
+	}
+
+	// remove short edges, and parallel edges
+	std::vector<osg::Vec3> tempRoofVerts;
+	for(int i=0;i<iNumVerts;i++)
+	{
+		int iPrev = i-1 < 0 ? iNumVerts-1 : i-1;
+		unsigned iStart=i;
+		unsigned iEnd = (i+1)%iNumVerts;
+
+		osg::Vec3 d1 = roofOutLine[iStart]-roofOutLine[iPrev];
+		osg::Vec3 d2 = roofOutLine[iEnd]-roofOutLine[iStart];
+
+		if(d1.length2()<EPSILON)
+			continue;
+
+		d1.normalize();
+		d2.normalize();
+
+		if((d1^d2).length2()<EPSILON)
+			continue;
+		tempRoofVerts.push_back(roofOutLine[iStart]);
+	}
+
+	delete [] roofOutLine;
+
+	iNumVerts = tempRoofVerts.size();
+
+	RoofBuilder rb(tempRoofVerts,_extrusionSymbol->roofPitch().get());
+
+	RoofBuilder2D rb2D(tempRoofVerts,_extrusionSymbol->roofPitch().get());
+
+	osg::Vec3Array* roofVerts = new osg::Vec3Array();
+	roof->setVertexArray( roofVerts );
+
+	osg::Vec3Array* roofNormals = new osg::Vec3Array();
+	roof->setNormalArray( roofNormals );
+	roof->setNormalBinding( osg::Geometry::BIND_PER_VERTEX );
+
+	osg::Vec3Array* roofTexcoords = new osg::Vec3Array();
+	roof->setTexCoordArray(0, roofTexcoords);
+
+	//fix texture coords
+	double roofTexSpanY = roofSkin->imageHeight().isSet() ? *roofSkin->imageHeight() : roofSkin->imageWidth().isSet() ? *roofSkin->imageWidth() : 10.0;
+	if ( roofTexSpanY <= 0.0 ) roofTexSpanY = 10.0;
+
+	rb.generateRoofGeometry(roof, roofVerts, roofNormals, roofTexcoords,roofTexSpanY);
+
+	osg::Vec4Array* color = new osg::Vec4Array();
+	roof->setColorArray( color );
+	roof->setColorBinding( osg::Geometry::BIND_PER_VERTEX );
+	color->assign( roofVerts->size(), roofColor );		
+
+	return true;
+}
+
+bool
 ExtrudeGeometryFilter::buildOutlineGeometry(const Structure&  structure,
                                             osg::Geometry*    outline,
                                             const osg::Vec4&  outlineColor,
@@ -1797,7 +1879,8 @@ ExtrudeGeometryFilter::process( FeatureList& features, FilterContext& context )
 					if(structure.getNumSourcePoints()==4)
 						buildSquarePitchedRoofGeometry(structure, rooflines.get(), roofColor, roofSkin);
 					else
-						buildTVPitchedRoofGeometry(structure, rooflines.get(), roofColor, roofSkin);
+						//buildTVPitchedRoofGeometry(structure, rooflines.get(), roofColor, roofSkin);
+						buildTVPitchedRoofGeometryNew(structure, rooflines.get(), roofColor, roofSkin);
 				}
 				else
 				{
