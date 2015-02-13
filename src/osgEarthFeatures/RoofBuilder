@@ -127,7 +127,54 @@ namespace osgEarth { namespace Features
 
 		float tempLength1, tempLength2;
 	};
+
+	struct RoofFaceEdgeList{
+		void initialize(struct RoofFace* ownerFace, struct RoofFace* neighborFace);
+		
+		void getCurrentEdge(osg::Vec2& start, osg::Vec2& dir, float& length);
+		void setCurrentEdge(const osg::Vec2& start, const osg::Vec2& dir, float length = FLT_MAX);
+		void advanceCurrentEdge(const osg::Vec2& start, const osg::Vec2& dir, float length);
+
+		void splitEvent();
+		void vertexEvent();
+
+		struct RoofFace*		roofFace;
+		struct RoofFace*		neighborFace;
+		std::vector<osg::Vec2>	edgePoints;
+		osg::Vec2				currentEdgeDir;
+		float					currentEdgeLength;
+		
+		float					nextEventTime;
+		enum eventType{NA, VERTEX, SPLIT};
+		eventType				evtType;
+
+		osg::Vec2				splitNormal;
+	};
+
+	struct RoofFace{
+		RoofFace(unsigned int index, const osg::Vec2& _p1, const osg::Vec2& _p2);
+		void initializeEdgeLists(RoofFace* pPrevface, RoofFace* pNextFace);
+
+		void setCurrentP1Edge(const osg::Vec2& start, const osg::Vec2& dir, float length = FLT_MAX) {p1Edge.setCurrentEdge(start, dir ,length);}
+		void setCurrentP2Edge(const osg::Vec2& start, const osg::Vec2& dir, float length = FLT_MAX) {p2Edge.setCurrentEdge(start, dir ,length);}
+		
+		RoofFaceEdgeList&	getP1EdgeList(){return p1Edge;}
+		RoofFaceEdgeList&	getP2EdgeList(){return p2Edge;}
+
+		bool clipEdges();
+
+		unsigned int			faceIndex;
+		osg::Vec2				p1,p2;
+		osg::Vec2				edgeNormal;
+		osg::Vec2				edgeDir;
+		float					edgeLength;
+		RoofFaceEdgeList		p1Edge;
+		RoofFaceEdgeList		p2Edge;
+
+		bool					bDone; // roof face is done when p1Edge and p2Edge meet
+	};
 	
+
 	class OSGEARTHFEATURES_EXPORT RoofBuilder2D
 	{
 	public:
@@ -135,6 +182,10 @@ namespace osgEarth { namespace Features
 		
 		std::vector<RoofBuildStruct2D> initialize(std::vector<osg::Vec3>& outline);
 		void initializeRoofEdgeLengths(std::vector<RoofBuildStruct2D>& roof);
+
+		void initializeRoofFaces(std::vector<osg::Vec3>& outline);
+		void clipEdgeToOutline(RoofFaceEdgeList& edge);
+		RoofFaceEdgeList* getMinEdge();
 
 		//std::vector<RoofBuildStruct2D> initialize(std::vector<roofEdge2D>& outline, std::vector<RoofBuildStruct2D>& parentRoof);
 		//void calculateRoofFaces(std::vector<RoofBuildStruct2D>& roof);
@@ -146,6 +197,8 @@ namespace osgEarth { namespace Features
 		std::vector<std::vector<RoofBuildStruct2D>> roofParts;
 		float	m_roofAngle;
 		float	m_roofBaseZ;
+
+		std::vector<RoofFace> roofFaces;
 	};
 
 } } // namespace osgEarth::Features
