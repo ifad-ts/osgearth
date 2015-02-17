@@ -10,6 +10,11 @@ using namespace osgEarth::Features;
 
 #define EPSILON 0.001f
 
+float min(float f1, float f2){return f1<f2 ? f1:f2;}
+float max(float f1, float f2){return f1>f2 ? f1:f2;}
+
+float	defaultLength = FLT_MAX;
+
 RoofBuildStruct::RoofBuildStruct(const osg::Vec3& _p1, const osg::Vec3& _p2, float _roofAngle):
 index1(-1),
 index2(-1),
@@ -788,21 +793,37 @@ void RoofBuilder2D::initializeRoofEdgeLengths(std::vector<RoofBuildStruct2D>& ro
 // faceEdge approach
 //////////////////////////////////////////////////////////////////////////
 
+void RoofFaceEdgeList::clone(const RoofFaceEdgeList& other)
+{
+	roofFace			= other.roofFace;
+	neighborEdge		= other.neighborEdge;
+	currentEdgeDir		= other.currentEdgeDir;
+	currentEdgeLength	= other.currentEdgeLength;
+	nextEventTime		= other.nextEventTime;
+	evtType				= other.evtType;
+	splitFace			= other.splitFace;
+	splitPoint			= other.splitPoint;
+	bIsLeftEdge			= other.bIsLeftEdge;
+
+	edgePoints.insert(edgePoints.begin(), other.edgePoints.begin(), other.edgePoints.end());
+}
+
 void RoofFaceEdgeList::initialize(struct RoofFace* ownerFace, struct RoofFace* _neighborFace)
 {
 	roofFace			= ownerFace;
-	neighborFace		= _neighborFace;
+	bIsLeftEdge			= (ownerFace->p1 == _neighborFace->p2); 
 
-	currentEdgeDir		= ownerFace->edgeNormal + neighborFace->edgeNormal;
-	currentEdgeDir.normalize();
+	neighborEdge		= bIsLeftEdge ? &(_neighborFace->getP2EdgeList()) : &(_neighborFace->getP1EdgeList());
 
-	if(ownerFace->p1 == neighborFace->p2)
+	if(bIsLeftEdge)
 		edgePoints.push_back(ownerFace->p1);
 	else
 		edgePoints.push_back(ownerFace->p2);
 
-	currentEdgeLength	= FLT_MAX;
-	nextEventTime		= FLT_MAX;
+	currentEdgeDir		= osg::Vec2(0,0);
+	currentEdgeDir		= calculateEdgeDir(_neighborFace);
+	currentEdgeLength	= defaultLength;
+	nextEventTime		= defaultLength;
 	evtType				= NA;
 
 }
@@ -819,7 +840,11 @@ void RoofFaceEdgeList::setCurrentEdge(const osg::Vec2& start, const osg::Vec2& d
 	edgePoints[edgePoints.size()-1] = start;
 	currentEdgeDir		= dir;
 	currentEdgeLength	= length;
+	float prevEventTime = nextEventTime;
 	nextEventTime		= roofFace->edgeNormal * ((start + dir*currentEdgeLength) - roofFace->p1);
+
+	if(nextEventTime < prevEventTime)
+		int a=0;
 }
 
 void RoofFaceEdgeList::advanceCurrentEdge(const osg::Vec2& start, const osg::Vec2& dir, float length)
@@ -827,7 +852,48 @@ void RoofFaceEdgeList::advanceCurrentEdge(const osg::Vec2& start, const osg::Vec
 	edgePoints.push_back(start);
 	currentEdgeDir		= dir;
 	currentEdgeLength	= length;
+	float prevEventTime = nextEventTime;
 	nextEventTime		= roofFace->edgeNormal * ((start + dir*currentEdgeLength) - roofFace->p1);
+	
+	if(nextEventTime < prevEventTime)
+		int a=0;
+}
+
+osg::Vec2 RoofFaceEdgeList::calculateEdgeDir(RoofFace* neighborFace)
+{
+	// calculate edgeDir based on roofFace & neighbor roofFace edgeNormals
+	osg::Vec2 dir;
+	osg::Vec3 testNormal(roofFace->edgeNormal.x(),roofFace->edgeNormal.y(),1.0f);
+	osg::Vec3 testNormal2(neighborFace->edgeNormal.x(),neighborFace->edgeNormal.y(),1.0f);
+	osg::Vec3 testDir = testNormal^testNormal2;
+	testDir.z() = 0.0f;
+	float normalLength = testDir.normalize();
+	if(normalLength < EPSILON) // parallel normals
+	{
+		dir.x() = -roofFace->edgeNormal.y();
+		dir.y() = roofFace->edgeNormal.x();
+	}
+	else
+	{
+		dir.x() = testDir.x();
+		dir.y() = testDir.y();
+	}
+
+	osg::Vec2 prevEdgeDir = bIsLeftEdge ? roofFace->p1-roofFace->p2 : roofFace->p2-roofFace->p1;
+	if(currentEdgeDir.length2()>EPSILON)
+	{
+		prevEdgeDir = currentEdgeDir;
+	}
+	
+	float edgeCrossZ = prevEdgeDir.x()*dir.y() - prevEdgeDir.y()*dir.x(); 
+
+	if( ( bIsLeftEdge && edgeCrossZ > 0.0f) || (!bIsLeftEdge && edgeCrossZ < 0.0f))
+	{
+		dir *= -1.0f;
+	} 
+	
+
+	return dir;
 }
 
 void RoofFaceEdgeList::splitEvent()
@@ -835,7 +901,7 @@ void RoofFaceEdgeList::splitEvent()
 	if(evtType != SPLIT)
 		return;
 
-	osg::Vec2 splitDir = roofFace->edgeNormal + splitNormal;
+	osg::Vec2 splitDir = roofFace->edgeNormal + splitFace->edgeNormal;
 	if(splitDir.length2() < EPSILON) // parallel normals
 	{
 		splitDir.x() = -roofFace->edgeNormal.y();
@@ -843,60 +909,55 @@ void RoofFaceEdgeList::splitEvent()
 	}
 	splitDir.normalize();
 	osg::Vec2 newStart = edgePoints[edgePoints.size()-1] + currentEdgeDir*currentEdgeLength;
-	if(roofFace->p1 == neighborFace->p2) // p1 edge
+	if(bIsLeftEdge) // p1 edge
 	{
 		//splitDir should point in edge direction
 		if(splitDir*roofFace->edgeDir < 0)
 			splitDir *= -1.0f;
-
-		advanceCurrentEdge(newStart,splitDir, FLT_MAX);
-		evtType = NA;
-		neighborFace->getP2EdgeList().splitEvent();
 	} 
 	else //p2 edge
 	{	
 		//splitDir should point in opposite direction of edge direction
 		if(splitDir*roofFace->edgeDir > 0)
-			splitDir *= -1.0f;
-
-		advanceCurrentEdge(newStart,splitDir, FLT_MAX);
-		evtType = NA;
-		splitDir *= -1.0f;
-		neighborFace->getP1EdgeList().splitEvent();
+			splitDir *= -1.0f;	
 	}
+	advanceCurrentEdge(newStart,splitDir, defaultLength);
+	evtType = NA;
+	neighborEdge->splitEvent();
 }
 
 void RoofFaceEdgeList::vertexEvent()
 {
+	//close face and update neighbor edges
 	roofFace->bDone = true;
-	osg::Vec2 newStart = edgePoints[edgePoints.size()-1] + currentEdgeDir*currentEdgeLength;
 	
-	RoofFace* p1Neighbor = NULL;
-	RoofFace* p2Neighbor = NULL;
+	RoofFaceEdgeList* p1Neighbor = NULL;
+	RoofFaceEdgeList* p2Neighbor = NULL;
 
-	if(roofFace->p1 == neighborFace->p2) // p1 edge
+	if(bIsLeftEdge) // p1 edge
 	{
-		p1Neighbor = neighborFace;
-		p2Neighbor = roofFace->getP2EdgeList().neighborFace;
+		p1Neighbor = neighborEdge;
+		p2Neighbor = roofFace->getP2EdgeList().neighborEdge;
 	}
 	else //p2 edge
 	{
-		p1Neighbor = roofFace->getP1EdgeList().neighborFace;
-		p2Neighbor = neighborFace;	
+		p1Neighbor = roofFace->getP1EdgeList().neighborEdge;
+		p2Neighbor = neighborEdge;	
 	}
 
-	p1Neighbor->getP2EdgeList().neighborFace = p2Neighbor;
-	p2Neighbor->getP1EdgeList().neighborFace = p1Neighbor;
+	p1Neighbor->neighborEdge = p2Neighbor;
+	p2Neighbor->neighborEdge = p1Neighbor;
 
-	osg::Vec2 newDir = p1Neighbor->edgeNormal + p2Neighbor->edgeNormal;
-	newDir.normalize();
 
-	if(newDir*roofFace->edgeNormal < 0) // should face away from roofFace
-		newDir *= -1.0;
-
-	p1Neighbor->getP2EdgeList().advanceCurrentEdge(newStart,newDir, FLT_MAX);
-	p2Neighbor->getP1EdgeList().advanceCurrentEdge(newStart,newDir, FLT_MAX);
-
+	osg::Vec2 edgeDir = p2Neighbor->calculateEdgeDir(p1Neighbor->roofFace);
+	osg::Vec2 vStart,vDummy;
+	float l;
+	getCurrentEdge(vStart,vDummy,l);
+	vStart = vStart + vDummy*l;
+	if(p1Neighbor->evtType != RoofFaceEdgeList::VERTEX)	
+		p1Neighbor->advanceCurrentEdge(vStart,edgeDir,defaultLength);
+	if(p2Neighbor->evtType != RoofFaceEdgeList::VERTEX)
+		p2Neighbor->advanceCurrentEdge(vStart,edgeDir,defaultLength);
 }
 
 RoofFace::RoofFace(unsigned int index, const osg::Vec2& _p1, const osg::Vec2& _p2):
@@ -904,6 +965,11 @@ faceIndex(index),
 p1(_p1),
 p2(_p2),
 bDone(false)
+{
+	initEdgeData();
+}
+
+void RoofFace::initEdgeData()
 {
 	edgeNormal.x() = -(p2.y()-p1.y());
 	edgeNormal.y() =  (p2.x()-p1.x());
@@ -917,6 +983,103 @@ void RoofFace::initializeEdgeLists(RoofFace* pPrevface, RoofFace* pNextFace)
 {
 	p1Edge.initialize(this, pPrevface);	
 	p2Edge.initialize(this, pNextFace);
+}
+
+void RoofFace::splitFace(std::vector<RoofFace>& roofFaces, RoofFaceEdgeList& splitEdge)
+{
+	osg::Vec2 splitPoint = splitEdge.splitPoint;
+	RoofFace newFaceOrg(roofFaces.size(),splitPoint, p2);
+	roofFaces.push_back(newFaceOrg);
+
+	RoofFace& newFace = roofFaces[roofFaces.size()-1];
+
+	p2 = splitPoint;
+	initEdgeData();
+
+	newFace.p2Edge.clone(p2Edge);
+	newFace.getP1EdgeList().bIsLeftEdge = true;
+
+	newFace.getP1EdgeList().roofFace = &newFace;
+	newFace.getP2EdgeList().roofFace = &newFace;
+	newFace.getP1EdgeList().neighborEdge = &p2Edge;
+
+	//update neighbor edges neighbor
+	p2Edge.neighborEdge->neighborEdge = &(newFace.getP2EdgeList());
+	p2Edge.neighborEdge = &(newFace.getP1EdgeList());
+
+	// reset p2Edge, and newfaces p1Edge
+	p2Edge.edgePoints.clear();
+
+	osg::Vec2 start,dir;
+	float length;
+	splitEdge.getCurrentEdge(start,dir,length);
+
+	osg::Vec2 edgePoint = start + dir * length;
+
+	dir = edgePoint-splitPoint;
+	length = dir.normalize();
+	p2Edge.advanceCurrentEdge(splitPoint, dir, length);
+	newFace.getP1EdgeList().advanceCurrentEdge(splitPoint, dir, length);
+
+	//update newFace p1 edge to reflect split
+	osg::Vec3 testNormal(edgeNormal.x(),edgeNormal.y(),1.0f);
+	osg::Vec3 testNormal2(splitEdge.roofFace->edgeNormal.x(),splitEdge.roofFace->edgeNormal.y(),1.0f);
+	osg::Vec3 testDir = testNormal^testNormal2;
+	testDir.z() = 0.0f;
+	float normalLength = testDir.normalize();
+	if(normalLength < EPSILON) // parallel normals
+	{
+		dir.x() = -edgeNormal.y();
+		dir.y() = edgeNormal.x();
+	}
+	else
+	{
+		dir.x() = testDir.x();
+		dir.y() = testDir.y();
+	}
+	// dir should point in same direction of edgedir
+	if(dir * edgeDir < 0.0f)
+		dir *= -1.0f;
+
+	newFace.getP1EdgeList().advanceCurrentEdge(edgePoint, dir, defaultLength);
+	splitEdge.advanceCurrentEdge(edgePoint, dir, defaultLength);
+
+	//update this face's p2 edge to reflect split
+	testNormal = osg::Vec3 (edgeNormal.x(),edgeNormal.y(),1.0f);
+	testNormal2 = osg::Vec3 (splitEdge.neighborEdge->roofFace->edgeNormal.x(),splitEdge.neighborEdge->roofFace->edgeNormal.y(),1.0f);
+	testDir = testNormal^testNormal2;
+	testDir.z() = 0.0f;
+	normalLength = testDir.normalize();
+	if(normalLength < EPSILON) // parallel normals
+	{
+		dir.x() = -edgeNormal.y();
+		dir.y() = edgeNormal.x();
+	}
+	else
+	{
+		dir.x() = testDir.x();
+		dir.y() = testDir.y();
+	}
+	// dir should point in opposite direction of edgedir
+	if(dir * edgeDir > 0.0f)
+		dir *= -1.0f;
+
+	p2Edge.advanceCurrentEdge(edgePoint, dir, defaultLength);
+	splitEdge.neighborEdge->advanceCurrentEdge(edgePoint, dir, defaultLength);
+
+	splitEdge.evtType = RoofFaceEdgeList::NA;
+	splitEdge.neighborEdge->evtType = RoofFaceEdgeList::NA;
+
+	p2Edge.evtType = RoofFaceEdgeList::NA;
+	newFace.getP1EdgeList().evtType = RoofFaceEdgeList::NA;
+
+	RoofFaceEdgeList* oldNeighbor = splitEdge.neighborEdge;
+
+	splitEdge.neighborEdge = &(newFace.getP1EdgeList());
+	newFace.getP1EdgeList().neighborEdge = &splitEdge;
+
+	oldNeighbor->neighborEdge = &p2Edge;
+	p2Edge.neighborEdge = oldNeighbor;
 }
 
 bool RoofFace::clipEdges()
@@ -935,14 +1098,61 @@ bool RoofFace::clipEdges()
 	osg::Vec2 intersect;
 	if(test2DSegmentSegment(p1Start, p1Dir, p1Length, p2Start, p2Dir, p2Length, t, intersect))
 	{
-		p1Edge.setCurrentEdge(p1Start,p1Dir,(p1Start-intersect).length());
-		p2Edge.setCurrentEdge(p2Start,p2Dir,(p2Start-intersect).length());
+		float length1 = (p1Start-intersect).length();
+		p1Edge.setCurrentEdge(p1Start,p1Dir,length1);
+		float length2 = (p2Start-intersect).length();
+		p2Edge.setCurrentEdge(p2Start,p2Dir,length2);
 		
 		p1Edge.evtType = RoofFaceEdgeList::VERTEX;
 		p2Edge.evtType = RoofFaceEdgeList::VERTEX;
+
+		if(length1 <= p1Edge.neighborEdge->currentEdgeLength)
+		{
+			p1Edge.neighborEdge->setCurrentEdge(p1Start,p1Dir,length1);
+			p1Edge.neighborEdge->evtType = RoofFaceEdgeList::NA;
+		}
+		if(length2 <= p2Edge.neighborEdge->currentEdgeLength)
+		{
+			p2Edge.neighborEdge->setCurrentEdge(p2Start,p2Dir,length2);
+			p2Edge.neighborEdge->evtType = RoofFaceEdgeList::NA;
+		}
+
 		return true;
 	}
 	return false;
+}
+
+
+void RoofFace::generateRoofFace()
+{
+	//verify that edges end in same point
+	osg::Vec2 start1,dir1;
+	float length1;
+	p1Edge.getCurrentEdge(start1,dir1,length1);
+	
+	osg::Vec2 start2,dir2;
+	float length2;
+	p2Edge.getCurrentEdge(start2,dir2,length2);
+
+	osg::Vec2 edge1End = start1 + dir1 * length1;
+	osg::Vec2 edge2End = start2 + dir2 * length2;
+
+	assert(bDone && (edge1End-edge2End).length2()< EPSILON);
+	
+	faceOutline.push_back(p1);
+	int numPoint = p2Edge.edgePoints.size();
+	for(int i=0; i<numPoint; i++)
+	{
+		faceOutline.push_back(p2Edge.edgePoints[i]);
+	}
+
+	faceOutline.push_back(edge2End);
+
+	numPoint = p1Edge.edgePoints.size();
+	for(int i=numPoint-1; i >= 1; i--)  // skip first point since it's equal to p1, and was already added
+	{
+		faceOutline.push_back(p1Edge.edgePoints[i]);
+	}
 }
 
 void RoofBuilder2D::clipEdgeToOutline(RoofFaceEdgeList& edge)
@@ -971,7 +1181,8 @@ void RoofBuilder2D::clipEdgeToOutline(RoofFaceEdgeList& edge)
 
 			edgeLength = t;
 			edge.evtType = RoofFaceEdgeList::SPLIT;
-			edge.splitNormal = n1;
+			edge.splitPoint = intersect;
+			edge.splitFace = &(currentFace);
 		}
 	}
 	edge.setCurrentEdge(edgeStart, edgeDir, edgeLength);
@@ -979,7 +1190,8 @@ void RoofBuilder2D::clipEdgeToOutline(RoofFaceEdgeList& edge)
 
 RoofFaceEdgeList* RoofBuilder2D::getMinEdge()
 {
-	float minEventTime = FLT_MAX;
+	float minEventTime = defaultLength;
+	float minLength = FLT_MAX;
 	RoofFaceEdgeList* pEdge=NULL;
 	int numFaces = roofFaces.size();
 	for(int i=0; i<numFaces;i++)
@@ -987,19 +1199,49 @@ RoofFaceEdgeList* RoofBuilder2D::getMinEdge()
 		if(roofFaces[i].bDone)
 			continue;
 
-		if(roofFaces[i].getP1EdgeList().nextEventTime < minEventTime)
+		float nextEvtTime;
+		if(roofFaces[i].getP1EdgeList().evtType != RoofFaceEdgeList::NA)
 		{
-			minEventTime = roofFaces[i].getP1EdgeList().nextEventTime;
-			pEdge = &(roofFaces[i].getP1EdgeList());
+			nextEvtTime = roofFaces[i].getP1EdgeList().nextEventTime;
+			if(nextEvtTime < minEventTime)
+			{
+				minEventTime = nextEvtTime;
+				pEdge = &(roofFaces[i].getP1EdgeList());
+				minLength = pEdge->currentEdgeLength;
+			} 
+			else if(nextEvtTime < minEventTime+EPSILON && minLength > roofFaces[i].getP1EdgeList().currentEdgeLength)
+			{
+				pEdge = &(roofFaces[i].getP1EdgeList());
+				minLength = pEdge->currentEdgeLength;
+			}
 		}
+		
 
-		if(roofFaces[i].getP2EdgeList().nextEventTime < minEventTime)
+		if(roofFaces[i].getP2EdgeList().evtType != RoofFaceEdgeList::NA)
 		{
-			minEventTime = roofFaces[i].getP2EdgeList().nextEventTime;
-			pEdge = &(roofFaces[i].getP2EdgeList());
+			nextEvtTime = roofFaces[i].getP2EdgeList().nextEventTime;
+			if(nextEvtTime < minEventTime)
+			{
+				minEventTime = nextEvtTime;
+				pEdge = &(roofFaces[i].getP2EdgeList());
+			}
+			else if(nextEvtTime < minEventTime+EPSILON && minLength > roofFaces[i].getP2EdgeList().currentEdgeLength)
+			{
+				pEdge = &(roofFaces[i].getP2EdgeList());
+				minLength = pEdge->currentEdgeLength;
+			}
 		}
 	}
 	return pEdge;
+}
+
+void RoofBuilder2D::clipEdges()
+{
+	int numPoints = roofFaces.size();
+	for(int i=0; i<numPoints; i++)
+	{
+		roofFaces[i].clipEdges();
+	}
 }
 
 void RoofBuilder2D::initializeRoofFaces(std::vector<osg::Vec3>& outline)
@@ -1014,21 +1256,46 @@ void RoofBuilder2D::initializeRoofFaces(std::vector<osg::Vec3>& outline)
 
 	//test
 	outline2D.clear();
+	
+	/*outline2D.push_back(osg::Vec2(0,0));
+	outline2D.push_back(osg::Vec2(10,0));
+	outline2D.push_back(osg::Vec2(10,10));
+	outline2D.push_back(osg::Vec2(0,10));*/
 
-	outline2D.push_back(osg::Vec2(0,0));
+	/*outline2D.push_back(osg::Vec2(0,0));
 	outline2D.push_back(osg::Vec2(10,0));
 	outline2D.push_back(osg::Vec2(10,10));
 	outline2D.push_back(osg::Vec2(5,2));
-	outline2D.push_back(osg::Vec2(0,10));
+	outline2D.push_back(osg::Vec2(0,10));*/
+
+	outline2D.push_back(osg::Vec2(0,0));
+	outline2D.push_back(osg::Vec2(7,0));
+	outline2D.push_back(osg::Vec2(7,9));
+	outline2D.push_back(osg::Vec2(18,9));
+	outline2D.push_back(osg::Vec2(18,17));
+	outline2D.push_back(osg::Vec2(0,17));
 
 	numPoints = outline2D.size();
+
+	roofFaces.reserve(1000);
+
+	vMin = osg::Vec2(FLT_MAX,FLT_MAX);
+	vMax = osg::Vec2(FLT_MIN,FLT_MIN);	
 
 	for(int i=0; i<numPoints; i++)
 	{
 		int iNext = (i+1)%numPoints;
 		roofFaces.push_back(RoofFace(i,outline2D[i], outline2D[iNext]));
+
+		vMin.x() = min(vMin.x(), outline2D[i].x());
+		vMin.y() = min(vMin.y(), outline2D[i].y());
+
+		vMax.x() = max(vMax.x(), outline2D[i].x());
+		vMax.y() = max(vMax.y(), outline2D[i].y());
 	}
 	
+	defaultLength = (vMax-vMin).length();
+
 	for(int i=0; i<numPoints; i++)
 	{
 		int iPrev = i==0 ? numPoints-1:i-1;
@@ -1046,51 +1313,382 @@ void RoofBuilder2D::initializeRoofFaces(std::vector<osg::Vec3>& outline)
 		roofFaces[i].getP2EdgeList().getCurrentEdge(start,dir,length);
 		roofFaces[iNext].getP1EdgeList().setCurrentEdge(start,dir,length);
 		roofFaces[iNext].getP1EdgeList().evtType = roofFaces[i].getP2EdgeList().evtType;
-		roofFaces[iNext].getP1EdgeList().splitNormal = roofFaces[i].getP2EdgeList().splitNormal;
+		roofFaces[iNext].getP1EdgeList().splitPoint = roofFaces[i].getP2EdgeList().splitPoint;
+		roofFaces[iNext].getP1EdgeList().splitFace = roofFaces[i].getP2EdgeList().splitFace;
 	}
 
-	for(int i=0; i<numPoints; i++)
-	{
-		int iPrev = i==0 ? numPoints-1:i-1;
-		int iNext = (i+1)%numPoints;
-		if(roofFaces[i].clipEdges())
-		{
-			osg::Vec2 start,dir;
-			float length;
-			roofFaces[i].getP1EdgeList().getCurrentEdge(start,dir,length);
-			roofFaces[iPrev].getP2EdgeList().setCurrentEdge(start,dir,length);
-			roofFaces[iPrev].getP2EdgeList().evtType = roofFaces[i].getP1EdgeList().evtType;
-			
-			roofFaces[i].getP2EdgeList().getCurrentEdge(start,dir,length);
-			roofFaces[iNext].getP1EdgeList().setCurrentEdge(start,dir,length);
-			roofFaces[iNext].getP1EdgeList().evtType = roofFaces[i].getP2EdgeList().evtType;
-		}
-	}
-
+	clipEdges();
 	
 	RoofFaceEdgeList* pEdge= getMinEdge();
-	
-	if(pEdge)
+	while(pEdge)
 	{
 		if(pEdge->evtType == RoofFaceEdgeList::SPLIT)
 		{
-			pEdge->splitEvent();
-			clipEdgeToOutline(pEdge->roofFace->getP1EdgeList());
-			clipEdgeToOutline(pEdge->roofFace->getP2EdgeList());
-			clipEdgeToOutline(pEdge->neighborFace->getP1EdgeList());
-			clipEdgeToOutline(pEdge->neighborFace->getP2EdgeList());
-			pEdge->roofFace->clipEdges();
-			pEdge->neighborFace->clipEdges();
+			RoofFaceEdgeList* pOldNeighbor = pEdge->neighborEdge;
+			pEdge->splitFace->splitFace(roofFaces,*pEdge);
+
+			clipEdgeToOutline(*pEdge);
+			clipEdgeToOutline(*(pEdge->neighborEdge));
+			clipEdgeToOutline(*pOldNeighbor);
+			clipEdgeToOutline(*(pOldNeighbor->neighborEdge));
+
+			clipEdges();
 		}
 		else if(pEdge->evtType == RoofFaceEdgeList::VERTEX)
 		{
 			pEdge->vertexEvent();
-			clipEdgeToOutline(pEdge->roofFace->getP1EdgeList().neighborFace->getP2EdgeList());
-			clipEdgeToOutline(pEdge->roofFace->getP2EdgeList().neighborFace->getP1EdgeList());
-			pEdge->roofFace->getP1EdgeList().neighborFace->clipEdges();
-			pEdge->roofFace->getP2EdgeList().neighborFace->clipEdges();
+			clipEdgeToOutline(*(pEdge->roofFace->p1Edge.neighborEdge));
+			clipEdgeToOutline(*(pEdge->roofFace->p2Edge.neighborEdge));
+			clipEdges();
 		}
+
+		pEdge= getMinEdge();
+	}
+	
+	numPoints = roofFaces.size();
+
+	for(int i=0; i<numPoints; i++)
+	{
+		roofFaces[i].generateRoofFace();
 	}
 
 	int a=0;
+}
+//////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////
+RoofFaceEdge::RoofFaceEdge(unsigned int _edgeIndex, std::vector<RoofFace2>& roofFaces, unsigned int _leftFaceIndex, unsigned int _rightFaceIndex):
+edgeIndex(_edgeIndex),
+leftFaceIndex(_leftFaceIndex),
+rightFaceIndex(_rightFaceIndex),
+bActive(true)
+{
+	unsigned int edgeSize = roofFaces[leftFaceIndex].rightEdge.size();
+	vStart = roofFaces[leftFaceIndex].rightEdge[edgeSize-1]; // last point in edge
+
+	if(edgeSize==1)
+	{
+		vDir	= roofFaces[leftFaceIndex].edgeNormal + roofFaces[rightFaceIndex].edgeNormal;
+		vDir.normalize(); 
+	}
+	else
+	{
+		osg::Vec3 leftNormal(roofFaces[leftFaceIndex].edgeNormal.x(),roofFaces[leftFaceIndex].edgeNormal.y(),1.0f);
+		osg::Vec3 rightNormal(roofFaces[rightFaceIndex].edgeNormal.x(),roofFaces[rightFaceIndex].edgeNormal.y(),1.0f);
+		osg::Vec3 dir3D = leftNormal^rightNormal;
+		dir3D.z() = 0.0f;
+		dir3D.normalize();
+
+		vDir.x() = dir3D.x();
+		vDir.y() = dir3D.y();
+
+		osg::Vec2 testDir = vStart - roofFaces[leftFaceIndex].rightEdge[0];
+		osg::Vec2 testNormal(-testDir.y(),testDir.x());
+
+		if((vDir*testNormal) < 0.0f)
+			vDir *= -1.0;
+	}
+
+	length = defaultLength;
+}
+
+osg::Vec2 RoofFaceEdge::getEndPoint()
+{
+	return vStart + vDir*length;
+}
+
+void RoofFaceEdge::clipEdgeToOutline(std::vector<RoofFace2>& roofFaces)
+{
+	int numFaces = roofFaces.size();
+	for(int i=0;i<numFaces;i++)
+	{
+		if(i==leftFaceIndex || i==rightFaceIndex)
+			continue;
+		RoofFace2& currentFace = roofFaces[i];
+		float t;
+		osg::Vec2 intersect;
+		if(test2DSegmentSegment(vStart, vDir, length, currentFace.p1, currentFace.edgeDir, currentFace.edgeLength, t, intersect))
+		{
+			//reduce length to max possible between these 2 edges
+			//it's the point on the edge, with the same projection on the 2 face edgeNormals
+			osg::Vec2 n1 = currentFace.edgeNormal;
+			osg::Vec2 n2 = roofFaces[leftFaceIndex].edgeNormal;
+			t = (vStart * n1 - currentFace.p2 * n1) / (vDir *(n2-n1));
+
+			length = t;
+
+			evt.evtType = SkeletonEvent::SPLIT;
+			evt.intersection = intersect;
+			evt.time = currentFace.edgeNormal * (getEndPoint() - currentFace.p1);
+			evt.faceIndex = i;
+		}
+	}
+}
+
+void RoofFaceEdge::clipToEdge(std::vector<RoofFace2>& roofFaces, RoofFaceEdge& edge)
+{
+	float t;
+	osg::Vec2 intersect;
+	if(test2DSegmentSegment(vStart, vDir, length, edge.vStart, edge.vDir, edge.length, t, intersect))
+	{
+		length = t*length;
+		edge.length = (intersect-edge.vStart).length();
+
+		evt.evtType = SkeletonEvent::EDGE;
+		edge.evt.evtType = SkeletonEvent::EDGE;
+
+		evt.intersection = intersect;
+		edge.evt.intersection = intersect;
+
+		evt.time = roofFaces[leftFaceIndex].edgeNormal * (getEndPoint() - roofFaces[leftFaceIndex].p1);
+		edge.evt.time = evt.time;
+
+		evt.edgeIndex = edge.edgeIndex;
+		edge.evt.edgeIndex = edgeIndex;
+
+
+	}
+}
+
+RoofFace2::RoofFace2(unsigned int index, const osg::Vec2& _p1, const osg::Vec2& _p2):
+faceIndex(index),
+p1(_p1),
+p2(_p2)
+{
+	leftEdge.push_back(p1);
+	rightEdge.push_back(p2);
+	initEdgeData();
+}
+
+void RoofFace2::initEdgeData()
+{
+	edgeNormal.x() = -(p2.y()-p1.y());
+	edgeNormal.y() =  (p2.x()-p1.x());
+	edgeNormal.normalize();
+
+	edgeDir = p2-p1;
+	edgeLength = edgeDir.normalize();
+}
+
+RoofFace2& RoofFace2::splitFace(std::vector<RoofFace2>& roofFaces, osg::Vec2 splitPoint)
+{
+	roofFaces.push_back(RoofFace2(roofFaces.size(),splitPoint, p2));
+	RoofFace2& newFace = roofFaces[roofFaces.size()-1];
+
+	newFace.rightEdge.clear();
+	newFace.rightEdge.insert(newFace.rightEdge.begin(), rightEdge.begin(), rightEdge.end());
+	
+	rightEdge.clear();
+	rightEdge.push_back(splitPoint);
+	p2 = splitPoint;
+	initEdgeData();
+
+	return newFace;
+}
+
+osg::Vec2 RoofFace2::getLeftEndPoint()
+{
+	return leftEdge[leftEdge.size()-1];
+}
+
+osg::Vec2 RoofFace2::getRightEndPoint()
+{
+	return rightEdge[rightEdge.size()-1];
+}
+
+RoofBuilder2DNew::RoofBuilder2DNew(std::vector<osg::Vec3> outline, float roofAngle)
+{
+	int numPoints = outline.size();
+	std::vector<osg::Vec2> outline2D;
+	for(int i=0;i<numPoints;i++)
+	{
+		osg::Vec2 p(outline[i].x(), outline[i].y());
+		outline2D.push_back(p);
+	}
+
+	//test
+	//outline2D.clear();
+	
+	/*outline2D.push_back(osg::Vec2(0,0));
+	outline2D.push_back(osg::Vec2(10,0));
+	outline2D.push_back(osg::Vec2(10,10));
+	outline2D.push_back(osg::Vec2(0,10));*/
+
+	/*outline2D.push_back(osg::Vec2(0,0));
+	outline2D.push_back(osg::Vec2(10,0));
+	outline2D.push_back(osg::Vec2(10,10));
+	outline2D.push_back(osg::Vec2(5,2));
+	outline2D.push_back(osg::Vec2(0,10));*/
+
+	/*outline2D.push_back(osg::Vec2(0,0));
+	outline2D.push_back(osg::Vec2(7,0));
+	outline2D.push_back(osg::Vec2(7,9));
+	outline2D.push_back(osg::Vec2(18,9));
+	outline2D.push_back(osg::Vec2(18,17));
+	outline2D.push_back(osg::Vec2(0,17));
+
+	numPoints = outline2D.size();*/
+
+	roofFaces.reserve(1000);
+
+	vMin = osg::Vec2(FLT_MAX,FLT_MAX);
+	vMax = osg::Vec2(FLT_MIN,FLT_MIN);	
+
+	for(int i=0; i<numPoints; i++)
+	{
+		int iNext = (i+1)%numPoints;
+		roofFaces.push_back(RoofFace2(i,outline2D[i], outline2D[iNext]));
+
+		vMin.x() = min(vMin.x(), outline2D[i].x());
+		vMin.y() = min(vMin.y(), outline2D[i].y());
+
+		vMax.x() = max(vMax.x(), outline2D[i].x());
+		vMax.y() = max(vMax.y(), outline2D[i].y());
+	}
+	defaultLength = (vMax-vMin).length();
+
+	faceEdges.reserve(1000);
+	
+	for(int i=0; i<numPoints; i++)
+	{
+		int iNext = (i+1)%numPoints;
+		faceEdges.push_back(RoofFaceEdge(i,roofFaces,i,iNext));
+	}
+
+	clipEdgesToOutline();
+
+	clipEdgesToEdges();
+
+	int minEdgeIndex = getMinEdgeIndex();
+	while(minEdgeIndex != -1)
+	{
+		RoofFaceEdge& minEdge = faceEdges[minEdgeIndex];
+		if(minEdge.evt.evtType == SkeletonEvent::EDGE)
+		{
+			edgeEvent(minEdge);
+		}
+		else if(minEdge.evt.evtType == SkeletonEvent::SPLIT)
+		{
+			splitEvent(minEdge);
+		}
+		minEdgeIndex = getMinEdgeIndex();
+	}
+}
+
+void RoofBuilder2DNew::clipEdgesToOutline()
+{
+	int numEdges = faceEdges.size();
+	for(int i=0;i<numEdges;i++)
+	{
+		if(!faceEdges[i].bActive)
+			continue;
+
+		faceEdges[i].clipEdgeToOutline(roofFaces);
+	}
+}
+
+void RoofBuilder2DNew::clipEdgesToEdges()
+{
+	int numEdges = faceEdges.size();
+	for(int i=0;i<numEdges;i++)
+	{
+		RoofFaceEdge& edge1 = faceEdges[i];
+		
+		if(!edge1.bActive)
+			continue;
+
+		for(int j=i+1 ; j<numEdges; j++)
+		{
+			RoofFaceEdge& edge2 = faceEdges[j];
+			
+			if(!edge2.bActive)
+				continue;
+
+			if(!(edge1.leftFaceIndex == edge2.rightFaceIndex || edge1.rightFaceIndex == edge2.leftFaceIndex))
+				continue;
+
+			edge1.clipToEdge(roofFaces, edge2);
+		}
+	}
+}
+
+int RoofBuilder2DNew::getMinEdgeIndex()
+{
+	float minTime = FLT_MAX;
+	int numEdges = faceEdges.size();
+	int minEdgeIndex = -1;
+	for(int i=0; i<numEdges; i++)
+	{
+		if(!faceEdges[i].bActive)
+			continue;
+		if(faceEdges[i].evt.time < minTime)
+		{
+			if(faceEdges[i].evt.evtType == SkeletonEvent::EDGE && faceEdges[faceEdges[i].evt.edgeIndex].bActive==false)
+				continue;
+			minTime = faceEdges[i].evt.time;
+			minEdgeIndex = i;
+		}
+	}
+	return minEdgeIndex;
+}
+
+void RoofBuilder2DNew::edgeEvent(RoofFaceEdge& edge)
+{
+	osg::Vec2 endPoint = edge.getEndPoint();
+	RoofFaceEdge& otherEdge = faceEdges[edge.evt.edgeIndex];
+
+	edge.Disable();
+	otherEdge.Disable();
+
+	//common face
+	bool bLeftEdge = edge.rightFaceIndex == otherEdge.leftFaceIndex;
+	unsigned int commonFaceIndex =  bLeftEdge ? edge.rightFaceIndex : edge.leftFaceIndex;
+	//common faces neighbors
+	unsigned int leftNeighborFace = bLeftEdge ? edge.leftFaceIndex : otherEdge.leftFaceIndex;
+	unsigned int rightNeighborFace = bLeftEdge ? otherEdge.rightFaceIndex : edge.rightFaceIndex;
+
+	// doesn't really matter which edge in commonface we add point to, since the face is done after this
+	
+	// endpoint may already be in edges , if multiple edge events happen on the same point, f.ex on a square roof, where all edges meet in the same point
+	osg::Vec2 rightEndPoint = roofFaces[commonFaceIndex].getRightEndPoint();
+	osg::Vec2 leftEndPoint = roofFaces[commonFaceIndex].getLeftEndPoint();
+	if((endPoint-leftEndPoint).length2() > EPSILON && (endPoint-rightEndPoint).length2() > EPSILON  )
+		roofFaces[commonFaceIndex].leftEdge.push_back(endPoint);
+	
+	
+	rightEndPoint = roofFaces[leftNeighborFace].getRightEndPoint();
+	if((endPoint-rightEndPoint).length2() > EPSILON)
+		roofFaces[leftNeighborFace].rightEdge.push_back(endPoint);
+
+	leftEndPoint = roofFaces[rightNeighborFace].getLeftEndPoint();
+	if((endPoint-leftEndPoint).length2() > EPSILON )
+		roofFaces[rightNeighborFace].leftEdge.push_back(endPoint);
+
+	// create new edge with left and right neighbor faces
+	faceEdges.push_back(RoofFaceEdge(faceEdges.size(),roofFaces,leftNeighborFace,rightNeighborFace));
+
+	clipEdgesToOutline();
+	clipEdgesToEdges();
+}
+
+void RoofBuilder2DNew::splitEvent(RoofFaceEdge& edge)
+{
+	edge.Disable();
+
+	osg::Vec2 intersectPoint = edge.evt.intersection;
+	osg::Vec2 splitPoint = edge.getEndPoint();
+
+	roofFaces[edge.leftFaceIndex].rightEdge.push_back(splitPoint);
+	roofFaces[edge.rightFaceIndex].leftEdge.push_back(splitPoint);
+	
+	RoofFace2& faceToSplit = roofFaces[edge.evt.faceIndex];
+	RoofFace2& splitFace = faceToSplit.splitFace(roofFaces, intersectPoint);
+	splitFace.leftEdge.push_back(splitPoint);
+	faceToSplit.rightEdge.push_back(splitPoint);
+
+	// create new split edges
+	faceEdges.push_back(RoofFaceEdge(faceEdges.size(), roofFaces, edge.leftFaceIndex, splitFace.faceIndex));
+	faceEdges.push_back(RoofFaceEdge(faceEdges.size(), roofFaces, faceToSplit.faceIndex, edge.rightFaceIndex));
+
+	clipEdgesToOutline();
+	clipEdgesToEdges();
 }

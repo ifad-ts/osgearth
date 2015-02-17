@@ -1576,7 +1576,9 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometryNew(const Structure&     struct
 
 	RoofBuilder rb(tempRoofVerts,_extrusionSymbol->roofPitch().get());
 
-	RoofBuilder2D rb2D(tempRoofVerts,_extrusionSymbol->roofPitch().get());
+	//RoofBuilder2D rb2D(tempRoofVerts,_extrusionSymbol->roofPitch().get());
+
+	RoofBuilder2DNew rb2DNew(tempRoofVerts,_extrusionSymbol->roofPitch().get());
 
 	osg::Vec3Array* roofVerts = new osg::Vec3Array();
 	roof->setVertexArray( roofVerts );
