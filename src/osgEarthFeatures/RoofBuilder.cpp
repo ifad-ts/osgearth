@@ -1685,6 +1685,20 @@ void RoofBuilder2DNew::splitEvent(RoofFaceEdge& edge)
 	splitFace.leftEdge.push_back(splitPoint);
 	faceToSplit.rightEdge.push_back(splitPoint);
 
+	// find rightedge of faceToSplit and update leftFaceIndex to splitface' index
+	int numEdges = faceEdges.size();
+	for(int i=0;i<numEdges;i++)
+	{
+		if(faceEdges[i].bActive)
+		{
+			if(faceEdges[i].leftFaceIndex == faceToSplit.faceIndex)
+			{
+				faceEdges[i].leftFaceIndex = splitFace.faceIndex;
+				break;
+			}
+		}
+	}
+
 	// create new split edges
 	faceEdges.push_back(RoofFaceEdge(faceEdges.size(), roofFaces, edge.leftFaceIndex, splitFace.faceIndex));
 	faceEdges.push_back(RoofFaceEdge(faceEdges.size(), roofFaces, faceToSplit.faceIndex, edge.rightFaceIndex));
