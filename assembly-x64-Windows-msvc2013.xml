@@ -28,13 +28,6 @@
             </includes>
         </fileSet>
         <fileSet>
-            <directory>target/mvnbuild/lib/Debug</directory>
-            <outputDirectory>/bin/debug</outputDirectory>
-            <includes>
-                <include>*.pdb</include>
-            </includes>
-        </fileSet>	
-        <fileSet>
             <directory>target/mvninstall/Release/lib</directory>
             <outputDirectory>/lib</outputDirectory>
             <includes>

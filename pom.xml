@@ -6,27 +6,27 @@
     <groupId>dk.ifad.native</groupId>
     <artifactId>osgEarth</artifactId>
     <name>dk.ifad.native.osgEarth</name>
-    <version>ifad-1-SNAPSHOT</version>
+    <version>ifad-1</version>
 
     <dependencies>
         <dependency>
             <groupId>dk.ifad.native</groupId>
             <artifactId>3rdParty</artifactId>
-            <version>1.0.0-SNAPSHOT</version>
+            <version>1.0.0</version>
             <classifier>x64-Windows-msvc2013</classifier>
             <type>zip</type>
         </dependency>
         <dependency>
             <groupId>dk.ifad.native</groupId>
             <artifactId>geos</artifactId>
-            <version>3.4.2-0-SNAPSHOT</version>
+            <version>3.4.2-0</version>
             <classifier>x64-Windows-msvc2013</classifier>
             <type>zip</type>
         </dependency>			
         <dependency>
             <groupId>dk.ifad.native</groupId>
             <artifactId>OpenSceneGraph</artifactId>
-            <version>3.2.1-0-SNAPSHOT</version>
+            <version>3.2.1-0</version>
             <classifier>x64-Windows-msvc2013</classifier>
             <type>zip</type>
         </dependency>		
@@ -151,7 +151,7 @@
         <snapshotRepository>
             <id>snapshots</id>
             <name>snapshots</name>
-            <url>http://artifactory.ifad.dk/artifactory/libs-snapshot-local</url>
+            <url>http://artifactory.ifad.dk/artifactory/libs-local</url>
         </snapshotRepository>
     </distributionManagement>
 
