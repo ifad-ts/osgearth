@@ -16,12 +16,34 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
-#include <osgEarth/Layer>
-#include <osgEarth/Registry>
+#ifndef OSGEARTH_MAPINSPECTOR_UI
+#define OSGEARTH_MAPINSPECTOR_UI 1
 
-using namespace osgEarth;
+#include <osgEarth/MapCallback>
+#include <osgEarth/MapNode>
+#include <osgEarthUtil/Controls>
+#include <osg/View>
 
-Layer::Layer()
+namespace osgEarth { namespace MapInspector
 {
-    _uid = Registry::instance()->createUID();
-}
+    using namespace osgEarth;
+
+    class MapInspectorUI : public osgEarth::Util::Controls::Grid
+    {
+    public:
+        /** create UI */
+        MapInspectorUI();
+
+        /** rebuild everything */
+        void reinit(MapNode* mapNode);
+
+    private:
+        osg::ref_ptr<osg::Group>    _annos;
+
+        void addTerrainLayer(class TerrainLayer* layer, MapNode* mapNode);
+        void addModelLayer  (class ModelLayer*   layer, MapNode* mapNode);
+    };
+
+} } // namespace
+
+#endif // OSGEARTH_MAPINSPECTOR_UI

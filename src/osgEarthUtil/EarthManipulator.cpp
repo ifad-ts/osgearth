@@ -204,8 +204,8 @@ _min_vp_duration_s              ( 3.0 ),
 _max_vp_duration_s              ( 8.0 ),
 _camProjType                    ( PROJ_PERSPECTIVE ),
 _camFrustOffsets                ( 0, 0 ),
-_disableCollisionAvoidance      ( false ),
 _throwingEnabled                ( false ),
+_terrainAvoidanceEnabled        ( true ),
 _throwDecayRate                 ( 0.05 )
 {
     //NOP
@@ -235,7 +235,7 @@ _max_vp_duration_s( rhs._max_vp_duration_s ),
 _camProjType( rhs._camProjType ),
 _camFrustOffsets( rhs._camFrustOffsets ),
 _breakTetherActions( rhs._breakTetherActions ),
-_disableCollisionAvoidance( rhs._disableCollisionAvoidance),
+_terrainAvoidanceEnabled( rhs._terrainAvoidanceEnabled ),
 _throwingEnabled( rhs._throwingEnabled ),
 _throwDecayRate( rhs._throwDecayRate )
 {
@@ -677,8 +677,9 @@ EarthManipulator::established()
 void 
 EarthManipulator::handleTileAdded(const TileKey& key, osg::Node* tile, TerrainCallbackContext& context)
 {
-    // Only do collision avoidance if it's enabled, we're not tethering and we're not in the middle of setting a viewpoint.            
-    if (!getSettings()->getDisableCollisionAvoidance() &&
+    // Only do collision avoidance if it's enabled, we're not tethering and
+    // we're not in the middle of setting a viewpoint.            
+    if (getSettings()->getTerrainAvoidanceEnabled() &&
         !getTetherNode() &&
         !isSettingViewpoint() )
     {
@@ -1009,7 +1010,7 @@ EarthManipulator::setViewpoint( const Viewpoint& vp, double duration_s )
 
 void EarthManipulator::collisionDetect()
 {
-    if (getSettings()->getDisableCollisionAvoidance())
+    if ( getSettings()->getTerrainAvoidanceEnabled() == false )
     {
         return;
     }
@@ -1021,7 +1022,7 @@ void EarthManipulator::collisionDetect()
     createLocalCoordFrame( eye, eyeCoordFrame );
     osg::Vec3d eyeUp = getUpVector(eyeCoordFrame);
 
-    // Try to intersect the terrain with a vector going 
+    // Try to intersect the terrain with a vector going straight up and down.
     double r = std::min( _cached_srs->getEllipsoid()->getRadiusEquator(), _cached_srs->getEllipsoid()->getRadiusPolar() );
     osg::Vec3d ip, normal;
     if (intersect(eye + eyeUp * r, eye - eyeUp * r, ip, normal))
@@ -1032,9 +1033,12 @@ void EarthManipulator::collisionDetect()
         v0.normalize();
         osg::Vec3d v1 = eye - (ip + eyeUp * eps);
         v1.normalize();
+
+        //osg::Vec3d adjVector = normal;
+        osg::Vec3d adjVector = eyeUp;
         if (v0 * v1 <= 0 )
         {
-            setByLookAtRaw(ip + normal * eps, _center, eyeUp);
+            setByLookAtRaw(ip + adjVector * eps, _center, eyeUp);
         }
     }
 
@@ -1166,6 +1170,12 @@ EarthManipulator::setTetherNode( osg::Node* node, double duration_s )
         _tether_completed = false;
         Viewpoint destVP = getTetherNodeViewpoint();
         setViewpoint( destVP, duration_s );
+    }
+
+    // invoke the callback if set
+    if ( _tetherCallback.valid() )
+    {
+        (*_tetherCallback.get())( _tether_node.get() );
     }
 }
 
@@ -2461,7 +2471,8 @@ EarthManipulator::zoom( double dx, double dy )
     collisionDetect();
 }
 
-
+#if 0 // removing this as it is hopefully no longer needed;
+      // will delete it later if all goes well. (gw 2/21/15)
 namespace
 {
     // osg::View::getCameraContainingPosition has a bug in it. If the camera's current event
@@ -2496,6 +2507,7 @@ namespace
         return view->getCameraContainingPosition(x, y, out_local_x, out_local_y);
     }
 }
+#endif
 
 
 bool
@@ -2513,7 +2525,7 @@ EarthManipulator::screenToWorld(float x, float y, osg::View* theView, osg::Vec3d
         return false;
 
     float local_x, local_y = 0.0;
-    const osg::Camera* camera = getCameraContainingPosition(view, x, y, local_x, local_y);
+    const osg::Camera* camera =  view->getCameraContainingPosition(x, y, local_x, local_y);
     if ( !camera )
         return false;
 
