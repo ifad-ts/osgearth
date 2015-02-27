@@ -238,7 +238,9 @@ namespace osgEarth { namespace Features
 
 		osg::Vec2	getEndPoint();
 		void		clipEdgeToOutline(std::vector<struct RoofFace2>& roofFaces);
+		void		setIntersection(std::vector<RoofFace2>& roofFaces, RoofFaceEdge& edge, osg::Vec2 intersection);
 		void		clipToEdge(std::vector<RoofFace2>& roofFaces, RoofFaceEdge& edge);
+		void		clipToEdgeToNeighbors(std::vector<RoofFace2>& roofFaces, std::vector<RoofFaceEdge>& faceEdges);
 
 		void		Disable(){bActive = false;}
 
@@ -252,6 +254,8 @@ namespace osgEarth { namespace Features
 		osg::Vec2		vDir;
 		float			length;
 		SkeletonEvent	evt;
+
+		float			createTime;
 	};
 
 	struct RoofFace2
@@ -261,6 +265,8 @@ namespace osgEarth { namespace Features
 		RoofFace2&	splitFace(std::vector<struct RoofFace2>& roofFaces, osg::Vec2 splitPoint);
 		osg::Vec2	getLeftEndPoint();
 		osg::Vec2	getRightEndPoint();
+		float		getPointDist(osg::Vec2 p);
+		void		generateGeometry(osg::Vec3Array* roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexCoords, float texSpanY, float roofStartZ);
 		
 		unsigned int			faceIndex;
 		osg::Vec2				p1,p2;
@@ -283,8 +289,11 @@ namespace osgEarth { namespace Features
 		void	edgeEvent(RoofFaceEdge& edge);
 		void	splitEvent(RoofFaceEdge& edge);
 
+		void	generateRoofGeometry(osg::Geometry* roofGeometry, osg::Vec3Array*  roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexcoords, float roofTexSpanY);
+
 		std::vector<RoofFace2> roofFaces;
 		std::vector<RoofFaceEdge> faceEdges;
+		float	roofStartZ;
 
 		osg::Vec2 vMin, vMax;
 	};

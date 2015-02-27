@@ -1574,7 +1574,7 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometryNew(const Structure&     struct
 
 	iNumVerts = tempRoofVerts.size();
 
-	RoofBuilder rb(tempRoofVerts,_extrusionSymbol->roofPitch().get());
+	//RoofBuilder rb(tempRoofVerts,_extrusionSymbol->roofPitch().get());
 
 	//RoofBuilder2D rb2D(tempRoofVerts,_extrusionSymbol->roofPitch().get());
 
@@ -1594,7 +1594,14 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometryNew(const Structure&     struct
 	double roofTexSpanY = roofSkin->imageHeight().isSet() ? *roofSkin->imageHeight() : roofSkin->imageWidth().isSet() ? *roofSkin->imageWidth() : 10.0;
 	if ( roofTexSpanY <= 0.0 ) roofTexSpanY = 10.0;
 
-	rb.generateRoofGeometry(roof, roofVerts, roofNormals, roofTexcoords,roofTexSpanY);
+	//rb.generateRoofGeometry(roof, roofVerts, roofNormals, roofTexcoords,roofTexSpanY);
+	rb2DNew.generateRoofGeometry(roof, roofVerts, roofNormals, roofTexcoords,roofTexSpanY);
+
+	// Tessellate the roof lines into polygons.
+	/*osgUtil::Tessellator tess;
+	tess.setTessellationType( osgUtil::Tessellator::TESS_TYPE_GEOMETRY );
+	tess.setWindingType( osgUtil::Tessellator::TESS_WINDING_ODD );
+	tess.retessellatePolygons( *roof );*/
 
 	osg::Vec4Array* color = new osg::Vec4Array();
 	roof->setColorArray( color );

@@ -1360,7 +1360,8 @@ RoofFaceEdge::RoofFaceEdge(unsigned int _edgeIndex, std::vector<RoofFace2>& roof
 edgeIndex(_edgeIndex),
 leftFaceIndex(_leftFaceIndex),
 rightFaceIndex(_rightFaceIndex),
-bActive(true)
+bActive(true),
+createTime(0.0)
 {
 	unsigned int edgeSize = roofFaces[leftFaceIndex].rightEdge.size();
 	vStart = roofFaces[leftFaceIndex].rightEdge[edgeSize-1]; // last point in edge
@@ -1381,11 +1382,16 @@ bActive(true)
 		vDir.x() = dir3D.x();
 		vDir.y() = dir3D.y();
 
-		osg::Vec2 testDir = vStart - roofFaces[leftFaceIndex].rightEdge[0];
+
+		osg::Vec2 testDir = roofFaces[rightFaceIndex].edgeDir;
+		if((vDir*testDir) < 0.0f)
+			vDir *= -1.0;
+
+		/*osg::Vec2 testDir = vStart - roofFaces[leftFaceIndex].rightEdge[0];
 		osg::Vec2 testNormal(-testDir.y(),testDir.x());
 
 		if((vDir*testNormal) < 0.0f)
-			vDir *= -1.0;
+			vDir *= -1.0;*/
 	}
 
 	length = defaultLength;
@@ -1409,12 +1415,15 @@ void RoofFaceEdge::clipEdgeToOutline(std::vector<RoofFace2>& roofFaces)
 		if(test2DSegmentSegment(vStart, vDir, length, currentFace.p1, currentFace.edgeDir, currentFace.edgeLength, t, intersect))
 		{
 			//reduce length to max possible between these 2 edges
-			//it's the point on the edge, with the same projection on the 2 face edgeNormals
+			//it's the point on the edge, with the same perpendicular distance to the 2 face edges
+			// p(t) = vStart + t*vDir
+			// n1 * (p(t)-currentFace.p1) = n2 * (p(t)-roofFaces[leftFaceIndex].p1)
 			osg::Vec2 n1 = currentFace.edgeNormal;
 			osg::Vec2 n2 = roofFaces[leftFaceIndex].edgeNormal;
-			t = (vStart * n1 - currentFace.p2 * n1) / (vDir *(n2-n1));
-
-			length = t;
+			float tNew = (n1*(vStart-currentFace.p1) - n2*(vStart-roofFaces[leftFaceIndex].p1))/(vDir * (n2-n1));
+			
+			if(tNew >= 0 && tNew <= length)
+				length = tNew;
 
 			evt.evtType = SkeletonEvent::SPLIT;
 			evt.intersection = intersect;
@@ -1430,23 +1439,85 @@ void RoofFaceEdge::clipToEdge(std::vector<RoofFace2>& roofFaces, RoofFaceEdge& e
 	osg::Vec2 intersect;
 	if(test2DSegmentSegment(vStart, vDir, length, edge.vStart, edge.vDir, edge.length, t, intersect))
 	{
-		length = t*length;
-		edge.length = (intersect-edge.vStart).length();
-
-		evt.evtType = SkeletonEvent::EDGE;
-		edge.evt.evtType = SkeletonEvent::EDGE;
-
-		evt.intersection = intersect;
-		edge.evt.intersection = intersect;
-
-		evt.time = roofFaces[leftFaceIndex].edgeNormal * (getEndPoint() - roofFaces[leftFaceIndex].p1);
-		edge.evt.time = evt.time;
-
-		evt.edgeIndex = edge.edgeIndex;
-		edge.evt.edgeIndex = edgeIndex;
-
-
+		setIntersection(roofFaces,edge,intersect);
 	}
+}
+
+// clips edge to first intersection with neighbor edges
+void RoofFaceEdge::clipToEdgeToNeighbors(std::vector<RoofFace2>& roofFaces,std::vector<RoofFaceEdge>& faceEdges)
+{
+	RoofFaceEdge* pLeftEdge = NULL;
+	RoofFaceEdge* pRightEdge = NULL;
+	int nEdges = faceEdges.size();
+	for(int i=0;i<nEdges;i++)
+	{
+		RoofFaceEdge& currentEdge = faceEdges[i];
+		if(currentEdge.bActive)
+		{
+			if(currentEdge.rightFaceIndex == leftFaceIndex)
+			{
+				pLeftEdge = &currentEdge;
+			}
+			else if(currentEdge.leftFaceIndex == rightFaceIndex)
+			{
+				pRightEdge = &currentEdge;
+			}
+		}
+	}
+
+	if(pLeftEdge==NULL || pRightEdge == NULL)
+	{
+		Disable();
+		return;
+	}
+
+	RoofFaceEdge& leftEdge = *pLeftEdge;
+	float leftT = FLT_MAX;
+	osg::Vec2 leftIntersection;
+	bool bIntersectLeft = test2DSegmentSegment(vStart, vDir, length, leftEdge.vStart, leftEdge.vDir, leftEdge.length, leftT, leftIntersection);
+	
+	RoofFaceEdge& rightEdge = *pRightEdge;
+	float rightT = FLT_MAX;
+	osg::Vec2 rightIntersection;
+	bool bIntersectRight = test2DSegmentSegment(vStart, vDir, length, rightEdge.vStart, rightEdge.vDir, rightEdge.length, rightT, rightIntersection);
+	
+	if(bIntersectLeft && bIntersectRight)
+	{
+		if(leftT < rightT)
+		{
+			setIntersection(roofFaces,leftEdge, leftIntersection);
+		}
+		else
+		{
+			setIntersection(roofFaces,rightEdge, rightIntersection);
+		}
+	}
+	else if(bIntersectLeft)
+	{
+		setIntersection(roofFaces,leftEdge, leftIntersection);
+	}
+	else if(bIntersectRight)
+	{
+		setIntersection(roofFaces,rightEdge, rightIntersection);
+	}
+}
+
+void RoofFaceEdge::setIntersection(std::vector<RoofFace2>& roofFaces, RoofFaceEdge& edge, osg::Vec2 intersection)
+{
+	length = (intersection-vStart).length();
+	edge.length = (intersection-edge.vStart).length();
+
+	evt.evtType = SkeletonEvent::EDGE;
+	edge.evt.evtType = SkeletonEvent::EDGE;
+
+	evt.intersection = intersection;
+	edge.evt.intersection = intersection;
+
+	evt.time = roofFaces[leftFaceIndex].edgeNormal * (getEndPoint() - roofFaces[leftFaceIndex].p1);
+	edge.evt.time = evt.time;
+
+	evt.edgeIndex = edge.edgeIndex;
+	edge.evt.edgeIndex = edgeIndex;
 }
 
 RoofFace2::RoofFace2(unsigned int index, const osg::Vec2& _p1, const osg::Vec2& _p2):
@@ -1495,6 +1566,51 @@ osg::Vec2 RoofFace2::getRightEndPoint()
 	return rightEdge[rightEdge.size()-1];
 }
 
+float RoofFace2::getPointDist(osg::Vec2 p)
+{
+	return fabs(edgeNormal*(p-p1));
+}
+
+void RoofFace2::generateGeometry(osg::Vec3Array* roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexCoords, float texSpanY, float roofStartZ)
+{
+	float roofAngle = 45.0f;
+	float roofAngleRad = 45.0*osg::PI/180.0f;
+	float tangent = tan(roofAngleRad);
+
+	std::vector<osg::Vec3> outline;
+	outline.push_back(osg::Vec3(p1.x(),p1.y(),roofStartZ));
+	outline.push_back(osg::Vec3(p2.x(),p2.y(),roofStartZ));
+	int rightEdgeSize = rightEdge.size();
+	for(int i=1; i<rightEdgeSize;i++) //skip rightEdge[0] since it's p2'
+	{
+		float height = roofStartZ + getPointDist(rightEdge[i])*tangent;
+		outline.push_back(osg::Vec3(rightEdge[i].x(), rightEdge[i].y(), height));
+	}
+	
+	int leftEdgeSize = leftEdge.size();
+	for(int i=leftEdgeSize-1; i>0;i--) // skip leftEdge[0] since it's p1
+	{
+		float height = roofStartZ + getPointDist(leftEdge[i])*tangent;
+		outline.push_back(osg::Vec3(leftEdge[i].x(), leftEdge[i].y(), height));
+	}
+	int nPoints = outline.size();
+	osg::Vec3 roofNormal = osg::Vec3(0,0,sin(roofAngleRad)) -osg::Vec3(edgeNormal.x(),edgeNormal.y(),0.0f)*cos(roofAngleRad);
+	osg::Vec3 uAxis = osg::Vec3(edgeNormal.x(),edgeNormal.y(),0.0f)*cos(roofAngleRad) + osg::Vec3(0,0,sin(roofAngleRad));
+	osg::Vec3 vAxis = osg::Vec3(edgeDir.x(),edgeDir.y(),0.0f);
+	osg::Vec3 textureOrigo = outline[0];
+	for(int i=0;i<nPoints;i++)
+	{
+		roofVerts->push_back(outline[i]);
+		roofNormals->push_back( roofNormal);
+
+		osg::Vec3 dir = outline[i]-textureOrigo;
+		float u = (uAxis * dir)/texSpanY;
+		float v = (vAxis * dir)/texSpanY;
+		roofTexCoords->push_back(osg::Vec3(u,v,0));
+	}
+
+}
+
 RoofBuilder2DNew::RoofBuilder2DNew(std::vector<osg::Vec3> outline, float roofAngle)
 {
 	int numPoints = outline.size();
@@ -1505,6 +1621,7 @@ RoofBuilder2DNew::RoofBuilder2DNew(std::vector<osg::Vec3> outline, float roofAng
 		outline2D.push_back(p);
 	}
 
+	roofStartZ = outline[0].z();
 	//test
 	//outline2D.clear();
 	
@@ -1571,6 +1688,9 @@ RoofBuilder2DNew::RoofBuilder2DNew(std::vector<osg::Vec3> outline, float roofAng
 			splitEvent(minEdge);
 		}
 		minEdgeIndex = getMinEdgeIndex();
+
+		if(roofFaces.size()>1000)
+			int a=0;
 	}
 }
 
@@ -1618,7 +1738,7 @@ int RoofBuilder2DNew::getMinEdgeIndex()
 	int minEdgeIndex = -1;
 	for(int i=0; i<numEdges; i++)
 	{
-		if(!faceEdges[i].bActive)
+		if(!faceEdges[i].bActive || (faceEdges[i].createTime > faceEdges[i].evt.time))
 			continue;
 		if(faceEdges[i].evt.time < minTime)
 		{
@@ -1666,8 +1786,12 @@ void RoofBuilder2DNew::edgeEvent(RoofFaceEdge& edge)
 	// create new edge with left and right neighbor faces
 	faceEdges.push_back(RoofFaceEdge(faceEdges.size(),roofFaces,leftNeighborFace,rightNeighborFace));
 
-	clipEdgesToOutline();
-	clipEdgesToEdges();
+	faceEdges[faceEdges.size()-1].createTime = edge.evt.time;
+
+	//clipEdgesToOutline();
+	faceEdges[faceEdges.size()-1].clipEdgeToOutline(roofFaces);
+	faceEdges[faceEdges.size()-1].clipToEdgeToNeighbors(roofFaces, faceEdges);
+	//clipEdgesToEdges();
 }
 
 void RoofBuilder2DNew::splitEvent(RoofFaceEdge& edge)
@@ -1685,7 +1809,7 @@ void RoofBuilder2DNew::splitEvent(RoofFaceEdge& edge)
 	splitFace.leftEdge.push_back(splitPoint);
 	faceToSplit.rightEdge.push_back(splitPoint);
 
-	// find rightedge of faceToSplit and update leftFaceIndex to splitface' index
+	// find right edge of faceToSplit and update leftFaceIndex to splitface' index
 	int numEdges = faceEdges.size();
 	for(int i=0;i<numEdges;i++)
 	{
@@ -1703,6 +1827,49 @@ void RoofBuilder2DNew::splitEvent(RoofFaceEdge& edge)
 	faceEdges.push_back(RoofFaceEdge(faceEdges.size(), roofFaces, edge.leftFaceIndex, splitFace.faceIndex));
 	faceEdges.push_back(RoofFaceEdge(faceEdges.size(), roofFaces, faceToSplit.faceIndex, edge.rightFaceIndex));
 
-	clipEdgesToOutline();
-	clipEdgesToEdges();
+	// reclip edges that used to split FaceToSplit
+	for(int i=0;i<numEdges;i++)
+	{
+		if(faceEdges[i].bActive && faceEdges[i].evt.evtType == SkeletonEvent::SPLIT)
+		{
+			if(faceEdges[i].evt.faceIndex == faceToSplit.faceIndex)
+			{
+				faceEdges[i].length = defaultLength;
+				faceEdges[i].clipEdgeToOutline(roofFaces);
+				faceEdges[i].clipToEdgeToNeighbors(roofFaces, faceEdges);
+			}
+		}
+	}
+
+	//clipEdgesToOutline();
+
+	faceEdges[faceEdges.size()-2].createTime = edge.evt.time;
+	faceEdges[faceEdges.size()-1].createTime = edge.evt.time;
+
+	faceEdges[faceEdges.size()-2].clipEdgeToOutline(roofFaces);
+	faceEdges[faceEdges.size()-1].clipEdgeToOutline(roofFaces);
+
+	faceEdges[faceEdges.size()-2].clipToEdgeToNeighbors(roofFaces, faceEdges);
+	faceEdges[faceEdges.size()-1].clipToEdgeToNeighbors(roofFaces, faceEdges);
+	//clipEdgesToEdges();
+}
+
+void RoofBuilder2DNew::generateRoofGeometry(osg::Geometry* roofGeometry, osg::Vec3Array*  roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexcoords, float roofTexSpanY)
+{
+	int numRoofFaces= roofFaces.size();
+	for(int i=0;i<numRoofFaces;i++)
+	{
+		int iStart = roofVerts->size();
+		roofFaces[i].generateGeometry(roofVerts, roofNormals, roofTexcoords, roofTexSpanY, roofStartZ);
+		int numVertsAdded = roofVerts->size() - iStart;
+
+		if(numVertsAdded>=3)
+		{
+			osg::DrawElementsUInt* idx = new osg::DrawElementsUInt( GL_POLYGON );
+
+			for(int j=0;j<numVertsAdded;j++)
+				idx->push_back(iStart+j);
+			roofGeometry->addPrimitiveSet( idx );
+		}
+	}
 }
