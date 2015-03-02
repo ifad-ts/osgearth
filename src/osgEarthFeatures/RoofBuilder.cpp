@@ -269,10 +269,9 @@ float RoofFace::getPointDist(osg::Vec2 p)
 	return fabs(edgeNormal*(p-p1));
 }
 
-void RoofFace::generateGeometry(osg::Vec3Array* roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexCoords, float texSpanY, float roofStartZ)
+void RoofFace::generateGeometry(osg::Vec3Array* roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexCoords, float texSpanY, float roofStartZ, float roofAngle)
 {
-	float roofAngle = 45.0f;
-	float roofAngleRad = 45.0*osg::PI/180.0f;
+	float roofAngleRad = osg::DegreesToRadians(roofAngle);
 	float tangent = tan(roofAngleRad);
 
 	std::vector<osg::Vec3> outline;
@@ -552,13 +551,13 @@ void RoofBuilder2D::splitEvent(RoofFaceEdge& edge)
 	//clipEdgesToEdges();
 }
 
-void RoofBuilder2D::generateRoofGeometry(osg::Geometry* roofGeometry, osg::Vec3Array*  roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexcoords, float roofTexSpanY)
+void RoofBuilder2D::generateRoofGeometry(osg::Geometry* roofGeometry, osg::Vec3Array*  roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexcoords, float roofTexSpanY, float roofAngle)
 {
 	int numRoofFaces= roofFaces.size();
 	for(int i=0; i<numRoofFaces; i++)
 	{
 		int iStart = roofVerts->size();
-		roofFaces[i].generateGeometry(roofVerts, roofNormals, roofTexcoords, roofTexSpanY, roofStartZ);
+		roofFaces[i].generateGeometry(roofVerts, roofNormals, roofTexcoords, roofTexSpanY, roofStartZ, roofAngle);
 		int numVertsAdded = roofVerts->size() - iStart;
 
 		roofGeometry->addPrimitiveSet( new osg::DrawArrays(GL_POLYGON, iStart, numVertsAdded) );

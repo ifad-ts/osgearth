@@ -77,7 +77,7 @@ namespace osgEarth { namespace Features
 		osg::Vec2	getLeftEndPoint();
 		osg::Vec2	getRightEndPoint();
 		float		getPointDist(osg::Vec2 p);
-		void		generateGeometry(osg::Vec3Array* roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexCoords, float texSpanY, float roofStartZ);
+		void		generateGeometry(osg::Vec3Array* roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexCoords, float texSpanY, float roofStartZ, float roofAngle);
 		
 		unsigned int			faceIndex;
 		osg::Vec2				p1,p2;
@@ -102,7 +102,7 @@ namespace osgEarth { namespace Features
 		void	edgeEvent(RoofFaceEdge& edge);
 		void	splitEvent(RoofFaceEdge& edge);
 
-		void	generateRoofGeometry(osg::Geometry* roofGeometry, osg::Vec3Array*  roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexcoords, float roofTexSpanY);
+		void	generateRoofGeometry(osg::Geometry* roofGeometry, osg::Vec3Array*  roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexcoords, float roofTexSpanY, float roofAngle);
 
 		std::vector<RoofFace> roofFaces;
 		std::vector<RoofFaceEdge> faceEdges;

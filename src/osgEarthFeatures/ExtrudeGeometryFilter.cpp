@@ -1590,7 +1590,8 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometryNew(const Structure&     struct
 	double roofTexSpanY = roofSkin->imageHeight().isSet() ? *roofSkin->imageHeight() : roofSkin->imageWidth().isSet() ? *roofSkin->imageWidth() : 10.0;
 	if ( roofTexSpanY <= 0.0 ) roofTexSpanY = 10.0;
 
-	rb2DNew.generateRoofGeometry(roof, roofVerts, roofNormals, roofTexcoords,roofTexSpanY);
+	float roofAngle = _extrusionSymbol->roofPitch().get();
+	rb2DNew.generateRoofGeometry(roof, roofVerts, roofNormals, roofTexcoords,roofTexSpanY, roofAngle);
 
 	osg::Vec4Array* color = new osg::Vec4Array();
 	roof->setColorArray( color );
