@@ -1574,11 +1574,7 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometryNew(const Structure&     struct
 
 	iNumVerts = tempRoofVerts.size();
 
-	//RoofBuilder rb(tempRoofVerts,_extrusionSymbol->roofPitch().get());
-
-	//RoofBuilder2D rb2D(tempRoofVerts,_extrusionSymbol->roofPitch().get());
-
-	RoofBuilder2DNew rb2DNew(tempRoofVerts,_extrusionSymbol->roofPitch().get());
+	RoofBuilder2D rb2DNew(tempRoofVerts,_extrusionSymbol->roofPitch().get());
 
 	osg::Vec3Array* roofVerts = new osg::Vec3Array();
 	roof->setVertexArray( roofVerts );
@@ -1594,7 +1590,6 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometryNew(const Structure&     struct
 	double roofTexSpanY = roofSkin->imageHeight().isSet() ? *roofSkin->imageHeight() : roofSkin->imageWidth().isSet() ? *roofSkin->imageWidth() : 10.0;
 	if ( roofTexSpanY <= 0.0 ) roofTexSpanY = 10.0;
 
-	//rb.generateRoofGeometry(roof, roofVerts, roofNormals, roofTexcoords,roofTexSpanY);
 	rb2DNew.generateRoofGeometry(roof, roofVerts, roofNormals, roofTexcoords,roofTexSpanY);
 
 	osg::Vec4Array* color = new osg::Vec4Array();

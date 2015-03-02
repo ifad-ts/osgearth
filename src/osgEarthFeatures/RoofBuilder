@@ -29,196 +29,7 @@
 namespace osgEarth { namespace Features 
 {
     using namespace osgEarth;
-
-	struct RoofBuildStruct
-	{
-		RoofBuildStruct(const osg::Vec3& _p1, const osg::Vec3& _p2, float _roofAngle);
-		RoofBuildStruct(const osg::Vec3& _p1, const osg::Vec3& _p2, RoofBuildStruct& parent);
-		void init(const osg::Vec3& _p1, const osg::Vec3& _p2, float _roofAngle);
-		void inializeRoofEdges(RoofBuildStruct& next);
-		bool pointInsideRoofFace(const osg::Vec3& point);
-		bool rayIntersectsRoofPlane(const osg::Vec3& point, const osg::Vec3& dir, float& dist, osg::Vec3& intersection);
-		bool rayIntersectsRoofFace(const osg::Vec3& point, const osg::Vec3& dir, float& dist, osg::Vec3& intersection);
-		RoofBuildStruct split(const osg::Vec3 splitPoint);
-		void checkSplit(int myIndex, std::vector<RoofBuildStruct>& roof);
-		std::vector<RoofBuildStruct> doSplits();
-
-		void addSplitPoint(const osg::Vec3 splitPoint){splitPoints.push_back(splitPoint);}
-
-		//bool operator() (osg::Vec3 i, osg::Vec3 j) { return plane2.distance(i)<plane2.distance(j);} // compare function for sorting splitpoints
-		bool operator() (osg::Vec3 i, osg::Vec3 j) 
-		{ 
-			osg::Vec3 v1 = i-p2;
-			v1.normalize();
-			osg::Vec3 v2 = j-p2;
-			v2.normalize();
-
-			return acos(edgeDir2*v1) < acos(edgeDir2*v2);
-		} // compare function for sorting splitpoints
-
-		void	generateGeometry(osg::Vec3Array* roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexCoords, float texSpanY);
-
-		// setup in constructor
-		float		roofAngle;
-		osg::Vec3	p1,p2;						// bottom edge
-		osg::Vec3	edgeDir;					// direction of bottom edge
-		osg::Vec3	roofNormal;					// normal of roof plane
-		osg::Plane  roofPlane;					
-		osg::Vec3	bottomNormal;				// normal facing towards top of roof
-		osg::Plane  bottomPlane;
-
-		osg::Vec3	textureOrigo;
-
-		// setup in initialize roofedges
-		osg::Vec3	edgeDir1, edgeDir2;			// direction of edges towards top of roof, from p1 and p2
-		osg::Plane	plane1, plane2;				// edgePlanes normal points into roof
-
-		float		dist1, dist2;
-		int			index1, index2;
-
-		osg::Vec3   uAxis,vAxis;
-		
-		std::vector<osg::Vec3> splitPoints;
-	};
-
-	struct roofEdge
-	{
-		roofEdge(osg::Vec3 _p1, osg::Vec3 _p2, int _indx ){p1 = _p1; p2 = _p2; indx = _indx; bDelete=false;}
-		osg::Vec3 p1,p2;
-		int indx;
-		bool bDelete;
-	};
-
-	class OSGEARTHFEATURES_EXPORT RoofBuilder
-	{
-	public:
-		RoofBuilder(std::vector<osg::Vec3> outline, float roofAngle);
-		
-		std::vector<RoofBuildStruct> initialize(std::vector<osg::Vec3>& outline, float roofAngle);
-		std::vector<RoofBuildStruct> initialize(std::vector<roofEdge>& outline, std::vector<RoofBuildStruct>& parentRoof);
-		void calculateRoofFaces(std::vector<RoofBuildStruct>& roof);
-
-		std::vector<std::vector<roofEdge>> getOutlines(std::vector<RoofBuildStruct>& roof);
-
-		void generateRoofGeometry(osg::Geometry* roofGeometry, osg::Vec3Array* roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexCoords, float texSpanY);
-
-		std::vector<std::vector<RoofBuildStruct>> roofParts;
-	};
-
-
-	struct RoofBuildStruct2D
-	{
-		RoofBuildStruct2D(const osg::Vec3& _p1, const osg::Vec3& _p2);
-
-		RoofBuildStruct2D(const osg::Vec2& _p1, const osg::Vec2& _p2);
-
-		void initEdgeAndNormal();
-
-		void inializeRoofEdges(RoofBuildStruct2D& next);
-
-		osg::Vec2 p1,p2;
-		osg::Vec2 edgeDir;
-		osg::Vec2 edgeNormal;
-		float edgeLength;
-		
-		osg::Vec2 edgeDir1, edgeDir2;
-		float edgeLength1, edgeLength2;
-		int intersectIndex1, intersectIndex2;
-
-		float tempLength1, tempLength2;
-	};
-
-	struct RoofFaceEdgeList{
-
-		void clone(const RoofFaceEdgeList& other);
-
-		void initialize(struct RoofFace* ownerFace, struct RoofFace* neighborFace);
-		
-		void getCurrentEdge(osg::Vec2& start, osg::Vec2& dir, float& length);
-		void setCurrentEdge(const osg::Vec2& start, const osg::Vec2& dir, float length = FLT_MAX);
-		void advanceCurrentEdge(const osg::Vec2& start, const osg::Vec2& dir, float length);
-		osg::Vec2 calculateEdgeDir(struct RoofFace* neighborFace);
-
-		void splitEvent();
-		void vertexEvent();
-
-		struct RoofFace*			roofFace;
-		struct RoofFaceEdgeList*	neighborEdge;
-		std::vector<osg::Vec2>		edgePoints;
-		osg::Vec2					currentEdgeDir;
-		float						currentEdgeLength;
-		
-		float						nextEventTime;
-		
-		enum eventType {NA, VERTEX, SPLIT};
-		
-		eventType					evtType;
-		struct RoofFace*			splitFace;
-		osg::Vec2					splitPoint;
-
-		bool						bIsLeftEdge; // starting at p1 in RoofFace
-	};
-
-	struct RoofFace{
-		RoofFace(unsigned int index, const osg::Vec2& _p1, const osg::Vec2& _p2);
-		void initEdgeData();
-		void initializeEdgeLists(RoofFace* pPrevface, RoofFace* pNextFace);
-
-		void setCurrentP1Edge(const osg::Vec2& start, const osg::Vec2& dir, float length = FLT_MAX) {p1Edge.setCurrentEdge(start, dir ,length);}
-		void setCurrentP2Edge(const osg::Vec2& start, const osg::Vec2& dir, float length = FLT_MAX) {p2Edge.setCurrentEdge(start, dir ,length);}
-		
-		RoofFaceEdgeList&	getP1EdgeList(){return p1Edge;}
-		RoofFaceEdgeList&	getP2EdgeList(){return p2Edge;}
-
-		void	splitFace(std::vector<RoofFace>& roofFaces, RoofFaceEdgeList& splitEdge);
-
-		bool clipEdges();
-
-		void generateRoofFace();
-
-		unsigned int			faceIndex;
-		osg::Vec2				p1,p2;
-		osg::Vec2				edgeNormal;
-		osg::Vec2				edgeDir;
-		float					edgeLength;
-		RoofFaceEdgeList		p1Edge;
-		RoofFaceEdgeList		p2Edge;
-
-		bool					bDone; // roof face is done when p1Edge and p2Edge meet
-
-		std::vector<osg::Vec2> faceOutline;
-	};
 	
-
-	class OSGEARTHFEATURES_EXPORT RoofBuilder2D
-	{
-	public:
-		RoofBuilder2D(std::vector<osg::Vec3> outline, float roofAngle);
-		
-		std::vector<RoofBuildStruct2D> initialize(std::vector<osg::Vec3>& outline);
-		void initializeRoofEdgeLengths(std::vector<RoofBuildStruct2D>& roof);
-
-		void initializeRoofFaces(std::vector<osg::Vec3>& outline);
-		void clipEdgeToOutline(RoofFaceEdgeList& edge);
-		RoofFaceEdgeList* getMinEdge();
-		void	clipEdges();
-
-		//std::vector<RoofBuildStruct2D> initialize(std::vector<roofEdge2D>& outline, std::vector<RoofBuildStruct2D>& parentRoof);
-		//void calculateRoofFaces(std::vector<RoofBuildStruct2D>& roof);
-
-		//std::vector<std::vector<roofEdge2D>> getOutlines(std::vector<RoofBuildStruct2D>& roof);
-
-		//void generateRoofGeometry(osg::Geometry* roofGeometry, osg::Vec3Array* roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexCoords, float texSpanY);
-
-		std::vector<std::vector<RoofBuildStruct2D>> roofParts;
-		float	m_roofAngle;
-		float	m_roofBaseZ;
-
-		std::vector<RoofFace> roofFaces;
-
-		osg::Vec2 vMin, vMax;
-	};
-
 	struct SkeletonEvent{
 		SkeletonEvent():time(FLT_MAX){};
 		enum EventType{EDGE, SPLIT};
@@ -234,13 +45,13 @@ namespace osgEarth { namespace Features
 	};
 
 	struct RoofFaceEdge{
-		RoofFaceEdge(unsigned int _edgeIndex, std::vector<struct RoofFace2>& roofFaces, unsigned int _leftFaceIndex, unsigned int _rightFaceIndex);	
+		RoofFaceEdge(unsigned int _edgeIndex, std::vector<struct RoofFace>& roofFaces, unsigned int _leftFaceIndex, unsigned int _rightFaceIndex);	
 
 		osg::Vec2	getEndPoint();
-		void		clipEdgeToOutline(std::vector<struct RoofFace2>& roofFaces);
-		void		setIntersection(std::vector<RoofFace2>& roofFaces, RoofFaceEdge& edge, osg::Vec2 intersection);
-		void		clipToEdge(std::vector<RoofFace2>& roofFaces, RoofFaceEdge& edge);
-		void		clipToEdgeToNeighbors(std::vector<RoofFace2>& roofFaces, std::vector<RoofFaceEdge>& faceEdges);
+		void		clipEdgeToOutline(std::vector<struct RoofFace>& roofFaces);
+		void		setIntersection(std::vector<RoofFace>& roofFaces, RoofFaceEdge& edge, osg::Vec2 intersection);
+		void		clipToEdge(std::vector<RoofFace>& roofFaces, RoofFaceEdge& edge);
+		void		clipToEdgeToNeighbors(std::vector<RoofFace>& roofFaces, std::vector<RoofFaceEdge>& faceEdges);
 
 		void		Disable(){bActive = false;}
 
@@ -258,11 +69,11 @@ namespace osgEarth { namespace Features
 		float			createTime;
 	};
 
-	struct RoofFace2
+	struct RoofFace
 	{
-		RoofFace2(unsigned int index, const osg::Vec2& _p1, const osg::Vec2& _p2);
+		RoofFace(unsigned int index, const osg::Vec2& _p1, const osg::Vec2& _p2);
 		void		initEdgeData();
-		RoofFace2&	splitFace(std::vector<struct RoofFace2>& roofFaces, osg::Vec2 splitPoint);
+		RoofFace&	splitFace(std::vector<struct RoofFace>& roofFaces, osg::Vec2 splitPoint);
 		osg::Vec2	getLeftEndPoint();
 		osg::Vec2	getRightEndPoint();
 		float		getPointDist(osg::Vec2 p);
@@ -280,10 +91,10 @@ namespace osgEarth { namespace Features
 		osg::Vec2				textureOrigo;
 	};
 
-	class OSGEARTHFEATURES_EXPORT RoofBuilder2DNew
+	class OSGEARTHFEATURES_EXPORT RoofBuilder2D
 	{
 	public:
-		RoofBuilder2DNew(std::vector<osg::Vec3> outline, float roofAngle);
+		RoofBuilder2D(std::vector<osg::Vec3> outline, float roofAngle);
 		void	clipEdgesToOutline();
 		void	clipEdgesToEdges();
 		int		getMinEdgeIndex();
@@ -293,7 +104,7 @@ namespace osgEarth { namespace Features
 
 		void	generateRoofGeometry(osg::Geometry* roofGeometry, osg::Vec3Array*  roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexcoords, float roofTexSpanY);
 
-		std::vector<RoofFace2> roofFaces;
+		std::vector<RoofFace> roofFaces;
 		std::vector<RoofFaceEdge> faceEdges;
 		float	roofStartZ;
 
