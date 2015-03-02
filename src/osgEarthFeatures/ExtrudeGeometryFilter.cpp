@@ -1597,16 +1597,16 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometryNew(const Structure&     struct
 	//rb.generateRoofGeometry(roof, roofVerts, roofNormals, roofTexcoords,roofTexSpanY);
 	rb2DNew.generateRoofGeometry(roof, roofVerts, roofNormals, roofTexcoords,roofTexSpanY);
 
-	// Tessellate the roof lines into polygons.
-	/*osgUtil::Tessellator tess;
-	tess.setTessellationType( osgUtil::Tessellator::TESS_TYPE_GEOMETRY );
-	tess.setWindingType( osgUtil::Tessellator::TESS_WINDING_ODD );
-	tess.retessellatePolygons( *roof );*/
-
 	osg::Vec4Array* color = new osg::Vec4Array();
 	roof->setColorArray( color );
 	roof->setColorBinding( osg::Geometry::BIND_PER_VERTEX );
 	color->assign( roofVerts->size(), roofColor );		
+
+	// Tessellate the roof lines into polygons.
+	osgUtil::Tessellator tess;
+	tess.setTessellationType( osgUtil::Tessellator::TESS_TYPE_DRAWABLE );
+	tess.setWindingType( osgUtil::Tessellator::TESS_WINDING_ODD );
+	tess.retessellatePolygons( *roof );
 
 	return true;
 }

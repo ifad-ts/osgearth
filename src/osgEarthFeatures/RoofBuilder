@@ -276,6 +276,8 @@ namespace osgEarth { namespace Features
 
 		std::vector<osg::Vec2> leftEdge;
 		std::vector<osg::Vec2> rightEdge;
+
+		osg::Vec2				textureOrigo;
 	};
 
 	class OSGEARTHFEATURES_EXPORT RoofBuilder2DNew

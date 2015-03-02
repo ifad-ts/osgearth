@@ -1528,6 +1528,8 @@ p2(_p2)
 	leftEdge.push_back(p1);
 	rightEdge.push_back(p2);
 	initEdgeData();
+
+	textureOrigo = p1;
 }
 
 void RoofFace2::initEdgeData()
@@ -1552,6 +1554,8 @@ RoofFace2& RoofFace2::splitFace(std::vector<RoofFace2>& roofFaces, osg::Vec2 spl
 	rightEdge.push_back(splitPoint);
 	p2 = splitPoint;
 	initEdgeData();
+
+	newFace.textureOrigo = textureOrigo;
 
 	return newFace;
 }
@@ -1590,20 +1594,20 @@ void RoofFace2::generateGeometry(osg::Vec3Array* roofVerts, osg::Vec3Array* roof
 	int leftEdgeSize = leftEdge.size();
 	for(int i=leftEdgeSize-1; i>0;i--) // skip leftEdge[0] since it's p1
 	{
-		float height = roofStartZ + getPointDist(leftEdge[i])*tangent;
+		float height =  roofStartZ + getPointDist(leftEdge[i])*tangent;
 		outline.push_back(osg::Vec3(leftEdge[i].x(), leftEdge[i].y(), height));
 	}
 	int nPoints = outline.size();
 	osg::Vec3 roofNormal = osg::Vec3(0,0,sin(roofAngleRad)) -osg::Vec3(edgeNormal.x(),edgeNormal.y(),0.0f)*cos(roofAngleRad);
 	osg::Vec3 uAxis = osg::Vec3(edgeNormal.x(),edgeNormal.y(),0.0f)*cos(roofAngleRad) + osg::Vec3(0,0,sin(roofAngleRad));
 	osg::Vec3 vAxis = osg::Vec3(edgeDir.x(),edgeDir.y(),0.0f);
-	osg::Vec3 textureOrigo = outline[0];
+	osg::Vec3 textureOrigo3D = osg::Vec3(textureOrigo.x(),textureOrigo.y(), roofStartZ); 
 	for(int i=0;i<nPoints;i++)
 	{
 		roofVerts->push_back(outline[i]);
 		roofNormals->push_back( roofNormal);
 
-		osg::Vec3 dir = outline[i]-textureOrigo;
+		osg::Vec3 dir = outline[i]-textureOrigo3D;
 		float u = (uAxis * dir)/texSpanY;
 		float v = (vAxis * dir)/texSpanY;
 		roofTexCoords->push_back(osg::Vec3(u,v,0));
@@ -1857,19 +1861,12 @@ void RoofBuilder2DNew::splitEvent(RoofFaceEdge& edge)
 void RoofBuilder2DNew::generateRoofGeometry(osg::Geometry* roofGeometry, osg::Vec3Array*  roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexcoords, float roofTexSpanY)
 {
 	int numRoofFaces= roofFaces.size();
-	for(int i=0;i<numRoofFaces;i++)
+	for(int i=0; i<numRoofFaces; i++)
 	{
 		int iStart = roofVerts->size();
 		roofFaces[i].generateGeometry(roofVerts, roofNormals, roofTexcoords, roofTexSpanY, roofStartZ);
 		int numVertsAdded = roofVerts->size() - iStart;
 
-		if(numVertsAdded>=3)
-		{
-			osg::DrawElementsUInt* idx = new osg::DrawElementsUInt( GL_POLYGON );
-
-			for(int j=0;j<numVertsAdded;j++)
-				idx->push_back(iStart+j);
-			roofGeometry->addPrimitiveSet( idx );
-		}
+		roofGeometry->addPrimitiveSet( new osg::DrawArrays(GL_POLYGON, iStart, numVertsAdded) );
 	}
 }
