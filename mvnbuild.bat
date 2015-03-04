@@ -21,6 +21,7 @@ cmake -G "Visual Studio 12 Win64" ^
 -D CURL_LIBRARY_DEBUG=%THIRDPARTY%/lib/libcurld.lib ^
 -D OSGEARTH_USE_QT=OFF ^
 -D CMAKE_INSTALL_PREFIX=%INSTALLDIR% ^
+-D OSG_VERSION_EXE=%OSGDIR%/bin/release/osgversion.exe ^
 -D WIN32_USE_MP=ON ^
 -D ENABLE_FASTDXT=ON ^
 %CURRENT_DIR% || exit 
