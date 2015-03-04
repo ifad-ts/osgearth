@@ -435,7 +435,7 @@ int RoofBuilder2D::getMinEdgeIndex()
 	int minEdgeIndex = -1;
 	for(int i=0; i<numEdges; i++)
 	{
-		if(!faceEdges[i].bActive || (faceEdges[i].createTime > faceEdges[i].evt.time))
+		if(!faceEdges[i].bActive || (faceEdges[i].createTime > faceEdges[i].evt.time) || faceEdges[i].evt.evtType == SkeletonEvent::SPLIT)
 			continue;
 		if(faceEdges[i].evt.time < minTime)
 		{
