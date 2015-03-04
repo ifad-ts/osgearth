@@ -112,12 +112,14 @@ void RoofFaceEdge::clipEdgeToOutline(std::vector<RoofFace>& roofFaces)
 			//it's the point on the edge, with the same perpendicular distance to the 2 face edges
 			// p(t) = vStart + t*vDir
 			// n1 * (p(t)-currentFace.p1) = n2 * (p(t)-roofFaces[leftFaceIndex].p1)
-			osg::Vec2 n1 = currentFace.edgeNormal;
+			/*osg::Vec2 n1 = currentFace.edgeNormal;
 			osg::Vec2 n2 = roofFaces[leftFaceIndex].edgeNormal;
 			float tNew = (n1*(vStart-currentFace.p1) - n2*(vStart-roofFaces[leftFaceIndex].p1))/(vDir * (n2-n1));
 			
 			if(tNew >= 0 && tNew <= length)
-				length = tNew;
+				length = tNew;*/
+
+			length *= t;
 
 			evt.evtType = SkeletonEvent::SPLIT;
 			evt.intersection = intersect;
