@@ -31,7 +31,7 @@
             <directory>target/mvninstall/Debug/bin</directory>
             <outputDirectory>/bin/debug</outputDirectory>
             <includes>
-                <include>*.dll</include>
+                <include>**/*.dll</include>
             </includes>
         </fileSet>
         <fileSet>
@@ -45,7 +45,8 @@
             <directory>target/mvninstall/Release/bin</directory>
             <outputDirectory>/bin/release</outputDirectory>
             <includes>
-                <include>*.dll</include>
+                <include>**/*.dll</include>
+				<include>*.exe</include>
             </includes>
         </fileSet>		
     </fileSets>
