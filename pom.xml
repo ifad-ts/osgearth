@@ -6,7 +6,7 @@
     <groupId>dk.ifad.native</groupId>
     <artifactId>osgEarth</artifactId>
     <name>dk.ifad.native.osgEarth</name>
-    <version>2.6-ifad2</version>
+    <version>2.6-ifad3</version>
 
     <dependencies>
         <dependency>
