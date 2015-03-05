@@ -7,6 +7,13 @@
     <baseDirectory></baseDirectory>
     <fileSets>
         <fileSet>
+            <directory>.</directory>
+            <outputDirectory>/</outputDirectory>
+            <includes>
+                <include>HISTORY.txt</include>
+            </includes>
+        </fileSet>
+        <fileSet>
             <directory>target/mvninstall/Debug/include</directory>
             <outputDirectory>/include</outputDirectory>
             <includes>
