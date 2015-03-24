@@ -92,6 +92,10 @@ namespace osgEarth { namespace Symbology
         optional<float>& roofPitch() { return _roofPitch; }
         const optional<float>& roofPitch() const { return _roofPitch; }
 
+		/** Simple expression to evaluate to get height */
+		optional<NumericExpression>& roofPitchExpression() { return _roofPitchExpr; }
+		const optional<NumericExpression>& roofPitchExpression() const { return _roofPitchExpr; }
+
     public:
         virtual Config getConfig() const;
         virtual void mergeConfig( const Config& conf );
@@ -106,6 +110,7 @@ namespace osgEarth { namespace Symbology
         optional<std::string>       _roofStyleName;
         optional<float>             _wallGradientPercentage;
 		optional<float>             _roofPitch;
+		optional<NumericExpression> _roofPitchExpr;
     };
 
 } } // namespace osgEarth::Symbology

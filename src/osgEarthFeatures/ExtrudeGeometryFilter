@@ -180,6 +180,7 @@ namespace osgEarth { namespace Features
         osg::ref_ptr<HeightCallback>   _heightCallback;
         optional<NumericExpression>    _heightOffsetExpr;
         optional<NumericExpression>    _heightExpr;
+		optional<NumericExpression>    _roofPitchExpr;
         bool                           _makeStencilVolume;
         optional<bool>                 _useVertexBufferObjects;
 
@@ -232,15 +233,18 @@ namespace osgEarth { namespace Features
 		bool buildSquarePitchedRoofGeometry(const Structure&     structure,
                                osg::Geometry*       roof,
                                const osg::Vec4&     roofColor,
-                               const SkinResource*  roofSkin);
+                               const SkinResource*  roofSkin,
+							   float				roofPitch);
 		bool buildTVPitchedRoofGeometry(const Structure&     structure,
                                osg::Geometry*       roof,
                                const osg::Vec4&     roofColor,
-                               const SkinResource*  roofSkin);
+                               const SkinResource*  roofSkin,
+							   float				roofPitch);
 		bool buildTVPitchedRoofGeometryNew(const Structure&     structure,
 							   osg::Geometry*       roof,
 							   const osg::Vec4&     roofColor,
-							   const SkinResource*  roofSkin);
+							   const SkinResource*  roofSkin,
+							   float				roofPitch);
 
         bool buildOutlineGeometry(const Structure&  structure,
                                   osg::Geometry*    outline,

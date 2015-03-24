@@ -35,6 +35,7 @@ Symbol(rhs, copyop)
     _roofStyleName = rhs._roofStyleName;
     _wallGradientPercentage = rhs._wallGradientPercentage;
 	_roofPitch = rhs._roofPitch;
+	_roofPitchExpr = rhs._roofPitchExpr;
 }
 
 ExtrusionSymbol::ExtrusionSymbol( const Config& conf ) :
@@ -63,6 +64,7 @@ ExtrusionSymbol::getConfig() const
     conf.addIfSet   ( "roof_style", _roofStyleName );
     conf.addIfSet   ( "wall_gradient", _wallGradientPercentage );
 	conf.addIfSet   ( "roof_pitch", _roofPitch );
+	conf.addObjIfSet("roof_pitch_expression", _roofPitchExpr);
     return conf;
 }
 
@@ -78,6 +80,7 @@ ExtrusionSymbol::mergeConfig( const Config& conf )
     conf.getIfSet   ( "roof_style", _roofStyleName );
     conf.getIfSet   ( "wall_gradient", _wallGradientPercentage );
 	conf.getIfSet   ( "roof_pitch", _roofPitch );
+	conf.getObjIfSet("roof_pitch_expression", _roofPitchExpr);
 }
 
 void
@@ -102,6 +105,6 @@ ExtrusionSymbol::parseSLD(const Config& c, Style& style)
         style.getOrCreate<ExtrusionSymbol>()->script() = StringExpression(c.value());
     }
 	else if ( match(c.key(), "extrusion-roof-pitch") ) {
-		style.getOrCreate<ExtrusionSymbol>()->roofPitch() = as<float>(c.value(), 0.0f);
+		style.getOrCreate<ExtrusionSymbol>()->roofPitchExpression() = NumericExpression(c.value());
 	}
 }

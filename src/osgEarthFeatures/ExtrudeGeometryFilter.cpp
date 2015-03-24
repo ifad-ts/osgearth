@@ -119,6 +119,11 @@ ExtrudeGeometryFilter::reset( const FilterContext& context )
                 _heightExpr = *_extrusionSymbol->heightExpression();
             }
 
+			if (_extrusionSymbol->roofPitchExpression().isSet())
+			{
+				_roofPitchExpr = *_extrusionSymbol->roofPitchExpression();
+			}
+
             // If there is no height expression, and we have either absolute or terrain-relative
             // clamping, THAT means that we want to extrude DOWN from the geometry to the ground
             // (instead of from the geometry.)
@@ -699,7 +704,8 @@ bool
 ExtrudeGeometryFilter::buildSquarePitchedRoofGeometry(const Structure&     structure,
 										 osg::Geometry*       roof,
 										 const osg::Vec4&     roofColor,
-										 const SkinResource*  roofSkin)
+										 const SkinResource*  roofSkin,
+										 float				  roofPitch)
 {    
 	const unsigned nVerts=18;
 
@@ -770,7 +776,7 @@ ExtrudeGeometryFilter::buildSquarePitchedRoofGeometry(const Structure&     struc
 	}
 
 
-	float roofHeight = 0.5f*(std::min(l1,l2)+1.0f) * tan(osg::DegreesToRadians(_extrusionSymbol->roofPitch().get()));
+	float roofHeight = 0.5f*(std::min(l1,l2)+1.0f) * tan(osg::DegreesToRadians(roofPitch));
 
 	osg::DrawElementsUInt* idx = new osg::DrawElementsUInt( GL_TRIANGLES );
 	if(l1<l2)
@@ -1008,7 +1014,8 @@ bool
 ExtrudeGeometryFilter::buildTVPitchedRoofGeometry(const Structure&     structure,
 													  osg::Geometry*       roof,
 													  const osg::Vec4&     roofColor,
-													  const SkinResource*  roofSkin)
+													  const SkinResource*  roofSkin,
+													  float				   roofPitch)
 { 
 	int iNumVerts = structure.getNumSourcePoints();
 	osg::Vec3* tempRoofVerts = new osg::Vec3[iNumVerts];
@@ -1138,7 +1145,7 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometry(const Structure&     structure
 
 	//copy outline, and shrink original and move up, since it has been tesselated
 	//add 0.5 to offset when calculating roof height because roof width is increased by 0.5 on each side
-	float roofHeight = (offset+0.5f) * tan(osg::DegreesToRadians(_extrusionSymbol->roofPitch().get()));
+	float roofHeight = (offset+0.5f) * tan(osg::DegreesToRadians(roofPitch));
 	int iExtraIndex=0;
 	for(int i=0;i<iNumVerts;i++)
 	{
@@ -1197,7 +1204,7 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometry(const Structure&     structure
 	double roofTexSpanY = roofSkin->imageHeight().isSet() ? *roofSkin->imageHeight() : roofSkin->imageWidth().isSet() ? *roofSkin->imageWidth() : 10.0;
 	if ( roofTexSpanY <= 0.0 ) roofTexSpanY = 10.0;
 
-	float quadHeight = offset/cos(osg::DegreesToRadians(_extrusionSymbol->roofPitch().get()));
+	float quadHeight = offset/cos(osg::DegreesToRadians(roofPitch));
 	float uTop = quadHeight/roofTexSpanY;
 
 	for(int i=iNumVerts;i<iNewNumVerts;i+=4)
@@ -1252,7 +1259,8 @@ bool
 ExtrudeGeometryFilter::buildTVPitchedRoofGeometry(const Structure&     structure,
 													  osg::Geometry*       roof,
 													  const osg::Vec4&     roofColor,
-													  const SkinResource*  roofSkin)
+													  const SkinResource*  roofSkin,
+													  float				   roofPitch)
 { 
 	int iNumVerts = structure.getNumSourcePoints();
 	osg::Vec3* tempRoofVerts = new osg::Vec3[iNumVerts];
@@ -1367,7 +1375,7 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometry(const Structure&     structure
 
 	//copy outline, and shrink original and move up
 	//add 0.5 to offset when calculating roof height because roof width is increased by 0.5 on each side
-	float roofHeight = (offset+0.5f) * tan(osg::DegreesToRadians(_extrusionSymbol->roofPitch().get()));
+	float roofHeight = (offset+0.5f) * tan(osg::DegreesToRadians(roofPitch));
 	int iExtraIndex=0;
 	for(int i=0;i<iNumVerts;i++)
 	{
@@ -1474,7 +1482,7 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometry(const Structure&     structure
 	double roofTexSpanY = roofSkin->imageHeight().isSet() ? *roofSkin->imageHeight() : roofSkin->imageWidth().isSet() ? *roofSkin->imageWidth() : 10.0;
 	if ( roofTexSpanY <= 0.0 ) roofTexSpanY = 10.0;
 
-	float quadHeight = offset/cos(osg::DegreesToRadians(_extrusionSymbol->roofPitch().get()));
+	float quadHeight = offset/cos(osg::DegreesToRadians(roofPitch));
 	float uTop = quadHeight/roofTexSpanY;
 
 	for(int i=iNumVerts;i<iNewNumVerts;i+=4)
@@ -1525,7 +1533,8 @@ bool
 ExtrudeGeometryFilter::buildTVPitchedRoofGeometryNew(const Structure&     structure,
 													 osg::Geometry*       roof,
 													 const osg::Vec4&     roofColor,
-													 const SkinResource*  roofSkin)
+													 const SkinResource*  roofSkin,
+													 float				  roofPitch)
 { 
 	float EPSILON = 0.001f;
 
@@ -1574,7 +1583,7 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometryNew(const Structure&     struct
 
 	iNumVerts = tempRoofVerts.size();
 
-	RoofBuilder2D rb2DNew(tempRoofVerts,_extrusionSymbol->roofPitch().get());
+	RoofBuilder2D rb2DNew(tempRoofVerts, roofPitch);
 
 	osg::Vec3Array* roofVerts = new osg::Vec3Array();
 	roof->setVertexArray( roofVerts );
@@ -1590,7 +1599,7 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometryNew(const Structure&     struct
 	double roofTexSpanY = roofSkin->imageHeight().isSet() ? *roofSkin->imageHeight() : roofSkin->imageWidth().isSet() ? *roofSkin->imageWidth() : 10.0;
 	if ( roofTexSpanY <= 0.0 ) roofTexSpanY = 10.0;
 
-	float roofAngle = _extrusionSymbol->roofPitch().get();
+	float roofAngle = roofPitch;
 	rb2DNew.generateRoofGeometry(roof, roofVerts, roofNormals, roofTexcoords,roofTexSpanY, roofAngle);
 
 	osg::Vec4Array* color = new osg::Vec4Array();
@@ -1785,6 +1794,17 @@ ExtrudeGeometryFilter::process( FeatureList& features, FilterContext& context )
                 height = *_extrusionSymbol->height();
             }
 
+			float roofPitch;
+			if (_roofPitchExpr.isSet())
+			{
+				roofPitch = input->eval( _roofPitchExpr.mutable_value(), &context );
+			}
+			else
+			{
+				roofPitch = *_extrusionSymbol->roofPitch();
+			}
+
+
             // calculate the height offset from the base:
             float offset = 0.0;
             if ( _heightOffsetExpr.isSet() )
@@ -1878,14 +1898,14 @@ ExtrudeGeometryFilter::process( FeatureList& features, FilterContext& context )
                     roofColor = _roofPolygonSymbol->fill()->color();
                 }
 
-				bool createPitchedRoof = (_extrusionSymbol.valid() && _extrusionSymbol->roofPitch()>0.0f);
+				bool createPitchedRoof = roofPitch>5.0f;
 				if(createPitchedRoof && part->getNumGeometries()==1)
 				{
 					if(structure.getNumSourcePoints()==4)
-						buildSquarePitchedRoofGeometry(structure, rooflines.get(), roofColor, roofSkin);
+						buildSquarePitchedRoofGeometry(structure, rooflines.get(), roofColor, roofSkin, roofPitch);
 					else
-						//buildTVPitchedRoofGeometry(structure, rooflines.get(), roofColor, roofSkin);
-						buildTVPitchedRoofGeometryNew(structure, rooflines.get(), roofColor, roofSkin);
+						//buildTVPitchedRoofGeometry(structure, rooflines.get(), roofColor, roofSkin, roofPitch);
+						buildTVPitchedRoofGeometryNew(structure, rooflines.get(), roofColor, roofSkin, roofPitch);
 				}
 				else
 				{
