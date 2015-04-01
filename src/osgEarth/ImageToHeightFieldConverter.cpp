@@ -33,7 +33,7 @@ isNoData( short s )
 static bool
 isNoData( float f )
 {
-  return f == FLT_MAX || f == FLT_MIN;
+  return f == FLT_MAX || f == FLT_MIN || f == -32767;
 }
 
 
