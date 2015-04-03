@@ -1,7 +1,7 @@
 %global osg_ver 3.2.1
 
 Name:           osgearth-ifad
-Version:        2.6.4
+Version:        2.6.5
 Release:        1%{?dist}
 Summary:        Dynamic map generation toolkit for OpenSceneGraph (IFAD version)
 
@@ -190,6 +190,9 @@ rm -f docs/build/html/.buildinfo
 
 
 %changelog
+* Wed May 13 2015 Michael Bach <michael@ifad.dk> - 2.6.5-1
+- Fix: Terrain becoming slightly transparent when you get very close to the ground.
+
 * Fri May 08 2015 Michael Bach <michael@ifad.dk> - 2.6.4-1
 - Supports namespaced replies from GetCapabilities.
 - No longer queries outside the boundaries of a WCS coverage by adding a call to GetCapabilities.
