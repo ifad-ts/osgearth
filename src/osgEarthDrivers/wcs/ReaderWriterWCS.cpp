@@ -21,6 +21,7 @@
 #include <osgDB/FileUtils>
 #include <osgDB/Registry>
 #include <osgDB/ReadFile>
+#include "WCS10Source.h"
 #include "WCS11Source.h"
 #include <sstream>
 #include <stdlib.h>
@@ -34,7 +35,7 @@ public:
 
     virtual const char* className()
     {
-        return "WCS 1.1.0 Reader";
+        return "WCS 1.x.0 Reader";
     }
 
     virtual bool acceptsExtension(const std::string& extension) const
@@ -49,7 +50,17 @@ public:
         {
             return ReadResult::FILE_NOT_HANDLED;
         }
-        return new WCS11Source( getTileSourceOptions(opt) );
+        
+        WCSOptions wcsOpt(getTileSourceOptions(opt));
+        if (wcsOpt.version().value() == std::string("1.0") ||
+            wcsOpt.version().value() == std::string("1.0.0"))
+        {
+            return new WCS10Source(getTileSourceOptions(opt));
+        }
+        else
+        {
+            return new WCS11Source(getTileSourceOptions(opt));
+        }
     }
 };
 
