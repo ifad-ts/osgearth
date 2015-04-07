@@ -49,6 +49,9 @@ namespace osgEarth { namespace Drivers
         optional<std::string>& rangeSubset() { return _rangeSubset; }
         const optional<std::string>& rangeSubset() const { return _rangeSubset; }
 
+        optional<std::string>& version() { return _version; }
+        const optional<std::string>& version() const { return _version; }
+
     public:
         WCSOptions( const TileSourceOptions& opt =TileSourceOptions() ) :
           TileSourceOptions( opt ),
@@ -70,6 +73,7 @@ namespace osgEarth { namespace Drivers
             conf.updateIfSet("elevation_unit", _elevationUnit);
             conf.updateIfSet("srs", _srs);
             conf.updateIfSet("range_subset", _rangeSubset);
+            conf.updateIfSet("version", _version);
             return conf;
         }
 
@@ -87,10 +91,11 @@ namespace osgEarth { namespace Drivers
             conf.getIfSet("elevation_unit", _elevationUnit);
             conf.getIfSet("srs", _srs);
             conf.getIfSet("range_subset", _rangeSubset);
+            conf.getIfSet("version", _version);
         }
 
         optional<URI>         _url;
-        optional<std::string> _identifier, _format, _elevationUnit, _srs, _rangeSubset;
+        optional<std::string> _identifier, _format, _elevationUnit, _srs, _rangeSubset, _version;
     };
 
 } } // namespace osgEarth::Drivers
