@@ -28,6 +28,7 @@
 
 using namespace osgEarth;
 
+#define LC "[osgEarth::WCS1.0] "
 
 WCS10Source::WCS10Source( const TileSourceOptions& options ) :
 TileSource( options ),
@@ -66,7 +67,7 @@ WCS10Source::createImage(const TileKey&        key,
 {
     HTTPRequest request = createRequest(key);
 
-    OE_INFO << "[osgEarth::WCS1.1] Key=" << key.str() << " URL = " << request.getURL() << std::endl;
+    OE_INFO << LC << "Key=" << key.str() << " URL = " << request.getURL() << std::endl;
 
     double lon0,lat0,lon1,lat1;
     key.getExtent().getBounds( lon0, lat0, lon1, lat1 );
@@ -75,7 +76,7 @@ WCS10Source::createImage(const TileKey&        key,
     HTTPResponse response = HTTPClient::get( request, _dbOptions.get(), progress );
     if ( !response.isOK() )
     {
-        OE_WARN << "[osgEarth::WCS1.1] WARNING: HTTP request failed" << std::endl;
+        OE_WARN << LC << "WARNING: HTTP request failed" << std::endl;
         return NULL;
     }
 
@@ -88,16 +89,14 @@ WCS10Source::createImage(const TileKey&        key,
 
     if ( !reader )
     {
-        OE_NOTICE << "[osgEarth::WCS1.1] WARNING: no reader for \"tiff\"" << std::endl;
+        OE_NOTICE << LC << "WARNING: no reader for \"tiff\"" << std::endl;
         return NULL;
     }
 
     osgDB::ReaderWriter::ReadResult result = reader->readImage( input_stream ); //, getOptions() );
-    //osgDB::ReaderWriter::ReadResult result = reader->readImage("D:/srv/spatialData/derived/elevation/DTM10-DK-MASKED-2015-03-11/data/test.tif");
-    //osgDB::ReaderWriter::ReadResult result = reader->readImage("C:/Users/Michael/Downloads/wcs.tif");
     if ( !result.success() )
     {
-        OE_NOTICE << "[osgEarth::WCS1.1] WARNING: readImage() failed for Reader " << reader->getName() << std::endl;
+        OE_NOTICE << LC << "WARNING: readImage() failed for Reader " << reader->getName() << std::endl;
         return NULL;
     }
 
