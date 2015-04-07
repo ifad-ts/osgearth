@@ -117,7 +117,7 @@ WCS10Source::createHeightField(const TileKey&        key,
     if ( image.valid() )
     {        
         ImageToHeightFieldConverter conv;
-        conv.setRemoveNoDataValues( true, NO_DATA_VALUE );
+        conv.setRemoveNoDataValues( true );
         field = conv.convert( image.get() );
     }
 
