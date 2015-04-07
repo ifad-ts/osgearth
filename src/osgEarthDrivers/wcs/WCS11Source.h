@@ -53,12 +53,11 @@ public: // TileSource interface
 
 private:
     const WCSOptions _options;
-    std::string _covFormat, _osgFormat, _wcsVersion;
+    std::string _covFormat, _osgFormat;
 
     osg::ref_ptr<osgDB::Options> _dbOptions;
 
     HTTPRequest createRequest( const TileKey& key ) const;
-    HTTPRequest create10Request(const TileKey& key) const;
 };
 
 #endif // OSGEARTH_WCS_PLUGIN_WCS11SOURCE_H_
