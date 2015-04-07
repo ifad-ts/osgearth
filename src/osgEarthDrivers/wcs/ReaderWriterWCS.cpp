@@ -55,11 +55,17 @@ public:
         if (wcsOpt.version().value() == std::string("1.0") ||
             wcsOpt.version().value() == std::string("1.0.0"))
         {
-            return new WCS10Source(getTileSourceOptions(opt));
+            return new WCS10Source(wcsOpt);
+        }
+        else if (wcsOpt.version().value() == std::string("1.1") ||
+                 wcsOpt.version().value() == std::string("1.1.0"))
+        {
+            return new WCS11Source(wcsOpt);
         }
         else
         {
-            return new WCS11Source(getTileSourceOptions(opt));
+            OE_NOTICE << "[osgEarth::WCS] Unknown or unspecified WCS version. Reverting to WCS version 1.1.0" << std::endl;
+            return new WCS11Source(wcsOpt);
         }
     }
 };
