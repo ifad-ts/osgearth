@@ -5,7 +5,12 @@ CALL :RESOLVE "target\deps\3rdparty" THIRDPARTY
 CALL :RESOLVE "target\deps\geos" GEOS
 
 set CURRENT_DIR=%CD%
-CALL :RESOLVE "target\mvninstall\%1" INSTALLDIR
+CALL :RESOLVE "target\install" INSTALLDIR
+
+rmdir /s /q target\temptinstall
+mkdir target\install
+move target\install target\temptinstall || exit 
+
 CALL :MKANDPUSHD target\mvnbuild
 
 cmake -G "Visual Studio 12 Win64" ^
@@ -27,8 +32,13 @@ cmake -G "Visual Studio 12 Win64" ^
 %CURRENT_DIR% || exit 
 
 devenv.com %NAME%.sln /build %1 /Project INSTALL || exit 
-GOTO :EOF
+popd
 
+rmdir /s /q target\mvninstall\%1
+move target\install target\mvninstall\%1 || exit 
+move target\temptinstall target\install || exit 
+xcopy target\mvninstall\%1 target\install /e /y || exit 
+GOTO :EOF
 
 :RESOLVE
 SET TEMPRESOLVE=%~f1
