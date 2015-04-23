@@ -4,9 +4,8 @@
     <modelVersion>4.0.0</modelVersion>
  
     <groupId>dk.ifad.native</groupId>
-    <artifactId>osgEarth</artifactId>
-    <name>dk.ifad.native.osgEarth</name>
-    <version>2.6-ifad3</version>
+    <artifactId>osgearth-ifad</artifactId>
+    <version>2.6.4-SNAPSHOT</version>
 
     <dependencies>
         <dependency>
