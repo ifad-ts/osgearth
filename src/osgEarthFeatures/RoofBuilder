@@ -79,6 +79,9 @@ namespace osgEarth { namespace Features
 		float		getPointDist(osg::Vec2 p);
 		void		generateGeometry(osg::Vec3Array* roofVerts, osg::Vec3Array* roofNormals, osg::Vec3Array* roofTexCoords, float texSpanY, float roofStartZ, float roofAngle);
 		
+		void		setLeftEdgeIndex(unsigned int index){ leftEdgeIndex = index; }
+		void		setRightEdgeIndex(unsigned int index){ rightEdgeIndex = index; }
+
 		unsigned int			faceIndex;
 		osg::Vec2				p1,p2;
 		osg::Vec2				edgeNormal;
@@ -87,6 +90,9 @@ namespace osgEarth { namespace Features
 
 		std::vector<osg::Vec2> leftEdge;
 		std::vector<osg::Vec2> rightEdge;
+
+		unsigned int			leftEdgeIndex;
+		unsigned int			rightEdgeIndex;
 
 		osg::Vec2				textureOrigo;
 	};

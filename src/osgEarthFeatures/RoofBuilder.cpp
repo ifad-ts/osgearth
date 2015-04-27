@@ -19,40 +19,175 @@ float	defaultLength = FLT_MAX;
 bool test2DRayRay(osg::Vec2 p1, osg::Vec2 d1, osg::Vec2 p2, osg::Vec2 d2, osg::Vec2& intersect)
 {
 	osg::Vec2 n(-d2.y(), d2.x());
-	if(fabs(n*d1) < EPSILON ) //parallel rays
+	if (fabs(n*d1) < EPSILON) //parallel rays
 		return false;
-	
-	float d = (p2-p1)*n;
-	if(fabs(d) < EPSILON)
+
+	float d = (p2 - p1)*n;
+	if (fabs(d) < EPSILON)
 	{
 		intersect = p1;
-	} else{
-		float projd1 = n*d1;
-		intersect = p1 + d1*(d/projd1);
 	}
+	else{
+		float projd1 = n*d1;
+		intersect = p1 + d1*(d / projd1);
+	}
+	return true;
+}
+
+bool test2dRaysColinear(osg::Vec2 p1, osg::Vec2 d1, osg::Vec2 p2, osg::Vec2 d2)
+{
+	osg::Vec2 n(-d2.y(), d2.x());
+	if (fabs(n*d1) > EPSILON) //nonparallel rays
+		return false;
+
+	if (fabs((p1 - p2)*n) > EPSILON) //p1 not on p2 d2 line
+		return false;
+
+	return true;
+}
+
+bool test2DRaysOverlap(osg::Vec2 p1, osg::Vec2 d1, float l1, osg::Vec2 p2, osg::Vec2 d2, float l2)
+{
+	osg::Vec2 n(-d2.y(), d2.x());
+	if (fabs(n*d1) > EPSILON) //nonparallel rays
+		return false;
+
+	if (fabs((p1 - p2)*n) > EPSILON) //p1 not on p2 d2 line
+		return false;
+
+	float dot1 = (p1 - p2)*d2;
+	float dot2 = ((p1 + d1*l1) - p2)*d2;
+
+	if (dot1 < 0.0f && dot2 < 0.0f)
+		return false;
+	if (dot1 > l2 && dot2 > l2)
+		return false;
+
 	return true;
 }
 
 bool test2DSegmentSegment(osg::Vec2 p1, osg::Vec2 d1, float l1, osg::Vec2 p2, osg::Vec2 d2, float l2, float& t, osg::Vec2& intersect)
 {
-	bool b = test2DRayRay(p1,d1,p2,d2,intersect);
-	if(!b)
+	bool b = test2DRayRay(p1, d1, p2, d2, intersect);
+	if (!b)
 		return false;
-	
+
 	osg::Vec2 d = intersect - p2;
 	float dot = d2*d;
-	if(dot < -EPSILON || dot - l2 > EPSILON )
+	if (dot < -EPSILON || dot - l2 > EPSILON)
 		return false;
 
 	d = intersect - p1;
 	dot = d1*d;
-	if(dot < -EPSILON || dot - l1 > EPSILON )
+	if (dot < -EPSILON || dot - l1 > EPSILON)
 		return false;
 
-	t = dot/l1;
+	t = dot / l1;
 	return true;
 }
 
+bool intersectPlanes(const osg::Vec2& p1, const osg::Vec2& n1, const osg::Vec2& p2, const osg::Vec2& n2, osg::Vec2& p, osg::Vec2& d)
+{
+	osg::Vec3 _p1(p1.x(), p1.y(), 0);
+	osg::Vec3 _n1(n1.x(), n1.y(), 1.0f);
+	float d1 = _p1*_n1;
+
+	osg::Vec3 _p2(p2.x(), p2.y(), 0);
+	osg::Vec3 _n2(n2.x(), n2.y(), 1.0f);
+	float d2 = _p2*_n2;
+
+	// line direction
+	osg::Vec3 _d = _n1^_n2;
+
+	float denom = _d*_d;
+	// check if planes are parallel, if yes return no intersection
+	if (denom < EPSILON) return false;
+
+	//compute point on intersection line
+	osg::Vec3 _p = (_n2*d1 - _n1*d2) ^ _d / denom;
+
+	p.x() = _p.x();
+	p.y() = _p.y();
+
+	d.x() = _d.x();
+	d.y() = _d.y();
+
+	d.normalize();
+
+	return true;
+}
+
+bool getRidgeLine2D(const osgEarth::Features::RoofFace& face1, const osgEarth::Features::RoofFace& face2, std::vector<osgEarth::Features::RoofFaceEdge>& faceEdges, osg::Vec2& p, osg::Vec2& d)
+{
+	if (!intersectPlanes(face1.p1, face1.edgeNormal, face2.p1, face2.edgeNormal, p, d))
+	{
+		//parallel planes, will only have a ridgeline if edges are collinear
+		if (!test2dRaysColinear(face1.p1, face1.edgeDir, face2.p1, face2.edgeDir))
+			return false;
+
+		d = face1.edgeNormal;
+		//modify edge dirs to get am intersection point
+		osg::Vec2 d1 = face1.edgeDir;
+		d1.x() += 1.0f;
+		osg::Vec2 d2 = face2.edgeDir;
+		d2.x() -= 1.0f;
+
+		test2DRayRay(face1.p1, d1, face2.p1, d2, p);
+	}
+
+
+	osgEarth::Features::RoofFaceEdge& leftEdge1 = faceEdges[face1.leftEdgeIndex];
+	osgEarth::Features::RoofFaceEdge& rightEdge1 = faceEdges[face1.rightEdgeIndex];
+
+	float t1 = FLT_MAX;
+	osg::Vec2 intersect1;
+	if (test2DRayRay(leftEdge1.vStart, leftEdge1.vDir, p, d, intersect1))
+	{
+		if ((leftEdge1.vStart - intersect1).length() < leftEdge1.length)
+		{
+			osg::Vec2 dir = (intersect1 - p);
+			t1 = d*dir;
+		}
+	}
+
+	float t2 = FLT_MAX;
+	osg::Vec2 intersect2;
+	if (test2DRayRay(rightEdge1.vStart, rightEdge1.vDir, p, d, intersect2))
+	{
+		if ((rightEdge1.vStart - intersect2).length() < rightEdge1.length)
+		{
+			osg::Vec2 dir = (intersect2 - p);
+			t2 = d*dir;
+		}
+	}
+
+	osgEarth::Features::RoofFaceEdge& leftEdge2 = faceEdges[face2.leftEdgeIndex];
+	osgEarth::Features::RoofFaceEdge& rightEdge2 = faceEdges[face2.rightEdgeIndex];
+
+	float t3 = FLT_MAX;
+	osg::Vec2 intersect3;
+	if (test2DRayRay(leftEdge2.vStart, leftEdge2.vDir, p, d, intersect3))
+	{
+		if ((leftEdge2.vStart - intersect3).length() < leftEdge2.length)
+		{
+			osg::Vec2 dir = (intersect3 - p);
+			t3 = d*dir;
+		}
+	}
+
+	float t4 = FLT_MAX;
+	osg::Vec2 intersect4;
+	if (test2DRayRay(rightEdge2.vStart, rightEdge2.vDir, p, d, intersect4))
+	{
+		if ((rightEdge2.vStart - intersect4).length() < rightEdge2.length)
+		{
+			osg::Vec2 dir = (intersect4 - p);
+			t4 = d*dir;
+		}
+	}
+
+	return true;
+}
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -65,6 +200,9 @@ createTime(0.0)
 {
 	unsigned int edgeSize = roofFaces[leftFaceIndex].rightEdge.size();
 	vStart = roofFaces[leftFaceIndex].rightEdge[edgeSize-1]; // last point in edge
+
+	roofFaces[leftFaceIndex].setRightEdgeIndex(edgeIndex);
+	roofFaces[rightFaceIndex].setLeftEdgeIndex(edgeIndex);
 
 	if(edgeSize==1)
 	{
@@ -99,6 +237,7 @@ osg::Vec2 RoofFaceEdge::getEndPoint()
 void RoofFaceEdge::clipEdgeToOutline(std::vector<RoofFace>& roofFaces)
 {
 	int numFaces = roofFaces.size();
+
 	for(int i=0;i<numFaces;i++)
 	{
 		if(i==leftFaceIndex || i==rightFaceIndex)
@@ -322,27 +461,27 @@ RoofBuilder2D::RoofBuilder2D(std::vector<osg::Vec3> outline, float roofAngle)
 
 	roofStartZ = outline[0].z();
 	//test
-	//outline2D.clear();
+	outline2D.clear();
 	
 	/*outline2D.push_back(osg::Vec2(0,0));
 	outline2D.push_back(osg::Vec2(10,0));
 	outline2D.push_back(osg::Vec2(10,10));
 	outline2D.push_back(osg::Vec2(0,10));*/
 
-	/*outline2D.push_back(osg::Vec2(0,0));
+	outline2D.push_back(osg::Vec2(0,0));
 	outline2D.push_back(osg::Vec2(10,0));
 	outline2D.push_back(osg::Vec2(10,10));
 	outline2D.push_back(osg::Vec2(5,2));
-	outline2D.push_back(osg::Vec2(0,10));*/
+	outline2D.push_back(osg::Vec2(0,10));
 
 	/*outline2D.push_back(osg::Vec2(0,0));
 	outline2D.push_back(osg::Vec2(7,0));
 	outline2D.push_back(osg::Vec2(7,9));
 	outline2D.push_back(osg::Vec2(18,9));
 	outline2D.push_back(osg::Vec2(18,17));
-	outline2D.push_back(osg::Vec2(0,17));
+	outline2D.push_back(osg::Vec2(0,17));*/
 
-	numPoints = outline2D.size();*/
+	numPoints = outline2D.size();
 
 	roofFaces.reserve(1000);
 
@@ -369,6 +508,21 @@ RoofBuilder2D::RoofBuilder2D(std::vector<osg::Vec3> outline, float roofAngle)
 		int iNext = (i+1)%numPoints;
 		faceEdges.push_back(RoofFaceEdge(i,roofFaces,i,iNext));
 	}
+
+	for (auto i : roofFaces)
+	{
+		for (auto j : roofFaces)
+		{
+			if (i.faceIndex == j.faceIndex)
+				continue;
+			osg::Vec2 p, d;
+			if (getRidgeLine2D(i, j, faceEdges, p, d))
+			{
+				int a = 0;
+			}
+		}
+	}
+
 
 	clipEdgesToOutline();
 
