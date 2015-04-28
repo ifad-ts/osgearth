@@ -23,7 +23,7 @@ SET(TARGET_H
 )
 
 SET(TARGET_LIBRARIES_VARS)
-
+SET(TARGET_COMMON_LIBRARIES osgEarthUtil)
 
 SETUP_PLUGIN(osgearth_wcs)
 
@@ -31,6 +31,3 @@ SETUP_PLUGIN(osgearth_wcs)
 SET(LIB_NAME wcs)
 SET(LIB_PUBLIC_HEADERS WCSOptions)
 INCLUDE(ModuleInstallOsgEarthDriverIncludes OPTIONAL)
-
-
-

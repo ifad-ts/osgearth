@@ -59,6 +59,7 @@ SET(HEADERS_ROOT
     TMSPackager
     UTMGraticule
     VerticalScale
+    WCS
     WFS
     WMS
 )
@@ -131,6 +132,7 @@ SET(SOURCES_ROOT
     TMSPackager.cpp
     UTMGraticule.cpp
     VerticalScale.cpp
+    WCS.cpp
     WFS.cpp
     WMS.cpp
     ${SHADERS_CPP}

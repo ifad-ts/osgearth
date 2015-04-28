@@ -47,9 +47,53 @@ _options  ( options )
 
 osgEarth::TileSource::Status WCS11Source::initialize(const osgDB::Options* dbOptions)
 {        
-    //TODO: fetch GetCapabilities and set profile from there.
-    setProfile( osgEarth::Registry::instance()->getGlobalGeodeticProfile() );
+    osg::ref_ptr<const Profile> profile;
+    
     _dbOptions = Registry::instance()->cloneOrCreateOptions( dbOptions );    
+
+    std::string capUrl;
+
+    if (_options.url().isSet())
+    {
+        char sep = _options.url()->full().find_first_of('?') == std::string::npos ? '?' : '&';
+
+        capUrl =
+            _options.url()->full() +
+            sep +
+            "SERVICE=WCS&VERSION=1.1.0&REQUEST=GetCapabilities";
+    }
+
+    _capabilities = WCSCapabilitiesReader::read(capUrl, _dbOptions.get());
+    if (!_capabilities.valid())
+    {
+        OE_WARN << LC << "Unable to read WCS GetCapabilities." << std::endl;
+        //return;
+    }
+    else
+    {
+        OE_INFO << LC << "Got capabilities from " << capUrl << std::endl;
+    }
+
+    // Next, try to glean the extents from the coverage list
+    if (_capabilities.valid())
+    {
+        WCSCoverage* coverage = _capabilities->getCoverageByTitle(_options.identifier().value());
+        if (coverage)
+        {
+            const SpatialReference* srs = coverage->getExtent().getSRS();
+            double xmin, ymin, xmax, ymax;
+            coverage->getExtent().getBounds(xmin, ymin, xmax, ymax);
+            profile = Profile::create(srs, xmin, ymin, xmax, ymax);
+            getDataExtents().push_back(DataExtent(coverage->getExtent(), 0));
+        }
+    }
+
+    // Last resort: create a global extent profile (only valid for global maps)
+    if (!profile.valid())
+    {
+        profile = osgEarth::Registry::instance()->getGlobalGeodeticProfile();
+    }
+    setProfile(profile);
 
     return STATUS_OK;
 }

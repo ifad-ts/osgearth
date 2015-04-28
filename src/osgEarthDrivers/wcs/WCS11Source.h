@@ -23,6 +23,7 @@
 #include <osgEarth/TileKey>
 #include <osgEarth/TileSource>
 #include <osgEarth/HTTPClient>
+#include <osgEarthUtil/WCS>
 #include <osg/Image>
 #include <osg/Shape>
 #include <osgDB/ReaderWriter>
@@ -31,6 +32,7 @@
 
 using namespace osgEarth;
 using namespace osgEarth::Drivers;
+using namespace osgEarth::Util;
 
 class WCS11Source : public TileSource
 {
@@ -53,6 +55,7 @@ public: // TileSource interface
 
 private:
     const WCSOptions _options;
+    osg::ref_ptr< WCSCapabilities > _capabilities;
     std::string _covFormat, _osgFormat;
 
     osg::ref_ptr<osgDB::Options> _dbOptions;
