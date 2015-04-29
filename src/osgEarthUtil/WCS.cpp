@@ -75,7 +75,8 @@ WCSCapabilities::getCoverageByTitle(const std::string& title)
 #define ELEM_SRS "srs"
 #define ELEM_CONTENTS "contents"
 #define ELEM_COVERAGESUMMARY "coveragesummary"
-#define ELEM_WGS84BOUNDINGBOX "wgs84boudingbox" // NB! Misspelled on purpose to support a misspelling in Luciad Fusion 2015.0.
+#define ELEM_WGS84BOUNDINGBOX_FUSION "wgs84boudingbox" // Required to support Luciad Fusion (2015.0).
+#define ELEM_WGS84BOUNDINGBOX        "wgs84boundingbox"
 #define ELEM_LOWERCORNER      "lowercorner"
 #define ELEM_UPPERCORNER      "uppercorner"
 
@@ -141,6 +142,11 @@ WCSCapabilitiesReader::read(std::istream &in)
             coverage->setAbstract( e_coverage->getSubElementText( ELEM_ABSTRACT ) );
 
             osg::ref_ptr<XmlElement> e_bb = e_coverage->getSubElement( ELEM_WGS84BOUNDINGBOX );
+            if (!e_bb.valid())
+            {
+                // fix for misspelled bounding box element in Luciad Fusion 2015.0
+                e_bb = e_coverage->getSubElement(ELEM_WGS84BOUNDINGBOX_FUSION);
+            }
             if (e_bb.valid())
             {
                 double minX, minY, maxX, maxY;
