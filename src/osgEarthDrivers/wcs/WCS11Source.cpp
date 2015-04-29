@@ -218,12 +218,12 @@ WCS11Source::createRequest( const TileKey& key ) const
     double originY = lat_max;
 
     buf.str("");
-    buf << originX << "," << originY; 
+    buf << std::setprecision(15) << originX << "," << originY;
 	bufStr = buf.str();
     req.addParameter( "GridOrigin", bufStr );
     
     buf.str("");
-    buf << lon_interval << "," << lat_interval;   // note: top-down
+    buf << std::setprecision(15) << lon_interval << "," << lat_interval;   // note: top-down
     //buf << lon_interval << "," << lat_interval;
 	bufStr = buf.str();
     req.addParameter( "GridOffsets", bufStr );
