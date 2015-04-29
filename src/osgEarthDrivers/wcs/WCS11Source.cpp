@@ -112,43 +112,19 @@ WCS11Source::createImage(const TileKey&        key,
 {
     HTTPRequest request = createRequest( key );
 
-    OE_INFO << LC << "Key=" << key.str() << " URL = " << request.getURL() << std::endl;
-
     double lon0,lat0,lon1,lat1;
     key.getExtent().getBounds( lon0, lat0, lon1, lat1 );
 
-    // download the data. It's a multipart-mime stream, so we have to use HTTP directly.
-    HTTPResponse response = HTTPClient::get( request, _dbOptions.get(), progress );
-    if ( !response.isOK() )
+    ReadResult out_response = URI(request.getURL()).readImage(_dbOptions.get(), progress);
+    if (!out_response.failed())
     {
-        OE_WARN << LC << "WARNING: HTTP request failed" << std::endl;
+        return out_response.releaseImage();
+    }
+    else
+    {
+        OSG_INFO << LC << "Unable to create image: " << out_response.errorDetail() << ". Set OSGEARTH_HTTP_DEBUG=1 for details." << std::endl;
         return NULL;
     }
-
-    //TODO:  Make WCS driver use progress callback
-    unsigned int part_num = response.getNumParts() > 1? 1 : 0;
-    std::istream& input_stream = response.getPartStream( part_num );
-
-    //TODO: un-hard-code TIFFs
-    osgDB::ReaderWriter* reader = osgDB::Registry::instance()->getReaderWriterForExtension( "tiff" );
-
-    if ( !reader )
-    {
-        OE_NOTICE << LC << "WARNING: no reader for \"tiff\"" << std::endl;
-        return NULL;
-    }
-
-    osgDB::ReaderWriter::ReadResult result = reader->readImage( input_stream ); //, getOptions() );
-    if ( !result.success() )
-    {
-        OE_NOTICE << LC << "WARNING: readImage() failed for Reader " << reader->getName() << std::endl;
-        return NULL;
-    }
-
-    osg::Image* image = result.getImage();
-    //OE_NOTICE << "Returned grid is " << image->s() << "x" << image->t() << std::endl;
-    if ( image ) image->ref();
-    return image;
 }
 
 
