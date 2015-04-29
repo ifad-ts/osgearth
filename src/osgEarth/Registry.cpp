@@ -99,6 +99,8 @@ _cacheDriver        ( "filesystem" )
     osgDB::Registry::instance()->addMimeTypeExtensionMapping( "text/x-json",                          "osgb" );
     osgDB::Registry::instance()->addMimeTypeExtensionMapping( "image/jpg",                            "jpg" );
     osgDB::Registry::instance()->addMimeTypeExtensionMapping( "image/dds",                            "dds" );
+    osgDB::Registry::instance()->addMimeTypeExtensionMapping( "image/geotiff",                        "tiff" );
+    osgDB::Registry::instance()->addMimeTypeExtensionMapping( "image/tiff,subtype=geotiff",           "tiff" );
     
     // pre-load OSG's ZIP plugin so that we can use it in URIs
     std::string zipLib = osgDB::Registry::instance()->createLibraryNameForExtension( "zip" );
