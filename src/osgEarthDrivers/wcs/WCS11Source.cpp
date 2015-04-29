@@ -209,7 +209,7 @@ WCS11Source::createRequest( const TileKey& key ) const
     // there used to be code here to shift the bounding box out by half a pixel in all directions to make sure that neighboring tiles
     // would have the same elevation values. WCS 1.1, however, samples at the edges of the bounding box, so shifting the bounding box
     // will produce values that don't match up.
-    buf << lon_min << "," << lat_min << "," << lon_max << "," << lat_max << ",EPSG:4326";
+    buf << std::setprecision(15) << lon_min << "," << lat_min << "," << lon_max << "," << lat_max << ",EPSG:4326";
 	std::string bufStr;
 	bufStr = buf.str();
     req.addParameter( "BOUNDINGBOX", bufStr );
