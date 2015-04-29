@@ -26,6 +26,8 @@
 #include <iostream>
 #include <stdlib.h>
 
+#define LC "[osgEarth::WCS11] "
+
 using namespace osgEarth;
 
 
@@ -45,9 +47,53 @@ _options  ( options )
 
 osgEarth::TileSource::Status WCS11Source::initialize(const osgDB::Options* dbOptions)
 {        
-    //TODO: fetch GetCapabilities and set profile from there.
-    setProfile( osgEarth::Registry::instance()->getGlobalGeodeticProfile() );
+    osg::ref_ptr<const Profile> profile;
+    
     _dbOptions = Registry::instance()->cloneOrCreateOptions( dbOptions );    
+
+    std::string capUrl;
+
+    if (_options.url().isSet())
+    {
+        char sep = _options.url()->full().find_first_of('?') == std::string::npos ? '?' : '&';
+
+        capUrl =
+            _options.url()->full() +
+            sep +
+            "SERVICE=WCS&VERSION=1.1.0&REQUEST=GetCapabilities";
+    }
+
+    _capabilities = WCSCapabilitiesReader::read(capUrl, _dbOptions.get());
+    if (!_capabilities.valid())
+    {
+        OE_WARN << LC << "Unable to read WCS GetCapabilities." << std::endl;
+        //return;
+    }
+    else
+    {
+        OE_INFO << LC << "Got capabilities from " << capUrl << std::endl;
+    }
+
+    // Next, try to glean the extents from the coverage list
+    if (_capabilities.valid())
+    {
+        WCSCoverage* coverage = _capabilities->getCoverageByTitle(_options.identifier().value());
+        if (coverage)
+        {
+            const SpatialReference* srs = coverage->getExtent().getSRS();
+            double xmin, ymin, xmax, ymax;
+            coverage->getExtent().getBounds(xmin, ymin, xmax, ymax);
+            profile = Profile::create(srs, xmin, ymin, xmax, ymax);
+            getDataExtents().push_back(DataExtent(coverage->getExtent(), 0));
+        }
+    }
+
+    // Last resort: create a global extent profile (only valid for global maps)
+    if (!profile.valid())
+    {
+        profile = osgEarth::Registry::instance()->getGlobalGeodeticProfile();
+    }
+    setProfile(profile);
 
     return STATUS_OK;
 }
@@ -66,43 +112,19 @@ WCS11Source::createImage(const TileKey&        key,
 {
     HTTPRequest request = createRequest( key );
 
-    OE_INFO << "[osgEarth::WCS1.1] Key=" << key.str() << " URL = " << request.getURL() << std::endl;
-
     double lon0,lat0,lon1,lat1;
     key.getExtent().getBounds( lon0, lat0, lon1, lat1 );
 
-    // download the data. It's a multipart-mime stream, so we have to use HTTP directly.
-    HTTPResponse response = HTTPClient::get( request, _dbOptions.get(), progress );
-    if ( !response.isOK() )
+    ReadResult out_response = URI(request.getURL()).readImage(_dbOptions.get(), progress);
+    if (!out_response.failed())
     {
-        OE_WARN << "[osgEarth::WCS1.1] WARNING: HTTP request failed" << std::endl;
+        return out_response.releaseImage();
+    }
+    else
+    {
+        OSG_INFO << LC << "Unable to create image: " << out_response.errorDetail() << ". Set OSGEARTH_HTTP_DEBUG=1 for details." << std::endl;
         return NULL;
     }
-
-    //TODO:  Make WCS driver use progress callback
-    unsigned int part_num = response.getNumParts() > 1? 1 : 0;
-    std::istream& input_stream = response.getPartStream( part_num );
-
-    //TODO: un-hard-code TIFFs
-    osgDB::ReaderWriter* reader = osgDB::Registry::instance()->getReaderWriterForExtension( "tiff" );
-
-    if ( !reader )
-    {
-        OE_NOTICE << "[osgEarth::WCS1.1] WARNING: no reader for \"tiff\"" << std::endl;
-        return NULL;
-    }
-
-    osgDB::ReaderWriter::ReadResult result = reader->readImage( input_stream ); //, getOptions() );
-    if ( !result.success() )
-    {
-        OE_NOTICE << "[osgEarth::WCS1.1] WARNING: readImage() failed for Reader " << reader->getName() << std::endl;
-        return NULL;
-    }
-
-    osg::Image* image = result.getImage();
-    //OE_NOTICE << "Returned grid is " << image->s() << "x" << image->t() << std::endl;
-    if ( image ) image->ref();
-    return image;
 }
 
 
@@ -187,7 +209,7 @@ WCS11Source::createRequest( const TileKey& key ) const
     // there used to be code here to shift the bounding box out by half a pixel in all directions to make sure that neighboring tiles
     // would have the same elevation values. WCS 1.1, however, samples at the edges of the bounding box, so shifting the bounding box
     // will produce values that don't match up.
-    buf << lon_min << "," << lat_min << "," << lon_max << "," << lat_max << ",EPSG:4326";
+    buf << std::setprecision(15) << lon_min << "," << lat_min << "," << lon_max << "," << lat_max << ",EPSG:4326";
 	std::string bufStr;
 	bufStr = buf.str();
     req.addParameter( "BOUNDINGBOX", bufStr );
@@ -196,12 +218,12 @@ WCS11Source::createRequest( const TileKey& key ) const
     double originY = lat_max;
 
     buf.str("");
-    buf << originX << "," << originY; 
+    buf << std::setprecision(15) << originX << "," << originY;
 	bufStr = buf.str();
     req.addParameter( "GridOrigin", bufStr );
     
     buf.str("");
-    buf << lon_interval << "," << lat_interval;   // note: top-down
+    buf << std::setprecision(15) << lon_interval << "," << lat_interval;   // note: top-down
     //buf << lon_interval << "," << lat_interval;
 	bufStr = buf.str();
     req.addParameter( "GridOffsets", bufStr );

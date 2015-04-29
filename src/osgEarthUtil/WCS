@@ -1,0 +1,128 @@
+/* -*-c++-*- */
+/* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
+* Copyright 2008-2014 Pelican Mapping
+* http://osgearth.org
+*
+* osgEarth is free software; you can redistribute it and/or modify
+* it under the terms of the GNU Lesser General Public License as published by
+* the Free Software Foundation; either version 2 of the License, or
+* (at your option) any later version.
+*
+* This program is distributed in the hope that it will be useful,
+* but WITHOUT ANY WARRANTY; without even the implied warranty of
+* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+* GNU Lesser General Public License for more details.
+*
+* You should have received a copy of the GNU Lesser General Public License
+* along with this program.  If not, see <http://www.gnu.org/licenses/>
+*/
+
+#ifndef OSGEARTHUTIL_WCS_H
+#define OSGEARTHUTIL_WCS_H 1
+
+#include <osgEarthUtil/Common>
+#include <osgEarth/GeoData>
+#include <osgEarth/URI>
+#include <osg/Referenced>
+#include <osg/ref_ptr>
+
+#include <osgDB/ReaderWriter>
+#include <osg/Version>
+#include <osgDB/Options>
+
+
+#include <string>
+#include <vector>
+
+namespace osgEarth { namespace Util
+{
+    class OSGEARTHUTIL_EXPORT WCSCoverage : public osg::Referenced
+    {
+    public:
+        WCSCoverage();
+
+        /** dtor */
+        virtual ~WCSCoverage() { }
+
+        const std::string& getTitle() const { return _title;}
+        void setTitle(const std::string& title) { _title = title;}
+
+        const std::string& getAbstract() const { return _abstract;}
+        void setAbstract(const std::string& abstract) { _abstract = abstract; }
+
+        const GeoExtent& getExtent() const { return _extent;}
+        void setExtent(const GeoExtent& extent) { _extent = extent;}
+        
+    private:
+        std::string _title;
+        std::string _abstract;
+        GeoExtent   _extent;
+    };
+
+    typedef std::vector< osg::ref_ptr< WCSCoverage > > CoverageList;
+
+    
+
+    /**
+    *WCS Capabilities
+    */
+    class OSGEARTHUTIL_EXPORT WCSCapabilities : public osg::Referenced
+    {
+    public:
+        WCSCapabilities();
+
+        /** dtor */
+        virtual ~WCSCapabilities() { }
+
+        /**
+        *Gets the WCS capabilities version
+        */
+        const std::string& getVersion() const {return _version;}
+
+        /**
+        *Sets the WCS capabilities version
+        */
+        void setVersion(const std::string& version) {_version = version;}        
+
+        const std::string& getName() const { return _name; }
+        void setName(const std::string& name) { _name = name; }
+
+        const std::string& getTitle() const { return _title;}
+        void setTitle(const std::string& title) { _title = title;}
+
+        const std::string& getAbstract() const { return _abstract; }
+        void setAbstract( const std::string& abstract) { _abstract = abstract; }
+
+        WCSCoverage* getCoverageByTitle(const std::string& title);
+
+        CoverageList& getCoverages() { return _coverages; }
+
+                
+    protected:
+        CoverageList _coverages;
+
+        std::string _version;
+        std::string _name;
+        std::string _title;
+        std::string _abstract;
+    };
+
+    /*
+    * Reads Capabilities from a URL or file
+    */
+    class OSGEARTHUTIL_EXPORT WCSCapabilitiesReader
+    {
+    public:
+        static WCSCapabilities* read( const URI& uri, const osgDB::Options* options );
+        static WCSCapabilities* read( std::istream &in );
+    private:
+        WCSCapabilitiesReader(){}
+        WCSCapabilitiesReader(const WCSCapabilitiesReader &cr){}
+
+        /** dtor */
+        virtual ~WCSCapabilitiesReader() { }
+    };
+
+} } // namespace osgEarth::Util
+
+#endif //OSGEARTHUTIL_WCS_H
