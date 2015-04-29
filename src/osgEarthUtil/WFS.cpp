@@ -27,6 +27,29 @@ using namespace osgEarth;
 using namespace osgEarth::Util;
 using namespace std;
 
+namespace
+{
+    void removeElementNamespace(XmlElement* e)
+    {
+        for (XmlNode* child : e->getChildren())
+        {
+            if (child->isElement())
+            {
+                removeElementNamespace(static_cast<XmlElement*>(child));
+            }
+        }
+
+        std::string::size_type i = e->getName().find(':');
+        if (i == std::string::npos)
+        {
+            return;
+        }
+        else
+        {
+            e->setName(e->getName().substr(i + 1, e->getName().length() - 1));
+        }
+    }
+}
 
 WFSCapabilities::WFSCapabilities()
 {
@@ -97,6 +120,8 @@ WFSCapabilitiesReader::read(std::istream &in)
     osg::ref_ptr<XmlElement> e_root = static_cast<XmlElement*>(doc->getChildren()[0].get());
     capabilities->setVersion( e_root->getAttr(ATTR_VERSION ) );
 
+    removeElementNamespace(e_root);
+
     osg::ref_ptr<XmlElement> e_service = e_root->getSubElement( ELEM_SERVICE );
     if (!e_service.valid())
     {
@@ -125,22 +150,13 @@ WFSCapabilitiesReader::read(std::istream &in)
 
             //NOTE:  TILED and MAXLEVEL aren't part of the WFS spec, these are enhancements to our server for tiled WFS access
             std::string tiledStr = e_featureType->getSubElementText(ELEM_TILED);
-            if (tiledStr.compare("") != 0)
-            {
-                featureType->setTiled( as<bool>(tiledStr, false) );
-            }
+            featureType->setTiled( as<bool>(tiledStr, false) );
 
             std::string maxLevelStr = e_featureType->getSubElementText(ELEM_MAXLEVEL);
-            if (maxLevelStr.compare("") != 0)
-            {
-                featureType->setMaxLevel( as<int>(maxLevelStr, -1));
-            }
+            featureType->setMaxLevel( as<int>(maxLevelStr, -1));
 
             std::string firstLevelStr = e_featureType->getSubElementText(ELEM_FIRSTLEVEL);
-            if (firstLevelStr.compare("") != 0)
-            {
-                featureType->setFirstLevel( as<int>(firstLevelStr, 0));
-            }
+            featureType->setFirstLevel( as<int>(firstLevelStr, 0));
 
             // Read the SRS            
             std::string srsText = e_featureType->getSubElementText(ELEM_SRS);
