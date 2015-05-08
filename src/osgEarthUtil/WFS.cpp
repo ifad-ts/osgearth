@@ -31,8 +31,9 @@ namespace
 {
     void removeElementNamespace(XmlElement* e)
     {
-        for (XmlNode* child : e->getChildren())
+        for (XmlNodeList::iterator it = e->getChildren().begin(); it != e->getChildren().end(); ++it)
         {
+            XmlNode* child = *it;
             if (child->isElement())
             {
                 removeElementNamespace(static_cast<XmlElement*>(child));
