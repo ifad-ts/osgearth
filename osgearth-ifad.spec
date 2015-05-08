@@ -1,7 +1,7 @@
 %global osg_ver 3.2.1
 
 Name:           osgearth-ifad
-Version:        2.6.3
+Version:        2.6.4
 Release:        1%{?dist}
 Summary:        Dynamic map generation toolkit for OpenSceneGraph (IFAD version)
 
@@ -190,6 +190,11 @@ rm -f docs/build/html/.buildinfo
 
 
 %changelog
+* Fri May 08 2015 Michael Bach <michael@ifad.dk> - 2.6.4-1
+- Supports namespaced replies from GetCapabilities.
+- No longer queries outside the boundaries of a WCS coverage by adding a call to GetCapabilities.
+- Uses new image download techniques to avoid false reports on download errors (due to actively aborted downloads).
+
 * Tue Apr 07 2015 Michael Bach <michael@ifad.dk> - 2.6.3-1
 - First rpm build of our custom osgEarth source
 - Contains WCS 1.0 support by type <version>1.0</version> in an elevation tag that has specified the wcs driver
