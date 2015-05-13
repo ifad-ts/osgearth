@@ -888,7 +888,7 @@ MPTerrainEngineNode::updateState()
                 Shaders::MPFragSource );
 
             // terrain background color; negative means use the vertex color.
-            Color terrainColor = _terrainOptions.color().getOrUse( Color(-1,-1,-1,-1) );
+            Color terrainColor = _terrainOptions.color().getOrUse( Color(1,1,1,-1) );
             terrainStateSet->addUniform(new osg::Uniform("oe_terrain_color", terrainColor));
 
             bool useBlending = _terrainOptions.enableBlending() == true;
@@ -1000,9 +1000,9 @@ MPTerrainEngineNode::updateState()
             terrainStateSet->getOrCreateUniform(
                 "oe_layer_order", osg::Uniform::INT )->set( 0 );
 
-            // default min/max range uniforms.
+            // default min/max range uniforms. (max < min means ranges are disabled)
             terrainStateSet->addUniform( new osg::Uniform("oe_layer_minRange", 0.0f) );
-            terrainStateSet->addUniform( new osg::Uniform("oe_layer_maxRange", FLT_MAX) );
+            terrainStateSet->addUniform( new osg::Uniform("oe_layer_maxRange", -1.0f) );
         }
 
         _stateUpdateRequired = false;
