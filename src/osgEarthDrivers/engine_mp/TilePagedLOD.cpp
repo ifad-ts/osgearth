@@ -67,7 +67,8 @@ namespace
 bool
 TilePagedLOD::MyProgressCallback::isCanceled()
 {
-    if (!ProgressCallback::isCanceled() &&
+    if (_tiles->getCancellationEnabled() &&
+        !ProgressCallback::isCanceled() &&
         _frameOfLastCull > 0 && 
         ((int)_tiles->getTraversalFrame() - (int)_frameOfLastCull > 2))
     {

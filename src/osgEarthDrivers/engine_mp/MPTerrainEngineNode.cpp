@@ -264,6 +264,7 @@ MPTerrainEngineNode::postInitialize( const Map* map, const TerrainOptions& optio
     _liveTiles = new TileNodeRegistry("live");
     _liveTiles->setRevisioningEnabled( _terrainOptions.incrementalUpdate() == true );
     _liveTiles->setMapRevision( _update_mapf->getRevision() );
+    _liveTiles->setCancellationEnabled( _terrainOptions.cancellation() == true );
 
     // set up a registry for quick release:
     if ( _terrainOptions.quickReleaseGLObjects() == true )

@@ -88,6 +88,11 @@ namespace osgEarth { namespace Drivers { namespace MPTerrainEngine
 
         unsigned getTraversalFrame() const { return _frameNumber; }
 
+        /** Set whether cancellation of tile construction is enabled. */
+        void setCancellationEnabled(bool enable) { _cancellationEnabled = enable; }
+
+        bool getCancellationEnabled() const { return _cancellationEnabled; }
+
         virtual ~TileNodeRegistry() { }
 
         /** Adds a tile to the registry */
@@ -132,6 +137,7 @@ namespace osgEarth { namespace Drivers { namespace MPTerrainEngine
         std::string                       _name;
         TileNodeMap                       _tiles;
         OpenThreads::Atomic               _frameNumber;
+        bool                              _cancellationEnabled;
         mutable Threading::ReadWriteMutex _tilesMutex;
 
         typedef std::vector<TileKey> TileKeyVector;
