@@ -1,8 +1,8 @@
 %global osg_ver 3.2.1
 
 Name:           osgearth-ifad
-Version:        2.6.5
-Release:        2%{?dist}
+Version:        2.6.6
+Release:        1%{?dist}
 Summary:        Dynamic map generation toolkit for OpenSceneGraph (IFAD version)
 
 License:        LGPLv3 with exceptions
@@ -190,6 +190,9 @@ rm -f docs/build/html/.buildinfo
 
 
 %changelog
+* Fri May 22 2015 Michael Bach <michael@ifad.dk> - 2.6.6-1
+- Support for disabling cancellation of tile construction.
+
 * Wed May 20 2015 Michael Bach <michael@ifad.dk> - 2.6.5-2
 - Changed OpenSceneGraph dependency to OpenSceneGraph-ifad
 
