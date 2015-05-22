@@ -2,7 +2,7 @@
 
 Name:           osgearth-ifad
 Version:        2.6.5
-Release:        1%{?dist}
+Release:        2%{?dist}
 Summary:        Dynamic map generation toolkit for OpenSceneGraph (IFAD version)
 
 License:        LGPLv3 with exceptions
@@ -13,14 +13,14 @@ BuildRequires:  cmake
 BuildRequires:  gdal-devel
 BuildRequires:  geos-devel
 BuildRequires:  libcurl-devel
-BuildRequires:  OpenSceneGraph = %{osg_ver}
-BuildRequires:  OpenSceneGraph-devel
-BuildRequires:  OpenSceneGraph-qt-devel
+BuildRequires:  OpenSceneGraph-ifad = %{osg_ver}
+BuildRequires:  OpenSceneGraph-ifad-devel
+BuildRequires:  OpenSceneGraph-ifad-qt-devel
 BuildRequires:  python-sphinx
 BuildRequires:  qt4-devel
 BuildRequires:  tinyxml-devel
 
-Requires:       OpenSceneGraph = %{osg_ver}
+Requires:       OpenSceneGraph-ifad = %{osg_ver}
 
 %description
 osgEarth is a C++ terrain rendering SDK. Just create a simple XML file, point
@@ -190,6 +190,9 @@ rm -f docs/build/html/.buildinfo
 
 
 %changelog
+* Wed May 20 2015 Michael Bach <michael@ifad.dk> - 2.6.5-2
+- Changed OpenSceneGraph dependency to OpenSceneGraph-ifad
+
 * Wed May 13 2015 Michael Bach <michael@ifad.dk> - 2.6.5-1
 - Fix: Terrain becoming slightly transparent when you get very close to the ground.
 
