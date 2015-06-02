@@ -44,8 +44,11 @@ namespace osgEarth { namespace Util
         /** dtor */
         virtual ~WCSCoverage() { }
 
-        const std::string& getTitle() const { return _title;}
-        void setTitle(const std::string& title) { _title = title;}
+        const std::string& getIdentifier() const { return _identifier; }
+        void setIdentifier(const std::string& identifier) { _identifier = identifier; }
+
+        const std::string& getTitle() const { return _title; }
+        void setTitle(const std::string& title) { _title = title; }
 
         const std::string& getAbstract() const { return _abstract;}
         void setAbstract(const std::string& abstract) { _abstract = abstract; }
@@ -54,6 +57,7 @@ namespace osgEarth { namespace Util
         void setExtent(const GeoExtent& extent) { _extent = extent;}
         
     private:
+        std::string _identifier;
         std::string _title;
         std::string _abstract;
         GeoExtent   _extent;
@@ -93,7 +97,7 @@ namespace osgEarth { namespace Util
         const std::string& getAbstract() const { return _abstract; }
         void setAbstract( const std::string& abstract) { _abstract = abstract; }
 
-        WCSCoverage* getCoverageByTitle(const std::string& title);
+        WCSCoverage* getCoverageByIdentifier(const std::string& title);
 
         CoverageList& getCoverages() { return _coverages; }
 
