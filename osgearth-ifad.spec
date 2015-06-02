@@ -1,9 +1,10 @@
-%global osg_ver 3.2.1
+%global osg_ver 3.2.1.2
 
 Name:           osgearth-ifad
 Version:        2.6.7
 Release:        1%{?dist}
 Summary:        Dynamic map generation toolkit for OpenSceneGraph (IFAD version)
+Obsoletes:      osgearth
 
 License:        LGPLv3 with exceptions
 URL:            http://osgearth.org/
@@ -32,6 +33,7 @@ comes with lots of examples to help you get up and running quickly and easily.
 %package        devel
 Summary:        Development files for %{name}
 Requires:       %{name}%{?_isa} = %{version}-%{release}
+Obsoletes:      osgearth-devel
 
 %description    devel
 The %{name}-devel package contains libraries and header files for
@@ -41,6 +43,7 @@ developing applications that use %{name}.
 %package        tools
 Summary:        %{name} viewers and tools
 Requires:       %{name}%{?_isa} = %{version}-%{release}
+Obsoletes:      osgearth-tools
 
 %description    tools
 The %{name}-tools contains viewers and data manipulation tools for %{name}.
@@ -50,6 +53,7 @@ The %{name}-tools contains viewers and data manipulation tools for %{name}.
 Summary:        %{name} example applications
 Requires:       %{name}%{?_isa} = %{version}-%{release}
 Requires:       %{name}-examples-data = %{version}-%{release}
+Obsoletes:      osgearth-examples
 
 %description    examples
 The %{name}-examples contains %{name} example applications.
@@ -59,6 +63,7 @@ The %{name}-examples contains %{name} example applications.
 Summary:        Data for %{name} example applications
 BuildArch:      noarch
 Requires:       %{name}-examples = %{version}-%{release}
+Obsoletes:      osgearth-examples-data
 
 %description    examples-data
 The %{name}-examples-data contains data for the %{name} example
@@ -69,6 +74,7 @@ applications.
 Summary:        Documentation files for %{name}
 Provides:       bundled(jquery)
 BuildArch:      noarch
+Obsoletes:      osgearth-doc
 
 %description doc
 The %{name}-doc package contains documentation files for developing
@@ -190,7 +196,7 @@ rm -f docs/build/html/.buildinfo
 
 
 %changelog
-* Fri Jun 02 2015 Michael Bach <michael@ifad.dk> - 2.6.7-1
+* Tue Jun 02 2015 Michael Bach <michael@ifad.dk> - 2.6.7-1
 - Use identifier instead of title when setting up bounds for WCS coverages.
 
 * Fri May 22 2015 Michael Bach <michael@ifad.dk> - 2.6.6-1
