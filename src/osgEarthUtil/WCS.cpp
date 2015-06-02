@@ -57,11 +57,11 @@ WCSCapabilities::WCSCapabilities()
 }
 
 WCSCoverage*
-WCSCapabilities::getCoverageByTitle(const std::string& title)
+WCSCapabilities::getCoverageByIdentifier(const std::string& identifier)
 {
     for (CoverageList::iterator itr = _coverages.begin(); itr != _coverages.end(); ++itr)
     {
-        if (osgDB::equalCaseInsensitive(itr->get()->getTitle(),title)) return itr->get();
+        if (osgDB::equalCaseInsensitive(itr->get()->getIdentifier(),identifier)) return itr->get();
     }
     return NULL;
 }
@@ -71,8 +71,8 @@ WCSCapabilities::getCoverageByTitle(const std::string& title)
 #define ELEM_SERVICE "serviceidentification"
 #define ELEM_ABSTRACT "abstract"
 #define ELEM_FORMAT "format"
-#define ELEM_NAME "name"
 #define ELEM_TITLE "title"
+#define ELEM_IDENTIFIER "identifier"
 #define ELEM_SRS "srs"
 #define ELEM_CONTENTS "contents"
 #define ELEM_COVERAGESUMMARY "coveragesummary"
@@ -128,7 +128,7 @@ WCSCapabilitiesReader::read(std::istream &in)
 
     //Read the parameters from the ServiceIdentification block
     capabilities->setAbstract( e_service->getSubElementText( ELEM_ABSTRACT ) );
-    capabilities->setTitle( e_service->getSubElementText( ELEM_TITLE ) );    
+    capabilities->setTitle( e_service->getSubElementText(ELEM_TITLE) );
 
     //Read all the coverages    
     osg::ref_ptr<XmlElement> e_contents = e_root->getSubElement( ELEM_CONTENTS );
@@ -139,8 +139,9 @@ WCSCapabilitiesReader::read(std::istream &in)
         {
             XmlElement* e_coverage = static_cast<XmlElement*>( itr->get() );
             WCSCoverage* coverage = new WCSCoverage();
-            coverage->setTitle( e_coverage->getSubElementText( ELEM_TITLE ) );
-            coverage->setAbstract( e_coverage->getSubElementText( ELEM_ABSTRACT ) );
+            coverage->setTitle(e_coverage->getSubElementText(ELEM_TITLE));
+            coverage->setIdentifier(e_coverage->getSubElementText(ELEM_IDENTIFIER));
+            coverage->setAbstract(e_coverage->getSubElementText(ELEM_ABSTRACT));
 
             osg::ref_ptr<XmlElement> e_bb = e_coverage->getSubElement( ELEM_WGS84BOUNDINGBOX );
             if (!e_bb.valid())

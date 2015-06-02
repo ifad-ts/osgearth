@@ -77,8 +77,12 @@ osgEarth::TileSource::Status WCS11Source::initialize(const osgDB::Options* dbOpt
     // Next, try to glean the extents from the coverage list
     if (_capabilities.valid())
     {
-        WCSCoverage* coverage = _capabilities->getCoverageByTitle(_options.identifier().value());
-        if (coverage)
+        WCSCoverage* coverage = _capabilities->getCoverageByIdentifier(_options.identifier().value());
+        if (!coverage)
+        {
+            OE_WARN << LC << "Using global extents since no coverage with the following identifier could be found: " << _options.identifier().value() << std::endl;
+        }
+        else
         {
             const SpatialReference* srs = coverage->getExtent().getSRS();
             double xmin, ymin, xmax, ymax;
