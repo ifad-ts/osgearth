@@ -1,7 +1,7 @@
 %global osg_ver 3.2.1
 
 Name:           osgearth-ifad
-Version:        2.6.6
+Version:        2.6.7
 Release:        1%{?dist}
 Summary:        Dynamic map generation toolkit for OpenSceneGraph (IFAD version)
 
@@ -190,6 +190,9 @@ rm -f docs/build/html/.buildinfo
 
 
 %changelog
+* Fri Jun 02 2015 Michael Bach <michael@ifad.dk> - 2.6.7-1
+- Use identifier instead of title when setting up bounds for WCS coverages.
+
 * Fri May 22 2015 Michael Bach <michael@ifad.dk> - 2.6.6-1
 - Support for disabling cancellation of tile construction.
 
