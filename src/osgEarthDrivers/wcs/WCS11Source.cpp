@@ -49,7 +49,8 @@ osgEarth::TileSource::Status WCS11Source::initialize(const osgDB::Options* dbOpt
 {        
     osg::ref_ptr<const Profile> profile;
     
-    _dbOptions = Registry::instance()->cloneOrCreateOptions( dbOptions );    
+    _dbOptions = Registry::instance()->cloneOrCreateOptions( dbOptions );
+	CachePolicy::NO_CACHE.apply(_dbOptions.get());
 
     std::string capUrl;
 

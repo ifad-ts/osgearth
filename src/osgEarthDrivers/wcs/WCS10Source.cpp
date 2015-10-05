@@ -49,6 +49,7 @@ osgEarth::TileSource::Status WCS10Source::initialize(const osgDB::Options* dbOpt
     //TODO: fetch GetCapabilities and set profile from there.
     setProfile( osgEarth::Registry::instance()->getGlobalGeodeticProfile() );
     _dbOptions = Registry::instance()->cloneOrCreateOptions( dbOptions );    
+	CachePolicy::NO_CACHE.apply(_dbOptions.get());
 
     return STATUS_OK;
 }
