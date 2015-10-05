@@ -1,7 +1,7 @@
 %global osg_ver 3.2.1.2
 
 Name:           osgearth-ifad
-Version:        2.6.7
+Version:        2.6.8
 Release:        1%{?dist}
 Summary:        Dynamic map generation toolkit for OpenSceneGraph (IFAD version)
 Obsoletes:      osgearth
@@ -15,8 +15,8 @@ BuildRequires:  gdal-devel
 BuildRequires:  geos-devel
 BuildRequires:  libcurl-devel
 BuildRequires:  OpenSceneGraph-ifad = %{osg_ver}
-BuildRequires:  OpenSceneGraph-ifad-devel
-BuildRequires:  OpenSceneGraph-ifad-qt-devel
+BuildRequires:  OpenSceneGraph-ifad-devel = %{osg_ver}
+BuildRequires:  OpenSceneGraph-ifad-qt-devel = %{osg_ver}
 BuildRequires:  python-sphinx
 BuildRequires:  qt4-devel
 BuildRequires:  tinyxml-devel
