@@ -35,6 +35,7 @@ devenv.com %NAME%.sln /build %1 /Project INSTALL || exit
 popd
 
 rmdir /s /q target\mvninstall\%1
+mkdir target\mvninstall
 move target\install target\mvninstall\%1 || exit 
 move target\temptinstall target\install || exit 
 xcopy target\mvninstall\%1 target\install /e /y || exit 
