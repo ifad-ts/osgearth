@@ -323,8 +323,11 @@ ExtrudeGeometryFilter::buildStructure(const Geometry*         input,
             // extrude:
             if ( height >= 0 ) // extrude up
             {
-                if ( flatten )
-                    corner->roof.set( corner->base.x(), corner->base.y(), targetLen );
+				if (flatten)
+				{
+					corner->roof.set(corner->base.x(), corner->base.y(), targetLen);
+					corner->base.z() = minLoc.z();
+				}
                 else
                     corner->roof.set( corner->base.x(), corner->base.y(), corner->base.z() + height );
             }
