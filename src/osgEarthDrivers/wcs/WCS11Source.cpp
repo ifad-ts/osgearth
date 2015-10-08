@@ -85,11 +85,7 @@ osgEarth::TileSource::Status WCS11Source::initialize(const osgDB::Options* dbOpt
         }
         else
         {
-            const SpatialReference* srs = coverage->getExtent().getSRS();
-            double xmin, ymin, xmax, ymax;
-            coverage->getExtent().getBounds(xmin, ymin, xmax, ymax);
-            profile = Profile::create(srs, xmin, ymin, xmax, ymax);
-            getDataExtents().push_back(DataExtent(coverage->getExtent(), 0));
+			profile = createProfileFromCapabilities(coverage);
         }
     }
 
@@ -103,6 +99,43 @@ osgEarth::TileSource::Status WCS11Source::initialize(const osgDB::Options* dbOpt
     return STATUS_OK;
 }
 
+const Profile *WCS11Source::createProfileFromCapabilities(WCSCoverage* coverage)
+{
+	const SpatialReference* srs = coverage->getExtent().getSRS();
+	double xmin, ymin, xmax, ymax;
+	coverage->getExtent().getBounds(xmin, ymin, xmax, ymax);
+	const Profile *profile = Profile::create(srs, xmin, ymin, xmax, ymax);
+
+	unsigned int maxDataLevel = 25;
+	if (_options.maxDataLevelOverride().isSet())
+	{
+		maxDataLevel = _options.maxDataLevelOverride().value();
+		OE_INFO << LC << _options.url().value().full() << " using override max data level " << maxDataLevel << std::endl;
+	}
+	else if (_options.maxResolution().isSet())
+	{
+		double maxResolution = _options.maxResolution().value(); //get this from capabilities later (and remove maxResolution option)
+		for (unsigned int i = 0; i < 30; ++i)
+		{
+			maxDataLevel = i;
+			double w, h;
+			profile->getTileDimensions(i, w, h);
+			double resX = (w / (double)_options.tileSize().value());
+			double resY = (h / (double)_options.tileSize().value());
+
+			if (resX < maxResolution || resY < maxResolution)
+			{
+				break;
+			}
+		}
+
+		OE_INFO << LC << _options.url().value().full() << " max Data Level: " << maxDataLevel << std::endl;
+	}
+	GeoExtent extents = GeoExtent(srs, xmin, ymin, xmax, ymax);
+	getDataExtents().push_back(DataExtent(extents, 0, maxDataLevel));
+
+	return profile;
+}
 
 std::string
 WCS11Source::getExtension() const

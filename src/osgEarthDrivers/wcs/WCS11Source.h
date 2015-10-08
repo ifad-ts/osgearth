@@ -54,6 +54,8 @@ public: // TileSource interface
     std::string getExtension() const;
 
 private:
+	const Profile *createProfileFromCapabilities(WCSCoverage* coverage);
+
     const WCSOptions _options;
     osg::ref_ptr< WCSCapabilities > _capabilities;
     std::string _covFormat, _osgFormat;
