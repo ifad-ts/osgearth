@@ -558,30 +558,12 @@ ExtrudeGeometryFilter::buildWallGeometry(const Structure&     structure,
             // Assign wall polygon colors.
             if (useColor)
             {
-#if 0
-                // experimental: apply some ambient occlusion to tight inside corners                
-                float bL = f->left.cosAngle > 0.0 ? 1.0 : (1.0+f->left.cosAngle);
-                float bR = f->right.cosAngle > 0.0 ? 1.0 : (1.0+f->right.cosAngle);
-
-                osg::Vec4f leftColor      = Color(wallColor).brightness(bL);
-                osg::Vec4f leftBaseColor  = Color(wallBaseColor).brightness(bL);
-                osg::Vec4f rightColor     = Color(wallColor).brightness(bR);
-                osg::Vec4f rightBaseColor = Color(wallBaseColor).brightness(bR);
-
-                (*colors)[vertptr+0] = leftColor;
-                (*colors)[vertptr+1] = leftBaseColor;
-                (*colors)[vertptr+2] = rightBaseColor;
-                (*colors)[vertptr+3] = rightBaseColor;
-                (*colors)[vertptr+4] = rightColor;
-                (*colors)[vertptr+5] = leftColor;
-#else
                 (*colors)[vertptr+0] = wallColor;
                 (*colors)[vertptr+1] = wallBaseColor;
                 (*colors)[vertptr+2] = wallBaseColor;
                 (*colors)[vertptr+3] = wallBaseColor;
                 (*colors)[vertptr+4] = wallColor;
                 (*colors)[vertptr+5] = wallColor;
-#endif
             }
 
             // Calculate texture coordinates:
@@ -773,6 +755,7 @@ ExtrudeGeometryFilter::buildSquarePitchedRoofGeometry(const Structure&     struc
 
 
 	float roofHeight = 0.5f*(std::min(l1,l2)+1.0f) * tan(osg::DegreesToRadians(_extrusionSymbol->roofPitch().get()));
+	roofHeight = std::min(roofHeight, _extrusionSymbol->maxRoofHeight().get());
 
 	osg::DrawElementsUInt* idx = new osg::DrawElementsUInt( GL_TRIANGLES );
 	if(l1<l2)
@@ -1003,253 +986,6 @@ ExtrudeGeometryFilter::buildSquarePitchedRoofGeometry(const Structure&     struc
 }
 
 
-//#define TVOLD 1
-#ifdef TVOLD
-//terra vista style roof
-bool
-ExtrudeGeometryFilter::buildTVPitchedRoofGeometry(const Structure&     structure,
-													  osg::Geometry*       roof,
-													  const osg::Vec4&     roofColor,
-													  const SkinResource*  roofSkin)
-{ 
-	int iNumVerts = structure.getNumSourcePoints();
-	osg::Vec3* tempRoofVerts = new osg::Vec3[iNumVerts];
-
-	// Collect source vertices
-	int i=0;
-	for(Elevations::const_iterator e = structure.elevations.begin(); e != structure.elevations.end(); ++e)
-	{
-		for(Faces::const_iterator f = e->faces.begin(); f != e->faces.end(); ++f)
-		{
-			// Only use source verts; we skip interim verts inserted by the 
-			// structure building since they are co-linear anyway and thus we don't
-			// need them for the roof line.
-			if ( f->left.isFromSource )
-			{
-				tempRoofVerts[i++] = f->left.roof;
-				/*if ( roofTexcoords )
-				{
-					roofTexcoords->push_back( osg::Vec3f(f->left.roofTexU, f->left.roofTexV, (float)0.0f) );
-				}*/
-			}
-		}
-	}
-	
-	
-
-	osg::Vec3* edgeNormals = new osg::Vec3[iNumVerts];
-	// find min gable edge length, limits shrinking,
-	float fMinEdgeLength = 123456789.0f;
-	for(int i=0;i<iNumVerts;i++)
-	{	
-		int iPrev = i-1 < 0 ? iNumVerts-1 : i-1;
-		unsigned iStart=i;
-		unsigned iEnd = (i+1)%iNumVerts;
-		unsigned iNext = (i+2)%iNumVerts;
-
-		osg::Vec3 edgeDir = tempRoofVerts[iEnd]-tempRoofVerts[iStart];
-
-		if(edgeDir.length2()>0.1f)
-		{
-			edgeNormals[i].x() = -edgeDir.y();
-			edgeNormals[i].y() = edgeDir.x();
-			edgeNormals[i].z() = 0;
-			edgeNormals[i].normalize();
-		}
-		else if(i>0)
-		{
-			edgeNormals[i] = edgeNormals[i-1];
-		}
-
-		// check if prev & next vertex are in the positive halfplane 
-		float d1 = (tempRoofVerts[iPrev]-tempRoofVerts[iStart])*edgeNormals[i];
-		float d2 = (tempRoofVerts[iNext]-tempRoofVerts[iEnd])*edgeNormals[i];
-
-		if(d1 > 0.0f  && d2 > 0.0f)
-		{
-			double len = (tempRoofVerts[iEnd] - tempRoofVerts[iStart]).length();
-			if ( len < fMinEdgeLength ) 
-			{
-				fMinEdgeLength = len;
-			}
-		}
-	}
-
-	if(fMinEdgeLength==123456789.0f) //no edgelength calculated, just make flat roof
-	{
-		delete [] edgeNormals;
-		return false;
-	}
-
-	//also check min dist between parallel edges facing in opposite directions, 
-	for(int i=0;i<iNumVerts;i++)
-	{
-		for(int j=i;j<iNumVerts;j++)
-		{
-			if(edgeNormals[i]*edgeNormals[j] < -0.99f)// parallel and facing in opposite directions 
-			{
-				osg::Vec3 dir = tempRoofVerts[(i+1)%iNumVerts]-tempRoofVerts[i];
-				float l = dir.length();
-				dir /= l;
-				osg::Vec3 d1 = tempRoofVerts[j]-tempRoofVerts[i];
-				osg::Vec3 d2 = tempRoofVerts[(j+1)%iNumVerts]-tempRoofVerts[i];
-				float dot1 = d1*dir;
-				float dot2 = d2*dir;
-				if((dot1 < 0 && dot2 < 0) || (dot1>l && dot2>l)) // check that edges overlap
-					continue;
-				float fEdgeDist = (tempRoofVerts[j]-tempRoofVerts[i])*edgeNormals[i];
-				if(fEdgeDist>0 && fEdgeDist < fMinEdgeLength)
-					fMinEdgeLength = fEdgeDist;
-			} 
-		}
-	}
-
-	//vertex offsets
-	osg::Vec3* vertOffsets = new osg::Vec3[iNumVerts];
-
-	float offset =fMinEdgeLength/2.0f;
-	for(int i=0;i<iNumVerts;i++)
-	{	
-		unsigned iPrev = i==0 ? iNumVerts-1 : i-1;
-
-		vertOffsets[i] = edgeNormals[iPrev] + edgeNormals[i];
-		vertOffsets[i].normalize();
-
-		//determine length of vertOffset so projection on to normals has length offset
-		//(n_edge . k*n_offset) = offset
-		float dot = (edgeNormals[i]*vertOffsets[i]);
-		if(fabs(dot)<0.01f)
-			continue;
-		float k = offset/dot;
-		vertOffsets[i] *= k;
-	}
-
-	//start with a flat roof
-	buildRoofGeometry(structure,roof,roofColor,roofSkin);
-
-	delete [] tempRoofVerts;
-
-	osg::Vec3Array*		roofVerts = dynamic_cast<osg::Vec3Array*>(roof->getVertexArray());
-	osg::Vec3Array*		roofNormals = dynamic_cast<osg::Vec3Array*>(roof->getNormalArray());
-
-	//buildRoofGeometry may add extra vertices, so update count
-	iNumVerts = roofVerts->getNumElements();
-
-	int iNumExtraVerts = iNumVerts*4;
-	osg::Vec3*	extraRoofVerts = new osg::Vec3[iNumExtraVerts];
-
-	//copy outline, and shrink original and move up, since it has been tesselated
-	//add 0.5 to offset when calculating roof height because roof width is increased by 0.5 on each side
-	float roofHeight = (offset+0.5f) * tan(osg::DegreesToRadians(_extrusionSymbol->roofPitch().get()));
-	int iExtraIndex=0;
-	for(int i=0;i<iNumVerts;i++)
-	{
-		//move bottom of roof out
-		osg::Vec3 vBottomVert = (*roofVerts)[i];
-		osg::Vec3 vEdgeOffset = vertOffsets[i];
-		vEdgeOffset.normalize();
-		//vBottomVert -= vEdgeOffset*0.5f;	
-
-		//offset and raise top
-		(*roofVerts)[i] += vertOffsets[i];
-		(*roofVerts)[i].z() += roofHeight;
-
-		//copy to vertex, twice because we need independent texture coords/normals  for each roof quad
-		extraRoofVerts[iExtraIndex++]=vBottomVert;
-		extraRoofVerts[iExtraIndex++]=(*roofVerts)[i];
-
-		if(i!=0) // copies of quad 0's vertices will by added by last quad
-		{
-			extraRoofVerts[iExtraIndex++]=vBottomVert; 
-			extraRoofVerts[iExtraIndex++]=(*roofVerts)[i];
-		}
-
-		if(i==iNumVerts-1) // last quad add copies of quad 0's vertices
-		{
-			extraRoofVerts[iExtraIndex++]=extraRoofVerts[0];
-			extraRoofVerts[iExtraIndex++]=extraRoofVerts[1];
-		}
-	}
-
-	int iNumRoofQuads = iNumVerts; //one quad pr segment = numVerts
-
-
-	// add extra vertices
-	for(int i=0;i<iNumExtraVerts;i++)
-		roofVerts->push_back(extraRoofVerts[i]);
-
-
-
-	int iNewNumVerts = roofVerts->getNumElements();
-	for(int i=iNumVerts;i<iNewNumVerts;i+=4)
-	{
-		osg::Vec3 bottomEdge = (*roofVerts)[i+2]-(*roofVerts)[i];
-		osg::Vec3 sideEdge = (*roofVerts)[i+1]-(*roofVerts)[i];
-		osg::Vec3 normal = bottomEdge^sideEdge;
-		normal.normalize();
-
-		roofNormals->push_back(normal);
-		roofNormals->push_back(normal);
-		roofNormals->push_back(normal);
-		roofNormals->push_back(normal);
-	}
-
-	//fix texture coords
-	osg::Vec3Array*		roofTexcoords = dynamic_cast<osg::Vec3Array*>(roof->getTexCoordArray(0));
-	double roofTexSpanY = roofSkin->imageHeight().isSet() ? *roofSkin->imageHeight() : roofSkin->imageWidth().isSet() ? *roofSkin->imageWidth() : 10.0;
-	if ( roofTexSpanY <= 0.0 ) roofTexSpanY = 10.0;
-
-	float quadHeight = offset/cos(osg::DegreesToRadians(_extrusionSymbol->roofPitch().get()));
-	float uTop = quadHeight/roofTexSpanY;
-
-	for(int i=iNumVerts;i<iNewNumVerts;i+=4)
-	{
-		osg::Vec3 vAxis = (*roofVerts)[i+2]-(*roofVerts)[i];
-		float bottomLength = vAxis.length();
-		vAxis/=bottomLength;
-		osg::Vec3 dirStartTop = (*roofVerts)[i+1]-(*roofVerts)[i];
-		osg::Vec3 uAxis = dirStartTop - vAxis*(vAxis*dirStartTop);
-		uAxis.normalize();
-
-		//bottom edge
-		roofTexcoords->push_back(osg::Vec3(0,0,0));
-		roofTexcoords->push_back(osg::Vec3(uTop,(dirStartTop*vAxis)/roofTexSpanY,0));
-		roofTexcoords->push_back(osg::Vec3(0, bottomLength/roofTexSpanY,0));
-		osg::Vec3 dirEndTop = (*roofVerts)[i+3]-(*roofVerts)[i];
-		roofTexcoords->push_back(osg::Vec3(uTop,(dirEndTop*vAxis)/roofTexSpanY,0));
-	}
-
-	osg::DrawElementsUInt* idx = new osg::DrawElementsUInt( GL_TRIANGLES );
-	for(int i=iNumVerts;i<iNewNumVerts;i+=4)
-	{
-		idx->push_back(i);
-		idx->push_back(i+2);
-		idx->push_back(i+3);
-
-		idx->push_back(i);
-		idx->push_back(i+3);
-		idx->push_back(i+1);
-	}
-	roof->addPrimitiveSet( idx );
-
-	osg::Vec4Array* colors = dynamic_cast<osg::Vec4Array*>(roof->getColorArray());
-	if(colors)
-	{
-		int nColors = colors->getNumElements();
-		int nVerts = roofVerts->getNumElements();
-		colors->resize(nVerts);
-		for(int i=nColors ; i<nVerts;i++)
-			(*colors)[i]=roofColor;
-	}
-
-	//cleanup
-	delete [] edgeNormals;
-	delete [] vertOffsets;
-	delete [] extraRoofVerts;
-
-	return true;
-}
-#else
 bool
 ExtrudeGeometryFilter::buildTVPitchedRoofGeometry(const Structure&     structure,
 													  osg::Geometry*       roof,
@@ -1370,6 +1106,8 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometry(const Structure&     structure
 	//copy outline, and shrink original and move up
 	//add 0.5 to offset when calculating roof height because roof width is increased by 0.5 on each side
 	float roofHeight = (offset+0.5f) * tan(osg::DegreesToRadians(_extrusionSymbol->roofPitch().get()));
+	roofHeight = std::min(roofHeight, _extrusionSymbol->maxRoofHeight().get());
+
 	int iExtraIndex=0;
 	for(int i=0;i<iNumVerts;i++)
 	{
@@ -1521,7 +1259,6 @@ ExtrudeGeometryFilter::buildTVPitchedRoofGeometry(const Structure&     structure
 
 	return true;
 }
-#endif
 
 bool
 ExtrudeGeometryFilter::buildOutlineGeometry(const Structure&  structure,

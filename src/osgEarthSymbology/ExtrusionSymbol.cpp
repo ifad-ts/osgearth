@@ -28,6 +28,7 @@ ExtrusionSymbol::ExtrusionSymbol(const ExtrusionSymbol& rhs,const osg::CopyOp& c
 Symbol(rhs, copyop)
 {
     _height = rhs._height;
+	_max_roof_height = rhs._max_roof_height;
     _flatten = rhs._flatten;
     _heightExpr = rhs._heightExpr;
     _heightRef = rhs._heightRef;
@@ -43,7 +44,8 @@ _height   ( 10.0 ),
 _flatten  ( true ),
 _heightRef( HEIGHT_REFERENCE_Z ),
 _wallGradientPercentage( 0.0f ),
-_roofPitch ( 0.0f )
+_roofPitch ( 0.0f ),
+_max_roof_height(7.0f)
 {
     if ( !conf.empty() )
         mergeConfig(conf);
@@ -55,6 +57,7 @@ ExtrusionSymbol::getConfig() const
     Config conf = Symbol::getConfig();
     conf.key() = "extrusion";
     conf.addIfSet   ( "height",            _height );
+	conf.addIfSet   ( "max_roof_height",    _max_roof_height);
     conf.addIfSet   ( "flatten",           _flatten );
     conf.addObjIfSet( "height_expression", _heightExpr );
     conf.addIfSet   ( "height_reference", "z",   _heightRef, HEIGHT_REFERENCE_Z );
@@ -70,6 +73,7 @@ void
 ExtrusionSymbol::mergeConfig( const Config& conf )
 {
     conf.getIfSet   ( "height",  _height );
+	conf.getIfSet   ("max_roof_height", _max_roof_height);
     conf.getIfSet   ( "flatten", _flatten );
     conf.getObjIfSet( "height_expression", _heightExpr );
     conf.getIfSet   ( "height_reference", "z",   _heightRef, HEIGHT_REFERENCE_Z );
@@ -86,6 +90,9 @@ ExtrusionSymbol::parseSLD(const Config& c, Style& style)
     if ( match(c.key(), "extrusion-height") ) {
         style.getOrCreate<ExtrusionSymbol>()->heightExpression() = NumericExpression(c.value());
     }
+	else if (match(c.key(), "extrusion-max_roof_height")) {
+		style.getOrCreate<ExtrusionSymbol>()->maxRoofHeight() = as<float>(c.value(), 7.0f);
+	}
     else if ( match(c.key(), "extrusion-flatten") ) {
         style.getOrCreate<ExtrusionSymbol>()->flatten() = as<bool>(c.value(), true);
     }
