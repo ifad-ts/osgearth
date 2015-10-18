@@ -1,7 +1,7 @@
-%global osg_ver 3.2.1.2
+%global osg_ver 3.2.1.3
 
 Name:           osgearth-ifad
-Version:        2.6.9
+Version:        2.6.10
 Release:        1%{?dist}
 Summary:        Dynamic map generation toolkit for OpenSceneGraph (IFAD version)
 Obsoletes:      osgearth
