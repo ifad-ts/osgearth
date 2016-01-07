@@ -49,5 +49,19 @@
 				<include>*.exe</include>
             </includes>
         </fileSet>		
+        <fileSet>
+            <directory>target/mvnbuild/bin</directory>
+            <outputDirectory>/pdb</outputDirectory>
+            <includes>
+                <include>**/*.pdb</include>
+            </includes>
+        </fileSet>   
+        <fileSet>
+            <directory>target/mvnbuild/lib</directory>
+            <outputDirectory>/pdb</outputDirectory>
+            <includes>
+                <include>**/*.pdb</include>
+            </includes>
+        </fileSet>          
     </fileSets>
  </assembly>
