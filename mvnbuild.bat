@@ -37,6 +37,10 @@ cmake -G "Visual Studio 12 Win64" ^
 
 devenv.com %NAME%.sln /build %1 /Project INSTALL || exit 
 popd
+for /r %INSTALLDIR% %%p in (*.dll) do (
+	for /f "delims=" %%i in ('dir target\mvnbuild\lib\%%~np.pdb /b /s') do ( xcopy /y %%~dpnxi  %%~dpp )
+	for /f "delims=" %%i in ('dir target\mvnbuild\bin\%%~np.pdb /b /s') do ( xcopy /y %%~dpnxi  %%~dpp )
+)
 
 rmdir /s /q target\mvninstall\%1
 mkdir target\mvninstall

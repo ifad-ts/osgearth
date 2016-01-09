@@ -32,6 +32,7 @@
             <outputDirectory>/bin/debug</outputDirectory>
             <includes>
                 <include>**/*.dll</include>
+                <include>**/*.pdb</include>
             </includes>
         </fileSet>
         <fileSet>
@@ -46,22 +47,9 @@
             <outputDirectory>/bin/release</outputDirectory>
             <includes>
                 <include>**/*.dll</include>
+                <include>**/*.pdb</include>
 				<include>*.exe</include>
             </includes>
         </fileSet>		
-        <fileSet>
-            <directory>target/mvnbuild/bin</directory>
-            <outputDirectory>/pdb</outputDirectory>
-            <includes>
-                <include>**/*.pdb</include>
-            </includes>
-        </fileSet>   
-        <fileSet>
-            <directory>target/mvnbuild/lib</directory>
-            <outputDirectory>/pdb</outputDirectory>
-            <includes>
-                <include>**/*.pdb</include>
-            </includes>
-        </fileSet>          
     </fileSets>
  </assembly>
