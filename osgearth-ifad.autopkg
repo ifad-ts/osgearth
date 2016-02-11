@@ -1,0 +1,45 @@
+/* Use createnugetpackages.bat to perform all stages required to build this package. */
+
+nuget {
+    nuspec {
+        id = osgearth-ifad;
+        version: 2.6.11;
+        title: osgEarth IFAD;
+        authors: { Pelican Mapping, amo. };
+        owners: { IFAD TS, Michael Bach };
+        licenseUrl: "http://www.gnu.org/copyleft/lesser.html";
+        projectUrl: "http://osgearth.org/";
+        requireLicenseAcceptance: false;
+        summary: osgEarth is a C++ geospatial SDK and terrain engine;
+        description: @"osgEarth is a C++ geospatial SDK and terrain engine. Just create a simple XML file, point it at your map data,
+        and go! osgEarth supports all kinds of data and comes with lots of examples to help you get up and running quickly and easily.";
+        copyright: "None";
+        tags: { native, gis, openscenegraph, ifadts };
+        releaseNotes: "First nupkg release.";
+    }
+    
+    dependencies {
+        packages : {
+            osgvisual-3rdparty-full/9.0,
+            OpenSceneGraphIFAD/3.2.1.4,
+            geos/3.4.2
+        };
+    }
+
+    files {
+        include: { "target\nugetinstall\Debug\include\**\*" };
+        symbols += {  
+            #add-each-file : ::nuget.[symbols]targets.[${condition}].CopyToOutput;
+        };
+        [x64,v120,debug,dynamic] {
+            lib:     target\nugetinstall\Debug\lib\*;
+            bin:     { target\nugetinstall\Debug\bin\**\*.dll, target\nugetinstall\Debug\bin\**\*.exe };
+            symbols: target\nugetinstall\Debug\bin\**\*.pdb;
+        }
+        [x64,v120,release,dynamic] {
+            lib:     target\nugetinstall\Release\lib\*;
+            bin:     { target\nugetinstall\Release\bin\**\*.dll, target\nugetinstall\Release\bin\**\*.exe };
+            symbols: target\nugetinstall\Release\bin\**\*.pdb;
+        }
+    }
+}
