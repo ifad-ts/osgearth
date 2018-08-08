@@ -9,9 +9,9 @@ SET(LIB_NAME osgEarthUtil)
 SET(HEADER_PATH ${OSGEARTH_SOURCE_DIR}/include/${LIB_NAME})
 
 SET(HEADERS_ROOT
-	ActivityMonitorTool
+    ActivityMonitorTool
     AnnotationEvents
-    AutoClipPlaneHandler	
+    AutoClipPlaneHandler
     ArcGIS
     AtlasBuilder
     Common
@@ -19,33 +19,35 @@ SET(HEADERS_ROOT
     ContourMap
     ClampCallback
     DataScanner
-    DateTime
     EarthManipulator
-	Ephemeris
+    Ephemeris
     ExampleResources
     Export
-    FeatureManipTool
-    FeatureQueryTool
+    FlatteningLayer
     Fog
     Formatter
+    FractalElevationLayer
+    GARSGraticule
     GeodeticGraticule
     HTM
     LatLongFormatter
     LineOfSight
     LinearLineOfSight
     LODBlending
-	LogarithmicDepthBuffer
+    LogarithmicDepthBuffer
     MeasureTool
     MGRSFormatter
     MGRSGraticule
     MouseCoordsTool
-    ObjectLocator
+    MultiElevationLayer
     Ocean
     PolyhedralLineOfSight
     RadialLineOfSight
+    RTTPicker
     Shaders
-	Shadowing
-	SimplexNoise
+    Shadowing
+    SimpleOceanLayer
+    SimplePager
     Sky
     SpatialData
     StarData
@@ -57,8 +59,11 @@ SET(HEADERS_ROOT
     TMS
     TMSBackFiller
     TMSPackager
+    TopologyGraph
     UTMGraticule
+    UTMLabelingEngine
     VerticalScale
+    ViewFitter
     WCS
     WFS
     WMS
@@ -75,21 +80,27 @@ set(TARGET_GLSL
     ContourMap.frag.glsl
     Fog.vert.glsl
     Fog.frag.glsl
+    Graticule.vert.glsl
+    Graticule.frag.glsl
     LogDepthBuffer.vert.glsl
-    LogDepthBuffer.VertOnly.vert.glsl    
-    LogDepthBuffer.frag.glsl )
+    LogDepthBuffer.VertOnly.vert.glsl
+    LogDepthBuffer.frag.glsl
+    Shadowing.vert.glsl
+    Shadowing.frag.glsl
+    SimpleOceanLayer.vert.glsl
+    SimpleOceanLayer.frag.glsl)
 
 set(TARGET_IN
     Shaders.cpp.in)
 
-configure_shaders(            
+configure_shaders(
     Shaders.cpp.in
     ${SHADERS_CPP}
     ${TARGET_GLSL} )
 
 
 SET(SOURCES_ROOT
-	ActivityMonitorTool.cpp
+    ActivityMonitorTool.cpp
     AnnotationEvents.cpp
     ArcGIS.cpp
     AtlasBuilder.cpp
@@ -99,27 +110,30 @@ SET(SOURCES_ROOT
     ContourMap.cpp
     DataScanner.cpp
     EarthManipulator.cpp
-	Ephemeris.cpp
+    Ephemeris.cpp
     ExampleResources.cpp
-    FeatureManipTool.cpp
-    FeatureQueryTool.cpp
+    FlatteningLayer.cpp
     Fog.cpp
+    FractalElevationLayer.cpp
+    GARSGraticule.cpp
     GeodeticGraticule.cpp
     HTM.cpp
     LatLongFormatter.cpp
     LinearLineOfSight.cpp
+    LogarithmicDepthBuffer.cpp
     LODBlending.cpp
-	LogarithmicDepthBuffer.cpp
     MeasureTool.cpp
     MGRSFormatter.cpp
     MGRSGraticule.cpp
     MouseCoordsTool.cpp
-    ObjectLocator.cpp
+    MultiElevationLayer.cpp
     Ocean.cpp
     PolyhedralLineOfSight.cpp
     RadialLineOfSight.cpp
-	Shadowing.cpp
-	SimplexNoise.cpp
+    RTTPicker.cpp
+    Shadowing.cpp
+    SimpleOceanLayer.cpp
+    SimplePager.cpp
     SpatialData.cpp
     Sky.cpp
     TerrainProfile.cpp
@@ -130,8 +144,11 @@ SET(SOURCES_ROOT
     TMS.cpp
     TMSBackFiller.cpp
     TMSPackager.cpp
+    TopologyGraph.cpp
     UTMGraticule.cpp
+    UTMLabelingEngine.cpp
     VerticalScale.cpp
+    ViewFitter.cpp
     WCS.cpp
     WFS.cpp
     WMS.cpp
@@ -149,6 +166,7 @@ SET(HEADERS_COLORFILTER
     HSLColorFilter
     RGBColorFilter
     ChromaKeyColorFilter
+    NightColorFilter
 )
 SOURCE_GROUP( Headers\\ColorFilters FILES ${HEADERS_COLORFILTER} )
 
@@ -161,6 +179,7 @@ SET(SOURCES_COLORFILTER
     HSLColorFilter.cpp
     RGBColorFilter.cpp
     ChromaKeyColorFilter.cpp
+    NightColorFilter.cpp
 )
 SOURCE_GROUP( Sources\\ColorFilters FILES ${SOURCES_COLORFILTER} )
 
@@ -170,7 +189,7 @@ SET(LIB_PUBLIC_HEADERS
     ${HEADERS_COLORFILTER}
 )
 
-SET(LIB_COMMON_FILES 
+SET(LIB_COMMON_FILES
     ${SOURCES_ROOT} ${SOURCES_COLORFILTER}
 )
 

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -69,7 +69,7 @@ TessellateOperator::tessellateGeo( const osg::Vec3d& p0, const osg::Vec3d& p1, u
             double bearing  = GeoMath::rhumbBearing( lat1, lon1, lat2, lon2 );
 
             double interpDistance = t * totalDistance;
-           
+
             double lat3, lon3;
             GeoMath::rhumbDestination(lat1, lon1, bearing, interpDistance, lat3, lon3);
 
@@ -82,10 +82,9 @@ TessellateOperator::tessellateGeo( const osg::Vec3d& p0, const osg::Vec3d& p1, u
 
 //------------------------------------------------------------------------
 
-TessellateOperator::TessellateOperator(unsigned                numPartitions,
-                                       GeoInterpolation        defaultInterp ) :
-_numPartitions( numPartitions ),
-_defaultInterp( defaultInterp )
+TessellateOperator::TessellateOperator() :
+_numPartitions( 20 ),
+_defaultInterp( GEOINTERP_GREAT_CIRCLE )
 {
     //nop
 }
@@ -101,9 +100,20 @@ TessellateOperator::operator()( Feature* feature, FilterContext& context ) const
         return;
     }
 
-    bool isGeo = feature->getSRS() ? feature->getSRS()->isGeographic() : true;
-    //bool isGeo = context.profile() ? context.profile()->getSRS()->isGeographic() : true;
-    GeoInterpolation interp = feature->geoInterp().isSet() ? *feature->geoInterp() : _defaultInterp;
+    Units featureUnits = feature->getSRS() ? feature->getSRS()->getUnits() : Units::METERS;
+    bool isGeo = feature->getSRS() ? feature->getSRS()->isGeographic() : false;
+    GeoInterpolation geoInterp = feature->geoInterp().isSet() ? *feature->geoInterp() : _defaultInterp;
+
+    double sliceSize = 0.0;
+    int    numPartitions = _numPartitions;
+
+    if ( _maxDistance.isSet() )
+    {
+        // copmpute the slice size in feature units.
+        double latitude = feature->getGeometry()->getBounds().center().y();
+        sliceSize = SpatialReference::transformUnits( _maxDistance.value(), feature->getSRS(), latitude );
+        sliceSize = _maxDistance->as(Units::METERS);
+    }
 
     GeometryIterator i( feature->getGeometry(), true );
     while( i.hasMore() )
@@ -112,24 +122,39 @@ TessellateOperator::operator()( Feature* feature, FilterContext& context ) const
         bool isRing = dynamic_cast<Ring*>( g ) != 0L;
 
         Vec3dVector newVerts;
-        newVerts.reserve( g->size() * _numPartitions );
 
         for( Geometry::const_iterator v = g->begin(); v != g->end(); ++v )
         {
+            unsigned slices = _numPartitions;
+
             const osg::Vec3d& p0 = *v;
             if ( v != g->end()-1 ) // not last vert
             {
+                // calculate slice count
+                if ( sliceSize > 0.0 )
+                {
+                    double dist = GeoMath::distance(*v, *(v + 1), feature->getSRS());
+                    slices = std::max( 1u, (unsigned)(dist / sliceSize) );
+                }
+
                 if ( isGeo )
-                    tessellateGeo( *v, *(v+1), _numPartitions, interp, newVerts );
+                    tessellateGeo( *v, *(v+1), slices, geoInterp, newVerts );
                 else
-                    tessellateLinear( *v, *(v+1), _numPartitions, newVerts );
+                    tessellateLinear( *v, *(v+1), slices, newVerts );
             }
             else if ( isRing )
             {
+                // calculate slice count
+                if ( sliceSize > 0.0 )
+                {
+                    double dist = GeoMath::distance(*v, *g->begin(), feature->getSRS());
+                    slices = std::max( 1u, (unsigned)(dist / sliceSize) );
+                }
+
                 if ( isGeo )
-                    tessellateGeo( *v, *g->begin(), _numPartitions, interp, newVerts );
+                    tessellateGeo( *v, *g->begin(), slices, geoInterp, newVerts );
                 else
-                    tessellateLinear( *v, *g->begin(), _numPartitions, newVerts );
+                    tessellateLinear( *v, *g->begin(), slices, newVerts );
             }
             else 
             {
@@ -140,4 +165,13 @@ TessellateOperator::operator()( Feature* feature, FilterContext& context ) const
 
         g->swap( newVerts );
     }
+}
+
+FilterContext
+TessellateOperator::push(FeatureList& input, FilterContext& context) const
+{
+    for (FeatureList::iterator i = input.begin(); i != input.end(); ++i) {
+        operator()(i->get(), context);
+    }
+    return context;
 }

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -52,7 +52,8 @@ _initialized( false )
 void
 ResourceLibrary::mergeConfig( const Config& conf )
 {
-    _name = conf.value( "name" );
+    if (_name.empty())
+        _name = conf.value( "name" );
 
     conf.getIfSet( "url", _uri );
 
@@ -180,6 +181,7 @@ ResourceLibrary::initialize( const osgDB::Options* dbOptions )
 
             if ( _uri.isSet() )
             {
+                OE_INFO << LC << "Loading library from " << _uri->full() << std::endl;
                 osg::ref_ptr<XmlDocument> xml = XmlDocument::load( *_uri, dbOptions );
                 if ( xml.valid() )
                 {
@@ -196,6 +198,12 @@ ResourceLibrary::initialize( const osgDB::Options* dbOptions )
                         if ( !child.empty() )
                             mergeConfig( child );
                     }
+
+                    OE_INFO << LC << "Found " << _skins.size() << " textures, " << _instances.size() << " models\n";
+                }
+                else
+                {
+                    OE_WARN << LC << "Failed to load library from XML\n";
                 }
             }
             _initialized = true;
@@ -346,4 +354,70 @@ ResourceLibrary::getInstance( const std::string& name, const osgDB::Options* dbO
     Threading::ScopedReadLock shared( _mutex );
     ResourceMap<InstanceResource>::const_iterator i = _instances.find( name );
     return i != _instances.end() ? i->second.get() : 0L;
+}
+
+ModelResource*
+ResourceLibrary::getModel( const ModelSymbol* ms, const osgDB::Options* dbOptions ) const
+{
+    const_cast<ResourceLibrary*>(this)->initialize( dbOptions );
+    Threading::ScopedReadLock shared( _mutex );
+    ResourceMap<InstanceResource>::const_iterator i = _instances.find( ms->name()->eval() );
+    return i != _instances.end() ? dynamic_cast<ModelResource*>(i->second.get()) : 0L;
+}
+
+void
+ResourceLibrary::getModels( ModelResourceVector& output, const osgDB::Options* dbOptions ) const
+{
+    const_cast<ResourceLibrary*>(this)->initialize( dbOptions );
+    Threading::ScopedReadLock shared( _mutex );
+    output.reserve( _instances.size() );
+    for( ResourceMap<InstanceResource>::const_iterator i = _instances.begin(); i != _instances.end(); ++i ) {
+        ModelResource* m = dynamic_cast<ModelResource*>(i->second.get());
+        if ( m ) output.push_back( m );
+    }
+}
+
+void
+ResourceLibrary::getModels(const ModelSymbol* ms, ModelResourceVector& output, const osgDB::Options* dbOptions) const
+{
+    if ( !ms ) return;
+
+    // if a name is set, use the other getter.
+    if ( ms->name().isSet() )
+    {
+        ModelResource* mr = getModel(ms, dbOptions);
+        if ( mr )
+            output.push_back( mr );
+    }
+
+    else
+    {
+        const_cast<ResourceLibrary*>(this)->initialize( dbOptions );
+
+        Threading::ScopedReadLock shared( _mutex );
+
+        output.reserve( _instances.size() );
+        for( ResourceMap<InstanceResource>::const_iterator i = _instances.begin(); i != _instances.end(); ++i )
+        {
+            ModelResource* m = dynamic_cast<ModelResource*>(i->second.get());
+            if ( m )
+            {
+                if (ms && ms->tags().size() > 0 && !m->containsTags(ms->tags()) )
+                    continue;
+
+                // if there's a size restriction, pre-load the model so we can know its size.
+                if (ms && ms->maxSizeX().isSet() && ms->maxSizeY().isSet())
+                {
+                    const osg::BoundingBox& bbox = m->getBoundingBox( dbOptions );
+                    if ( ms->maxSizeX().get() < (bbox.xMax() - bbox.xMin()) )
+                        continue;
+                    if ( ms->maxSizeY().get() < (bbox.yMax() - bbox.yMin()) )
+                        continue;
+                }
+
+                // good, return it
+                output.push_back( m );
+            }
+        }
+    }
 }

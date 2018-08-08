@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -23,6 +26,7 @@
 #include <osgEarthUtil/AtlasBuilder>
 #include <osgEarthSymbology/ResourceLibrary>
 #include <osgEarthSymbology/Skins>
+#include <osgEarth/Utils>
 
 #include <osg/ArgumentParser>
 #include <osgDB/FileUtils>
@@ -120,6 +124,11 @@ build(osg::ArgumentParser& arguments)
     // the output catalog file describing the texture atlas contents:
     std::string outCatalogFile = osgDB::getSimpleFileName(outImageFile) + ".xml";
 
+    // Whether to build RGB images
+    bool rgb = arguments.read("--rgb");
+    builder.setRGB( rgb );
+    
+
     // auxiliary atlas patterns:
     std::string pattern;
     float r, g, b, a;
@@ -129,8 +138,11 @@ build(osg::ArgumentParser& arguments)
     if ( !builder.build(lib.get(), outImageFile, atlas) )
         return usage("Failed to build atlas");
 
-    // write the atlas images.
-    osgDB::writeImageFile(*atlas._images.begin()->get(), outImageFile);
+    // write the atlas images. don't flip DDS's.
+    osg::ref_ptr<osgDB::Options> writeOptions = new osgDB::Options();
+    writeOptions->setOptionString("ddsNoAutoFlipWrite");
+
+    osgDB::writeImageFile(*atlas._images.begin()->get(), outImageFile, writeOptions.get());
     OE_INFO << LC << "Wrote output image to \"" << outImageFile << "\"" << std::endl;
     
     // write any aux images.
@@ -142,7 +154,7 @@ build(osg::ArgumentParser& arguments)
             "_" + auxPatterns[i] + "." +
             osgDB::getFileExtension(outImageFile);
 
-        osgDB::writeImageFile(*atlas._images[i+1].get(), auxAtlasFile);
+        osgDB::writeImageFile(*atlas._images[i + 1].get(), auxAtlasFile, writeOptions.get());
         
         OE_INFO << LC << "Wrote auxiliary image to \"" << auxAtlasFile << "\"" << std::endl;
     }
@@ -199,8 +211,8 @@ show(osg::ArgumentParser& arguments)
             osgDB::getFileExtension(atlasFile);
     }
 
-    osg::Image* image = osgDB::readImageFile(atlasFile);
-    if ( !image )
+    osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile(atlasFile);
+    if (!image.valid())
         return usage("Failed to load atlas image");
 
     if ( layer > image->r()-1 )
@@ -208,8 +220,12 @@ show(osg::ArgumentParser& arguments)
 
     // geometry for the image layer:
     std::vector<osg::ref_ptr<osg::Image> > images;
-    osgEarth::ImageUtils::flattenImage(image, images);
+    osgEarth::ImageUtils::flattenImage(image.get(), images);
     osg::Geode* geode = osg::createGeodeForImage(images[layer].get());
+
+    const osg::BoundingBox& bbox = osgEarth::Utils::getBoundingBox(geode->getDrawable(0));
+    float width = bbox.xMax() - bbox.xMin();
+    float height = bbox.zMax() - bbox.zMin();
 
     // geometry for the skins in that layer:
     osg::Geode* geode2 = new osg::Geode();
@@ -223,15 +239,16 @@ show(osg::ArgumentParser& arguments)
     geom->setColorBinding(geom->BIND_OVERALL);
     osgEarth::Symbology::SkinResourceVector skins;
     lib->getSkins(skins);
+    OE_WARN << "num = " << skins.size() << "\n";
+
     for(unsigned k=0; k<skins.size(); ++k)
     {
-        if (skins[k]->imageLayer() == layer &&
-            skins[k]->isTiled() == false)
+        if (skins[k]->imageLayer() == layer && skins[k]->atlasHint() != false)
         {
-            float x = -1.0f + 2.0*skins[k]->imageBiasS().value();
-            float y = -1.0f + 2.0*skins[k]->imageBiasT().value();
-            float s = 2.0*skins[k]->imageScaleS().value();
-            float t = 2.0*skins[k]->imageScaleT().value();
+            float x = bbox.xMin() + width*skins[k]->imageBiasS().value();
+            float y = bbox.zMin() + height*skins[k]->imageBiasT().value();
+            float s = width*skins[k]->imageScaleS().value();
+            float t = height*skins[k]->imageScaleT().value();
 
             v->push_back(osg::Vec3(x,     -0.01f, y    ));
             v->push_back(osg::Vec3(x + s, -0.01f, y    ));

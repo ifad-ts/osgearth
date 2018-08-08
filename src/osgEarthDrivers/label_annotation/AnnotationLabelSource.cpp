@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -18,6 +18,7 @@
  */
 #include <osgEarthFeatures/LabelSource>
 #include <osgEarthFeatures/FeatureSourceIndexNode>
+#include <osgEarthFeatures/FilterContext>
 #include <osgEarthAnnotation/LabelNode>
 #include <osgEarthAnnotation/PlaceNode>
 #include <osgEarth/DepthOffset>
@@ -46,7 +47,7 @@ public:
     osg::Node* createNode(
         const FeatureList&   input,
         const Style&         style,
-        const FilterContext& context )
+        FilterContext&       context )
     {
         if ( style.get<TextSymbol>() == 0L && style.get<IconSymbol>() == 0L )
             return 0L;
@@ -61,13 +62,15 @@ public:
         StringExpression  textContentExpr ( text ? *text->content()  : StringExpression() );
         NumericExpression textPriorityExpr( text ? *text->priority() : NumericExpression() );
         NumericExpression textSizeExpr    ( text ? *text->size()     : NumericExpression() );
+        NumericExpression textRotationExpr( text ? *text->onScreenRotation() : NumericExpression() );
+        NumericExpression textCourseExpr  ( text ? *text->geographicCourse() : NumericExpression() );
         StringExpression  iconUrlExpr     ( icon ? *icon->url()      : StringExpression() );
         NumericExpression iconScaleExpr   ( icon ? *icon->scale()    : NumericExpression() );
         NumericExpression iconHeadingExpr ( icon ? *icon->heading()  : NumericExpression() );
 
         for( FeatureList::const_iterator i = input.begin(); i != input.end(); ++i )
         {
-            const Feature* feature = i->get();
+            Feature* feature = i->get();
             if ( !feature )
                 continue;
             
@@ -102,6 +105,12 @@ public:
 
                 if ( text->size().isSet() )
                     tempStyle.get<TextSymbol>()->size()->setLiteral( feature->eval(textSizeExpr, &context) );
+
+                if ( text->onScreenRotation().isSet() )
+                    tempStyle.get<TextSymbol>()->onScreenRotation()->setLiteral( feature->eval(textRotationExpr, &context) );
+
+                if ( text->geographicCourse().isSet() )
+                    tempStyle.get<TextSymbol>()->geographicCourse()->setLiteral( feature->eval(textCourseExpr, &context) );
             }
 
             if ( icon )
@@ -126,38 +135,45 @@ public:
             {
                 if ( context.featureIndex() )
                 {
-                    context.featureIndex()->tagNode(node, const_cast<Feature*>(feature));
+                    context.featureIndex()->tagNode(node, feature);
                 }
 
                 group->addChild( node );
             }
         }
 
-        VirtualProgram* vp = VirtualProgram::getOrCreate(group->getOrCreateStateSet());
-        vp->setInheritShaders( false );
-
         return group;
     }
 
 
-    osg::Node* makePlaceNode(const FilterContext& context,
-                             const Feature*       feature, 
-                             const Style&         style, 
-                             NumericExpression&   priorityExpr )
+    osg::Node* makePlaceNode(FilterContext&     context,
+                             Feature*           feature, 
+                             const Style&       style, 
+                             NumericExpression& priorityExpr )
     {
         osg::Vec3d center = feature->getGeometry()->getBounds().center();
-        GeoPoint point(feature->getSRS(), center.x(), center.y());
 
-        PlaceNode* placeNode = new PlaceNode(0L, point, style, context.getDBOptions());
+        AltitudeMode mode = ALTMODE_ABSOLUTE;        
 
+        const AltitudeSymbol* alt = style.getSymbol<AltitudeSymbol>();
+        if (alt &&
+           (alt->clamping() == AltitudeSymbol::CLAMP_TO_TERRAIN || alt->clamping() == AltitudeSymbol::CLAMP_RELATIVE_TO_TERRAIN) &&
+           alt->technique() == AltitudeSymbol::TECHNIQUE_SCENE)
+        {
+            mode = ALTMODE_RELATIVE;
+        }                              
+
+        GeoPoint point(feature->getSRS(), center.x(), center.y(), center.z(), mode);        
+
+        PlaceNode* node = new PlaceNode(0L, point, style, context.getDBOptions());
+        
         if ( !priorityExpr.empty() )
         {
-            AnnotationData* data = new AnnotationData();
-            data->setPriority( feature->eval(priorityExpr, &context) );
-            placeNode->setAnnotationData( data );
+            float val = feature->eval(priorityExpr, &context);
+            node->setPriority( val >= 0.0f ? val : FLT_MAX );
         }
 
-        return placeNode;
+        return node;
     }
 
 };
@@ -172,7 +188,7 @@ public:
         supportsExtension( "osgearth_label_annotation", "osgEarth annotation label plugin" );
     }
 
-    virtual const char* className()
+    virtual const char* className() const
     {
         return "osgEarth Annotation Label Plugin";
     }

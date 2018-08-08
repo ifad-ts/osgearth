@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -141,10 +141,11 @@ public:
         : ModelSource( options ), _options(options) { }
 
     //override
-    void initialize( const osgDB::Options* dbOptions )
+    Status initialize( const osgDB::Options* dbOptions )
     {
         _dbOptions = dbOptions;
-        ModelSource::initialize( dbOptions );
+        //ModelSource::initialize( dbOptions );
+        return Status::OK();
     }
 
     // override
@@ -172,7 +173,7 @@ public:
             // Only load the model if it's not paged or we don't have a location set.
             if (!usePagedLOD || !_options.location().isSet())
             {
-                result = _options.url()->getNode( localDBOptions.get(), progress );                
+                result = _options.url()->getNode( localDBOptions.get(), progress );
             }
         }
 
@@ -270,7 +271,7 @@ public:
                 osg::ref_ptr<StateSetCache> cache = new StateSetCache();
 
                 Registry::shaderGenerator().run(
-                    result,
+                    result.get(),
                     _options.url()->base(),
                     cache.get() );
             }
@@ -309,7 +310,7 @@ public:
         supportsExtension( "osgearth_model_simple", "osgEarth simple model plugin" );
     }
 
-    virtual const char* className()
+    virtual const char* className() const
     {
         return "osgEarth Simple Model Plugin";
     }

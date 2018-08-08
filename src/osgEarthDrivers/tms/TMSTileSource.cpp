@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -38,7 +41,7 @@ _forceRGB (false)
 }
 
 
-TileSource::Status
+Status
 TMSTileSource::initialize(const osgDB::Options* dbOptions)
 {
     // local copy of options we can modify if necessary.
@@ -51,13 +54,13 @@ TMSTileSource::initialize(const osgDB::Options* dbOptions)
     URI tmsURI = _options.url().value();
     if ( tmsURI.empty() )
     {
-        return Status::Error( "Fail: TMS driver requires a valid \"url\" property" );
+        return Status::Error( Status::ConfigurationError, "Fail: TMS driver requires a valid \"url\" property" );
     }
 
     // A repo is writable only if it's local.
     if ( tmsURI.isRemote() )
     {
-        OE_INFO << LC << "Repo is remote; opening in read-only mode" << std::endl;
+        OE_DEBUG << LC << "Repo is remote; opening in read-only mode" << std::endl;
     }
 
     // Is this a new repo? (You can only create a new repo at a local non-archive URI.)
@@ -72,7 +75,7 @@ TMSTileSource::initialize(const osgDB::Options* dbOptions)
         // new repo REQUIRES a profile:
         if ( !profile )
         {
-            return Status::Error("Fail: profile required to create new TMS repo");
+            return Status::Error(Status::ConfigurationError, "Fail: profile required to create new TMS repo");
         }
     }
 
@@ -84,19 +87,24 @@ TMSTileSource::initialize(const osgDB::Options* dbOptions)
             << "\" for URI \"" << tmsURI.base() << "\"" 
             << std::endl;
 
+        DataExtentList extents;
+
         _tileMap = TMS::TileMap::create( 
             _options.url()->full(),
             profile,
+            extents,
             _options.format().value(),
-            _options.tileSize().value(), 
-            _options.tileSize().value() );
+            256,
+            256);
+            //getPixelsPerTile(),
+            //getPixelsPerTile() );
 
         // If this is a new repo, write the tilemap file to disk now.
         if ( isNewRepo )
         {
             if ( !_options.format().isSet() )
             {
-                return Status::Error("Cannot create new repo with required [format] property");
+                return Status::Error(Status::ConfigurationError, "Missing required \"format\" property: e.g. png, jpg");
             }
 
             TMS::TileMapReaderWriter::write( _tileMap.get(), tmsURI.full() );
@@ -111,7 +119,7 @@ TMSTileSource::initialize(const osgDB::Options* dbOptions)
 
         if (!_tileMap.valid())
         {
-            return Status::Error( Stringify() << "Failed to read tilemap from " << tmsURI.full() );
+            return Status::Error( Status::ResourceUnavailable, Stringify() << "Failed to read tilemap from " << tmsURI.full() );
         }
 
         OE_INFO << LC
@@ -150,8 +158,23 @@ TMSTileSource::initialize(const osgDB::Options* dbOptions)
         }
         else
         {
-            //Push back a single area that encompasses the whole profile going up to the max level
-            this->getDataExtents().push_back(DataExtent(profile->getExtent(), 0, _tileMap->getMaxLevel()));
+            
+            GeoExtent extent;
+
+            // Push back a single area that covers the "bounds" present in the TMS dataset.
+            if (_tileMap.valid())
+            {
+                double minX, minY, maxX, maxY;
+                _tileMap->getExtents(minX, minY, maxX, maxY);
+                extent = GeoExtent(profile->getSRS(), minX, minY, maxX, maxY);
+            }
+
+            // If the extent isn't valid, use the profile's extent.
+            if (!extent.isValid() || extent.width() <= 0.0 || extent.height() <= 0.0 )
+            {
+                extent = profile->getExtent();
+            }
+            this->getDataExtents().push_back(DataExtent(extent, 0, _tileMap->getMaxLevel()));
         }
     }
     return STATUS_OK;
@@ -212,6 +235,13 @@ TMSTileSource::createImage(const TileKey&    key,
                 }
             }
         }
+        
+        if (image.valid() && _options.coverage() == true)
+        {
+            image->setInternalTextureFormat(GL_LUMINANCE32F_ARB);
+            ImageUtils::markAsUnNormalized(image.get(), true);
+        }
+
         return image.release();
     }
     return 0;

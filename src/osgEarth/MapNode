@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -23,15 +26,18 @@
 #include <osgEarth/Common>
 #include <osgEarth/Map>
 #include <osgEarth/MapNodeOptions>
-#include <osgEarth/SpatialReference>
-#include <osgEarth/TerrainEngineNode>
 #include <osgEarth/Extension>
 
 namespace osgEarth
 {
     class OverlayDecorator;
     class Terrain;
+    class TerrainEngineNode;
     class MapNodeCullData;
+    class SpatialReference;
+    class ResourceReleaser;
+    class DrapingManager;
+    class ClampingManager;
 
     /**
      * OSG Node that forms the root of an osgEarth map. This node is a "view" component
@@ -41,9 +47,18 @@ namespace osgEarth
     {
     public:
         /**
-         * Attempts to load a MapNOde from a ".earth" file in the arguments list
+         * Attempts to load a MapNode from a ".earth" file in the arguments list
          */
-        static MapNode* load( class osg::ArgumentParser& arguments );
+        static MapNode* load(
+            class osg::ArgumentParser& arguments);
+
+        /**
+         * Attempts to load a MapNode from an ".earth" file, with a set of default
+         * map and terrain options.
+         */
+        static MapNode* load(
+            class osg::ArgumentParser& arguments,
+            const MapNodeOptions&      defaultOptions);
 
     public:
         /**
@@ -119,25 +134,18 @@ namespace osgEarth
         bool isGeocentric() const;
 
         /**
-         * Accesses the group node that contains all the ModelLayers.
+         * Accesses the group node that contains all the nodes added by Layers.
          */
-        osg::Group* getModelLayerGroup() const;
+        osg::Group* getLayerNodeGroup() const;
+
+        // @deprecated - use getLayerNodeGroup
+        osg::Group* getModelLayerGroup() const { return getLayerNodeGroup(); }
 
         /**
          * Accesses the root node for a specific ModelLayer.
          */
-        osg::Node* getModelLayerNode( ModelLayer* layer ) const;
-
-        /**
-         * Adds a node that decorates the terrain groups
-         */
-        void addTerrainDecorator( osg::Group* decorator );
-
-        /**
-         * Removes a node previously added via addTerrainDecorator.
-         */
-        void removeTerrainDecorator( osg::Group* decorator );
-
+        osg::Node* getLayerNode(Layer* layer) const;
+        
         /**
          * Gets the overlay decorator in this mapnode. Usually you do not need to
          * access this directly. Instead install a DrapeableNode in the scene graph.
@@ -154,6 +162,11 @@ namespace osgEarth
          * Gets the underlying terrain engine that renders the terrain surface of the map.
          */
         TerrainEngineNode* getTerrainEngine() const;
+
+        /**
+         * Gets a service that you can use to release GL objects.
+         */
+        ResourceReleaser* getResourceReleaser() const;
 
         /**
          * Gets the Config object serializing external data. External data is information
@@ -183,6 +196,26 @@ namespace osgEarth
          */
         const std::vector< osg::ref_ptr<Extension> >& getExtensions() const { return _extensions; }
 
+        /**
+         * Find an extension by type and return it.
+         */
+        template<typename T>
+        T* getExtension() const {
+            for(std::vector< osg::ref_ptr<Extension> >::const_iterator i = _extensions.begin(); i != _extensions.end(); ++i) {
+                T* e = dynamic_cast<T*>(i->get());
+                if ( e ) return e;
+            }
+            return 0L;
+        }
+
+        /**
+         * Opens all layers that are not already open.
+         */
+        void openMapLayers();
+
+        //! Serializes the MapNode into a Config object
+        Config getConfig() const;
+
 
     public: // special purpose
 
@@ -200,54 +233,53 @@ namespace osgEarth
 
         virtual void traverse( class osg::NodeVisitor& nv );
 
+        virtual void resizeGLObjectBuffers(unsigned maxSize);
+
+        virtual void releaseGLObjects(osg::State* state) const;
+
     protected:    
 
         virtual ~MapNode();
 
     private:
 
-        unsigned int               _id;
-        osg::ref_ptr<Map>          _map;
-        osg::ref_ptr< osg::Group > _models;
-        osg::ref_ptr< osg::Group > _overlayModels;
-        OverlayDecorator*          _overlayDecorator;
-        MapNodeOptions             _mapNodeOptions;
-        Config                     _externalConf;
-
-        // keep track of nodes created by model layers
-        typedef std::map<ModelLayer*, osg::ref_ptr< osg::Node > > ModelLayerNodeMap;
-        ModelLayerNodeMap        _modelLayerNodes;
-        osg::Group*              _maskLayerNode;
-        unsigned                 _lastNumBlacklistedFilenames;
-        osg::ref_ptr<TerrainEngineNode> _terrainEngine;
-        bool                     _terrainEngineInitialized;
-        osg::Group*              _terrainEngineContainer;
+        osg::ref_ptr<Map>  _map;
+        osg::Group*        _layerNodes;
+        OverlayDecorator*  _overlayDecorator;
+        MapNodeOptions     _mapNodeOptions;
+        Config             _externalConf;
+        osg::Group*        _maskLayerNode;
+        unsigned           _lastNumBlacklistedFilenames;
+        TerrainEngineNode* _terrainEngine;
+        bool               _terrainEngineInitialized;
+        osg::Group*        _terrainEngineContainer;
+        ResourceReleaser*  _resourceReleaser;
+        DrapingManager*    _drapingManager;
+        ClampingManager*   _clampingManager;
 
         std::vector< osg::ref_ptr<Extension> > _extensions;
 
+        Revisioned _mapRevisionMonitor;
+
     public: // MapCallback proxy
 
-        void onModelLayerAdded( ModelLayer*, unsigned int );
-        void onModelLayerRemoved( ModelLayer* );
-        void onModelLayerMoved( ModelLayer* layer, unsigned int oldIndex, unsigned int newIndex );
-
-    public:
-        struct TileRangeData : public osg::Referenced {
-            TileRangeData(double minRange, double maxRange) : _minRange( minRange ), _maxRange( maxRange ) { }
-            double _minRange;
-            double _maxRange;
-        };
+        void onLayerAdded(Layer* layer, unsigned index);
+        void onLayerRemoved(Layer* layer, unsigned index);
+        void onLayerMoved(Layer* layer, unsigned oldIndex, unsigned newIndex);
 
     private:
 
-        osg::ref_ptr< MapCallback >        _mapCallback;
+        osg::ref_ptr< MapCallback > _mapCallback;
     
         void init();
 
-        MapNodeCullData* getCullData(osg::Camera* camera) const;
-        typedef std::map<osg::Camera*, osg::ref_ptr<MapNodeCullData> > CullDataMap;
-        mutable CullDataMap _cullData;
-        mutable Threading::ReadWriteMutex _cullDataMutex;
+        DrapingManager* getDrapingManager();
+        friend class DrapingTechnique;
+        friend class DrapeableNode;
+        
+        ClampingManager* getClampingManager();
+        friend class ClampingTechnique;
+        friend class ClampableNode;
     };
 
 } // namespace osgEarth

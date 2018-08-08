@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -23,22 +23,26 @@
 #include <osgEarth/Common>
 #include <osgEarth/CachePolicy>
 #include <osgEarth/SharedSARepo>
-#include <osgEarth/Units>
+#include <osgEarth/Containers>
+#include <osgEarth/TraversalData>
 #include <osgEarth/ShaderGenerator>
 #include <OpenThreads/ReentrantMutex>
 #include <OpenThreads/ScopedLock>
 #include <osgEarth/ThreadingUtils>
+#include <osgEarth/SpatialReference>
 #include <osg/Referenced>
-#include <osgDB/ReaderWriter>
-#include <osgText/Font>
+#include <osg/OperationThread>
 #include <set>
 
 #define GDAL_SCOPED_LOCK \
-    OpenThreads::ScopedLock<OpenThreads::ReentrantMutex> _slock( osgEarth::Registry::instance()->getGDALMutex() )\
+    OpenThreads::ScopedLock<OpenThreads::ReentrantMutex> _slock( osgEarth::getGDALMutex() )\
 
+namespace osgText {
+    class Font;
+}
 
 namespace osgEarth
-{    
+{
     class Cache;
     class Capabilities;
     class Profile;
@@ -47,8 +51,13 @@ namespace osgEarth
     class URIReadCallback;
     class ColorFilterRegistry;
     class StateSetCache;
-    
+    class ObjectIndex;
+    class Units;
+
     typedef SharedSARepo<osg::Program> ProgramSharedRepo;
+
+
+    extern OSGEARTH_EXPORT OpenThreads::ReentrantMutex& getGDALMutex();
 
     /**
      * Application-wide global repository.
@@ -59,39 +68,46 @@ namespace osgEarth
         /** Access the global Registry singleton. */
         static Registry* instance(bool erase = false);
 
+
         /** Gets a well-known named profile instance. */
         const Profile* getNamedProfile( const std::string& name ) const;
 
         /** Gets the global-geodetic builtin profile */
         const Profile* getGlobalGeodeticProfile() const;
 
-        /** Gets the global-meractor builtin profile (mercator/WGS84 datum) */
+        /** @deprecated Gets the global-meractor builtin profile (mercator/WGS84 datum) */
         const Profile* getGlobalMercatorProfile() const;
 
         /** Gets the spherical-mercator builtin profile (mercator/sphere) */
         const Profile* getSphericalMercatorProfile() const;
 
-        /** Gets the unified cube builtin profile */
+        /** @deprecated Gets the unified cube builtin profile */
         const Profile* getCubeProfile() const;
+
+        /** Gets a spatial reference object */
+        SpatialReference* getOrCreateSRS(const SpatialReference::Key& key);
 
         /** Access to the application-wide GDAL serialization mutex. GDAL is not thread-safe. */
         OpenThreads::ReentrantMutex& getGDALMutex();
 
-        /** The system-wide default cache. */
-        Cache* getCache() const;
-        void setCache( Cache* cache );
+        /** Gets a default cache object - based on environment settings - unless setDefaultCache
+            was called to override it. */
+        Cache* getDefaultCache() const;
+
+        /** Sets a default cache that a Map will use if none other is specified. */
+        void setDefaultCache(Cache* cache);
 
         /** The default cache policy (used when no policy is set elsewhere) */
-        const optional<CachePolicy>& defaultCachePolicy() const { return _defaultCachePolicy; }
+        const optional<CachePolicy>& defaultCachePolicy() const;
         void setDefaultCachePolicy( const CachePolicy& policy );
 
         /** The override cache policy (overrides all others if set) */
-        const optional<CachePolicy>& overrideCachePolicy() const { return _overrideCachePolicy; }
+        const optional<CachePolicy>& overrideCachePolicy() const;
         void setOverrideCachePolicy( const CachePolicy& policy );
 
         /** The default cache driver. */
         void setDefaultCacheDriverName( const std::string& name );
-        const std::string& getDefaultCacheDriverName() const { return _cacheDriver; }
+        const std::string& getDefaultCacheDriverName() const;
 
         /**
          * Given a CachePolicy, composites in the default and override cache policies
@@ -130,6 +146,7 @@ namespace osgEarth
         /**
          * The graphics hardware capabilities for this platform.
          */
+        bool hasCapabilities() const;
         const Capabilities& getCapabilities() const;
         void setCapabilities( Capabilities* caps );
         static const Capabilities& capabilities() { return instance()->getCapabilities(); }
@@ -139,9 +156,9 @@ namespace osgEarth
          * shader factory if you want to alter any of osgEarth's baseline shaders
          * (advanced usage).
          */
-        const ShaderFactory* getShaderFactory() const;
+        ShaderFactory* getShaderFactory() const;
         void setShaderFactory( ShaderFactory* lib );
-        static const ShaderFactory* shaderFactory() { return instance()->getShaderFactory(); }
+        static ShaderFactory* shaderFactory() { return instance()->getShaderFactory(); }
 
         /**
          * The default shader generator.
@@ -149,6 +166,12 @@ namespace osgEarth
         ShaderGeneratorProxy getShaderGenerator() const;
         void setShaderGenerator(ShaderGenerator* gen);
         static ShaderGeneratorProxy shaderGenerator() { return instance()->getShaderGenerator(); }
+
+        /**
+         * Global object index.
+         */
+        ObjectIndex* getObjectIndex() const;
+        static ObjectIndex* objectIndex() { return instance()->getObjectIndex(); }
 
         /**
          * A default StateSetCache to use by any process that uses one.
@@ -161,12 +184,12 @@ namespace osgEarth
         static StateSetCache* stateSetCache() { return instance()->getStateSetCache(); }
 
         /**
-         * A shared cache for osg::Program objects created by the shader 
+         * A shared cache for osg::Program objects created by the shader
          * composition subsystem (VirtualProgram).
          */
         ProgramSharedRepo* getProgramSharedRepo();
         static ProgramSharedRepo* programSharedRepo() { return instance()->getProgramSharedRepo(); }
-        
+
         /**
          * Gets a reference to the global task service manager.
          */
@@ -191,7 +214,7 @@ namespace osgEarth
         /**
          * Gets the default set of osgDB::Options to use.
          */
-        const osgDB::Options* getDefaultOptions() const { return _defaultOptions.get(); }
+        const osgDB::Options* getDefaultOptions() const;
 
         /**
          * Clones an options structure (fixing the archive caching), or creates
@@ -209,13 +232,21 @@ namespace osgEarth
         /**
          * The name of the default terrain engine driver
          */
-        void setDefaultTerrainEngineDriverName( const std::string& name );
+        //void setDefaultTerrainEngineDriverName( const std::string& name );
         const std::string& getDefaultTerrainEngineDriverName() const { return _terrainEngineDriver; }
+
+        /**
+         * If set, all MapNodes will use the terrain driver specified here regardless
+         * of the driver in the TerrainOptions/earth file.
+         */
+        optional<std::string>& overrideTerrainEngineDriverName() { return _overrideTerrainEngineDriverName; }
+        const optional<std::string>& overrideTerrainEngineDriverName() const { return _overrideTerrainEngineDriverName; }
 
         /**
          * For debugging - tracks activities in progress.
          */
         void startActivity(const std::string& name);
+        void startActivity(const std::string& name, const std::string& text);
         void endActivity(const std::string& name);
         void getActivities(std::set<std::string>& output);
 
@@ -236,13 +267,38 @@ namespace osgEarth
         optional<bool>& unRefImageDataAfterApply() { return _unRefImageDataAfterApply; }
         const optional<bool>& unRefImageDataAfterApply() const { return _unRefImageDataAfterApply; }
 
+        /**
+         * Adds a texture image unit number that osgEarth should never use.
+         */
+        void setTextureImageUnitOffLimits(int unit);
+        const std::set<int> getOffLimitsTextureImageUnits() const;
+
+        /** General purpose transient data store to support VisitorData in pre-osg 3.4 */
+        TransientUserDataStore& dataStore() { return _dataStore; }
+        const TransientUserDataStore& dataStore() const { return _dataStore; }
+
+        //! Access to the general-purpose async operations queue
+        osg::OperationQueue* getAsyncOperationQueue() const { return _opQueue.get(); }
+
+
+        /**
+         * Gets the device pixel ratio.
+         */
+        float getDevicePixelRatio() const;
+
+        /**
+        * Sets the device pixel ratio.  This value will be used to scale the size of objects specified in pixels.
+        * This value is useful when running in high dpi environments on high resolution displays.
+        */
+        void setDevicePixelRatio(float devicePixelRatio);
+
+
     protected:
         virtual ~Registry();
         Registry();
 
         void destruct();
 
-        OpenThreads::ReentrantMutex _gdal_mutex;
         bool _gdal_registered;
 
         osg::ref_ptr<const Profile> _global_geodetic_profile;
@@ -250,12 +306,14 @@ namespace osgEarth
         osg::ref_ptr<const Profile> _spherical_mercator_profile;
         osg::ref_ptr<const Profile> _cube_profile;
 
-        Threading::ReadWriteMutex _regMutex;  
+        mutable Threading::Mutex _regMutex;
         int _numGdalMutexGets;
 
-        osg::ref_ptr<Cache> _cache;
-        optional<CachePolicy> _defaultCachePolicy;
-        optional<CachePolicy> _overrideCachePolicy;
+        mutable osg::ref_ptr<Cache>   _defaultCache;
+        mutable optional<CachePolicy> _defaultCachePolicy;
+        mutable optional<CachePolicy> _overrideCachePolicy;
+
+        mutable bool _overrideCachePolicyInitialized;
 
         typedef std::set<std::string> StringSet;
         StringSet _blacklistedFilenames;
@@ -287,14 +345,40 @@ namespace osgEarth
         osg::ref_ptr<StateSetCache> _stateSetCache;
 
         std::string _terrainEngineDriver;
-        std::string _cacheDriver;
+        optional<std::string> _overrideTerrainEngineDriverName;
 
-        std::set<std::string> _activities;
+        mutable optional<std::string> _cacheDriver;
+
+        typedef std::pair<std::string,std::string> Activity;
+        struct ActivityLess {
+            bool operator()(const Activity& lhs, const Activity& rhs) const {
+                return lhs.first < rhs.first;
+            }
+        };
+        std::set<Activity,ActivityLess> _activities;
         mutable Threading::Mutex _activityMutex;
-        
+
         ProgramSharedRepo _programRepo;
 
         optional<bool> _unRefImageDataAfterApply;
+
+        osg::ref_ptr<ObjectIndex> _objectIndex;
+
+        std::set<int> _offLimitsTextureImageUnits;
+
+        TransientUserDataStore _dataStore;
+
+        osg::ref_ptr<osg::OperationQueue> _opQueue;
+
+        typedef std::vector< osg::ref_ptr<osg::OperationThread> > ThreadPool;
+        ThreadPool _opThreadPool;
+        unsigned _threadPoolSize;
+
+        float _devicePixelRatio;
+        
+        typedef std::map<SpatialReference::Key, osg::ref_ptr<SpatialReference> > SRSCache;
+        mutable SRSCache _srsCache;
+        mutable Threading::Mutex _srsMutex;
     };
 }
 
@@ -306,7 +390,13 @@ struct osgEarthRegisterUnits {
     }
 };
 #define OSGEARTH_REGISTER_UNITS(NAME,INSTANCE) \
+    extern "C" void osgearth_units_##NAME(void) {} \
     static osgEarthRegisterUnits s_osgEarthRegistryUnitsProxy##NAME (INSTANCE)
+
+    
+#define USE_OSGEARTH_UNITS(NAME ) \
+    extern "C" void osgearth_units_##NAME(void); \
+    static osgDB::PluginFunctionProxy proxy_osgearth_units_##NAME(osgearth_units_##NAME);
 
 
 

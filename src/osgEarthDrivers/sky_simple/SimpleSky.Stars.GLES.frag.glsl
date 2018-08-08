@@ -1,9 +1,12 @@
-#version $GLSL_VERSION_STR 
-$GLSL_DEFAULT_PRECISION_FLOAT 
+#version $GLSL_VERSION_STR
+$GLSL_DEFAULT_PRECISION_FLOAT
 
 varying float visibility; 
-varying vec4 osg_FrontColor; 
+in vec4 osg_FrontColor; 
+
+out vec4 out_FragColor;
+
 void main( void ) 
 { 
-    gl_FragColor = osg_FrontColor * visibility; 
+    out_FragColor = osg_FrontColor * visibility; 
 }

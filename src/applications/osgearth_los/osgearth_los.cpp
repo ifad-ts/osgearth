@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -30,6 +33,9 @@
 #include <osgEarthUtil/RadialLineOfSight>
 #include <osg/io_utils>
 #include <osg/MatrixTransform>
+#include <osg/Depth>
+#include <osgEarth/TerrainTileNode>
+#include <osgEarth/FileUtils>
 
 using namespace osgEarth;
 using namespace osgEarth::Util;
@@ -99,6 +105,35 @@ osg::Node* createPlane(osg::Node* node, const GeoPoint& pos, const SpatialRefere
     return positioner;
 }
 
+class CacheExtentNodeVisitor : public osg::NodeVisitor
+{
+public:
+    CacheExtentNodeVisitor(GeoExtent& extent):
+      osg::NodeVisitor(osg::NodeVisitor::TRAVERSE_ALL_CHILDREN ),
+          _extent(extent)
+      {
+      }
+
+      void apply(osg::Node& node)
+      {
+          TerrainTileNode* tile = dynamic_cast<TerrainTileNode*>(&node);
+          if (tile && tile->getKey().valid())
+          {              
+              if (tile->getKey().getExtent().intersects(_extent) && tile->getKey().getLevelOfDetail() < 11)
+              {
+                  // Set this tile to not expire.
+                  tile->setMinimumExpirationTime(DBL_MAX);
+                  OE_NOTICE << "Preloading children for " << tile->getKey().str() << std::endl;
+                  tile->loadChildren();
+              }
+          }          
+          traverse(node);
+      }
+
+      GeoExtent _extent;
+};
+
+
 int
 main(int argc, char** argv)
 {
@@ -106,8 +141,8 @@ main(int argc, char** argv)
     osgViewer::Viewer viewer(arguments);
 
     // load the .earth file from the command line.
-    osg::Node* earthNode = osgDB::readNodeFiles( arguments );
-    if (!earthNode)
+    osg::ref_ptr<osg::Node> earthNode = osgDB::readNodeFiles( arguments );
+    if (!earthNode.valid())
     {
         OE_NOTICE << "Unable to load earth model" << std::endl;
         return 1;
@@ -115,7 +150,7 @@ main(int argc, char** argv)
 
     osg::Group* root = new osg::Group();
 
-    osgEarth::MapNode * mapNode = osgEarth::MapNode::findMapNode( earthNode );
+    osgEarth::MapNode * mapNode = osgEarth::MapNode::findMapNode( earthNode.get() );
     if (!mapNode)
     {
         OE_NOTICE << "Could not find MapNode " << std::endl;
@@ -126,7 +161,12 @@ main(int argc, char** argv)
     viewer.setCameraManipulator( manip );
     
     root->addChild( earthNode );    
-    viewer.getCamera()->addCullCallback( new AutoClipPlaneCullCallback(mapNode));
+    //viewer.getCamera()->addCullCallback( new AutoClipPlaneCullCallback(mapNode));
+
+    osg::Group* losGroup = new osg::Group();
+    losGroup->getOrCreateStateSet()->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+    losGroup->getOrCreateStateSet()->setAttributeAndModes(new osg::Depth(osg::Depth::ALWAYS, 0, 1, false));
+    root->addChild(losGroup);
 
     // so we can speak lat/long:
     const SpatialReference* mapSRS = mapNode->getMapSRS();
@@ -138,9 +178,7 @@ main(int argc, char** argv)
         GeoPoint(geoSRS, -121.665, 46.0878, 1258.00, ALTMODE_ABSOLUTE),
         GeoPoint(geoSRS, -121.488, 46.2054, 3620.11, ALTMODE_ABSOLUTE) );
 
-    root->addChild( los );
-    los->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
-
+    losGroup->addChild( los );
     
     //Create an editor for the point to point line of sight that allows you to drag the beginning and end points around.
     //This is just one way that you could manipulator the LineOfSightNode.
@@ -153,8 +191,7 @@ main(int argc, char** argv)
         GeoPoint(geoSRS, -121.2, 46.1, 10, ALTMODE_RELATIVE),
         GeoPoint(geoSRS, -121.488, 46.2054, 10, ALTMODE_RELATIVE) );
 
-    root->addChild( relativeLOS );
-    relativeLOS->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    losGroup->addChild( relativeLOS );
 
     LinearLineOfSightEditor* relEditor = new LinearLineOfSightEditor( relativeLOS );
     root->addChild( relEditor );
@@ -164,42 +201,38 @@ main(int argc, char** argv)
     radial->setCenter( GeoPoint(geoSRS, -121.515, 46.054, 847.604, ALTMODE_ABSOLUTE) );
     radial->setRadius( 2000 );
     radial->setNumSpokes( 100 );    
-    radial->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
-    root->addChild( radial );
+    losGroup->addChild( radial );
     RadialLineOfSightEditor* radialEditor = new RadialLineOfSightEditor( radial );
-    root->addChild( radialEditor );
+    losGroup->addChild( radialEditor );
 
     //Create a relative RadialLineOfSightNode that allows you to do a 360 degree line of sight analysis.
     RadialLineOfSightNode* radialRelative = new RadialLineOfSightNode( mapNode );
     radialRelative->setCenter( GeoPoint(geoSRS, -121.2, 46.054, 10, ALTMODE_RELATIVE) );
     radialRelative->setRadius( 3000 );
     radialRelative->setNumSpokes(60);    
-    radialRelative->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
-    root->addChild( radialRelative );
+    losGroup->addChild( radialRelative );
     RadialLineOfSightEditor* radialRelEditor = new RadialLineOfSightEditor( radialRelative );
-    root->addChild( radialRelEditor );
+    losGroup->addChild( radialRelEditor );
 
     //Load a plane model.  
-    osg::ref_ptr< osg::Node >  plane = osgDB::readNodeFile("../data/cessna.osg.5,5,5.scale");
+    osg::ref_ptr< osg::Node >  plane = osgDB::readRefNodeFile("../data/cessna.osgb.5,5,5.scale");
 
     //Create 2 moving planes
-    osg::Node* plane1 = createPlane(plane, GeoPoint(geoSRS, -121.656, 46.0935, 4133.06, ALTMODE_ABSOLUTE), mapSRS, 5000, 20);
-    osg::Node* plane2 = createPlane(plane, GeoPoint(geoSRS, -121.321, 46.2589, 1390.09, ALTMODE_ABSOLUTE), mapSRS, 3000, 5);
+    osg::Node* plane1 = createPlane(plane.get(), GeoPoint(geoSRS, -121.656, 46.0935, 4133.06, ALTMODE_ABSOLUTE), mapSRS, 5000, 20);
+    osg::Node* plane2 = createPlane(plane.get(), GeoPoint(geoSRS, -121.321, 46.2589, 1390.09, ALTMODE_ABSOLUTE), mapSRS, 3000, 5);
     root->addChild( plane1 );
     root->addChild( plane2 );
 
     //Create a LineOfSightNode that will use a LineOfSightTether callback to monitor
     //the two plane's positions and recompute the LOS when they move
     LinearLineOfSightNode* tetheredLOS = new LinearLineOfSightNode( mapNode);
-    tetheredLOS->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
-    root->addChild( tetheredLOS );
+    losGroup->addChild( tetheredLOS );
     tetheredLOS->setUpdateCallback( new LineOfSightTether( plane1, plane2 ) );
 
     //Create another plane and attach a RadialLineOfSightNode to it using the RadialLineOfSightTether
-    osg::Node* plane3 = createPlane(plane, GeoPoint(geoSRS, -121.463, 46.3548, 1348.71, ALTMODE_ABSOLUTE), mapSRS, 10000, 5);
-    root->addChild( plane3 );
-    RadialLineOfSightNode* tetheredRadial = new RadialLineOfSightNode( mapNode );    
-    tetheredRadial->getOrCreateStateSet()->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);    
+    osg::Node* plane3 = createPlane(plane.get(), GeoPoint(geoSRS, -121.463, 46.3548, 1348.71, ALTMODE_ABSOLUTE), mapSRS, 10000, 5);
+    losGroup->addChild( plane3 );
+    RadialLineOfSightNode* tetheredRadial = new RadialLineOfSightNode( mapNode );
     tetheredRadial->setRadius( 5000 );
 
     //This RadialLineOfSightNode is going to be filled, so set some alpha values for the colors so it's partially transparent
@@ -207,14 +240,16 @@ main(int argc, char** argv)
     tetheredRadial->setGoodColor( osg::Vec4(0,1,0,0.3) );
     tetheredRadial->setBadColor( osg::Vec4(1,0,0,0.3) );
     tetheredRadial->setNumSpokes( 100 );
-    root->addChild( tetheredRadial );
+    losGroup->addChild( tetheredRadial );
     tetheredRadial->setUpdateCallback( new RadialLineOfSightTether( plane3 ) );
 
-    manip->setHomeViewpoint( Viewpoint( 
-        "Mt Rainier",        
-        osg::Vec3d( -121.488, 46.2054, 0 ), 
-        0.0, -50, 100000,
-        geoSRS) );
+    osgEarth::Viewpoint vp;
+    vp.name() = "Mt Ranier";
+    vp.focalPoint()->set(geoSRS, -121.488, 46.2054, 0, ALTMODE_ABSOLUTE);
+    vp.pitch() = -50.0;
+    vp.range() = 100000;
+
+    manip->setHomeViewpoint( vp );
 
     viewer.setSceneData( root );    
 
@@ -225,5 +260,21 @@ main(int argc, char** argv)
     viewer.addEventHandler(new osgViewer::LODScaleHandler());
     viewer.addEventHandler(new osgGA::StateSetManipulator(viewer.getCamera()->getOrCreateStateSet()));
 
-    return viewer.run();
+    /*
+    TerrainTileNodeVisitor v;
+    root->accept(v);
+    */
+
+    GeoPoint center(geoSRS, -121.656, 46.0935, 4133.06, ALTMODE_ABSOLUTE);
+
+    GeoExtent extent(geoSRS, center.x() - 0.5, center.y() - 0.5, center.x() + 0.5, center.y() + 0.5);
+    CacheExtentNodeVisitor v(extent);
+
+    root->accept(v);
+
+    while (!viewer.done())
+    {        
+        viewer.frame();
+    }
+    return 0;
 }

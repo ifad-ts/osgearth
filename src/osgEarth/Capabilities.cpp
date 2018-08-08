@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -17,6 +17,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 #include <osgEarth/Capabilities>
+#include <osgEarth/Version>
 #include <osg/FragmentProgram>
 #include <osg/GL>
 #include <osg/GLExtensions>
@@ -54,6 +55,8 @@ struct MyGraphicsContext
         traits->doubleBuffer = false;
         traits->sharedContext = 0;
         traits->pbuffer = false;
+        traits->glContextVersion = osg::DisplaySettings::instance()->getGLContextVersion();
+        traits->glContextProfileMask = osg::DisplaySettings::instance()->getGLContextProfileMask();
 
         // Intel graphics adapters dont' support pbuffers, and some of their drivers crash when
         // you try to create them. So by default we will only use the unmapped/pbuffer method
@@ -134,7 +137,9 @@ _supportsS3TC           ( false ),
 _supportsPVRTC          ( false ),
 _supportsARBTC          ( false ),
 _supportsETC            ( false ),
-_supportsRGTC           ( false )
+_supportsRGTC           ( false ),
+_supportsTextureBuffer  ( false ),
+_maxTextureBufferSize   ( 0 )
 {
     // little hack to force the osgViewer library to link so we can create a graphics context
     osgViewerGetVersion();
@@ -148,7 +153,7 @@ _supportsRGTC           ( false )
     _numProcessors = OpenThreads::GetNumberOfProcessors();
 
     // GLES compile?
-#if (defined(OSG_GLES1_AVAILABLE) || defined(OSG_GLES2_AVAILABLE))
+#if (defined(OSG_GLES1_AVAILABLE) || defined(OSG_GLES2_AVAILABLE) || defined(OSG_GLES3_AVAILABLE))
     _isGLES = true;
 #else
     _isGLES = false;
@@ -162,6 +167,8 @@ _supportsRGTC           ( false )
         osg::GraphicsContext* gc = mgc._gc.get();
         unsigned int id = gc->getState()->getContextID();
         const osg::GL2Extensions* GL2 = osg::GL2Extensions::Get( id, true );
+
+        OE_INFO << LC << "osgEarth Version: " << osgEarthGetVersion() << std::endl;
         
         if ( ::getenv("OSGEARTH_NO_GLSL") )
         {
@@ -170,11 +177,7 @@ _supportsRGTC           ( false )
         }
         else
         {
-#if OSG_MIN_VERSION_REQUIRED(3,3,3)
             _supportsGLSL = GL2->isGlslSupported;
-#else
-			_supportsGLSL = GL2->isGlslSupported();
-#endif
         }
 
         OE_INFO << LC << "Detected hardware capabilities:" << std::endl;
@@ -188,24 +191,31 @@ _supportsRGTC           ( false )
         _version = std::string( reinterpret_cast<const char*>(glGetString(GL_VERSION)) );
         OE_INFO << LC << "  Version = " << _version << std::endl;
 
+#if !defined(OSG_GLES2_AVAILABLE) && !defined(OSG_GLES3_AVAILABLE)
         glGetIntegerv( GL_MAX_TEXTURE_UNITS, &_maxFFPTextureUnits );
-        OE_INFO << LC << "  Max FFP texture units = " << _maxFFPTextureUnits << std::endl;
+        //OE_INFO << LC << "  Max FFP texture units = " << _maxFFPTextureUnits << std::endl;
+#endif
 
         glGetIntegerv( GL_MAX_TEXTURE_IMAGE_UNITS_ARB, &_maxGPUTextureUnits );
         OE_INFO << LC << "  Max GPU texture units = " << _maxGPUTextureUnits << std::endl;
 
+#if !defined(OSG_GLES2_AVAILABLE) && !defined(OSG_GLES3_AVAILABLE)
         glGetIntegerv( GL_MAX_TEXTURE_COORDS_ARB, &_maxGPUTextureCoordSets );
+#else
+        _maxGPUTextureCoordSets = _maxGPUTextureUnits;
+#endif
         OE_INFO << LC << "  Max GPU texture coord indices = " << _maxGPUTextureCoordSets << std::endl;
 
         glGetIntegerv( GL_MAX_VERTEX_ATTRIBS, &_maxGPUAttribs );
         OE_INFO << LC << "  Max GPU attributes = " << _maxGPUAttribs << std::endl;
 
+#if !(defined(OSG_GL3_AVAILABLE))
         glGetIntegerv( GL_DEPTH_BITS, &_depthBits );
         OE_INFO << LC << "  Depth buffer bits = " << _depthBits << std::endl;
-
+#endif
         
         glGetIntegerv( GL_MAX_TEXTURE_SIZE, &_maxTextureSize );
-#if !(defined(OSG_GLES1_AVAILABLE) || defined(OSG_GLES2_AVAILABLE))
+#if !defined(OSG_GLES1_AVAILABLE) && !defined(OSG_GLES2_AVAILABLE) && !defined(OSG_GLES3_AVAILABLE)
         // Use the texture-proxy method to determine the maximum texture size 
         for( int s = _maxTextureSize; s > 2; s >>= 1 )
         {
@@ -221,7 +231,6 @@ _supportsRGTC           ( false )
 #endif
         OE_INFO << LC << "  Max texture size = " << _maxTextureSize << std::endl;
 
-        //PORT@tom, what effect will this have?
 #ifdef OSG_GL_FIXED_FUNCTION_AVAILABLE
         glGetIntegerv( GL_MAX_LIGHTS, &_maxLights );
 #else
@@ -233,11 +242,7 @@ _supportsRGTC           ( false )
 
         if ( _supportsGLSL )
         {
-#if OSG_MIN_VERSION_REQUIRED(3,3,3)
 			_GLSLversion = GL2->glslLanguageVersion;
-#else
-            _GLSLversion = GL2->getLanguageVersion();
-#endif
             OE_INFO << LC << "  GLSL Version = " << getGLSLVersionInt() << std::endl;
         }
 
@@ -257,17 +262,17 @@ _supportsRGTC           ( false )
         OE_INFO << LC << "  Multitexturing = " << SAYBOOL(_supportsMultiTexture) << std::endl;
 
         _supportsStencilWrap = osg::isGLExtensionSupported( id, "GL_EXT_stencil_wrap" );
-        OE_INFO << LC << "  Stencil wrapping = " << SAYBOOL(_supportsStencilWrap) << std::endl;
+        //OE_INFO << LC << "  Stencil wrapping = " << SAYBOOL(_supportsStencilWrap) << std::endl;
 
         _supportsTwoSidedStencil = osg::isGLExtensionSupported( id, "GL_EXT_stencil_two_side" );
-        OE_INFO << LC << "  2-sided stencils = " << SAYBOOL(_supportsTwoSidedStencil) << std::endl;
+        //OE_INFO << LC << "  2-sided stencils = " << SAYBOOL(_supportsTwoSidedStencil) << std::endl;
 
         _supportsDepthPackedStencilBuffer = osg::isGLExtensionSupported( id, "GL_EXT_packed_depth_stencil" ) || 
                                             osg::isGLExtensionSupported( id, "GL_OES_packed_depth_stencil" );
-        OE_INFO << LC << "  depth-packed stencil = " << SAYBOOL(_supportsDepthPackedStencilBuffer) << std::endl;
+        //OE_INFO << LC << "  depth-packed stencil = " << SAYBOOL(_supportsDepthPackedStencilBuffer) << std::endl;
 
         _supportsOcclusionQuery = osg::isGLExtensionSupported( id, "GL_ARB_occlusion_query" );
-        OE_INFO << LC << "  occlusion query = " << SAYBOOL(_supportsOcclusionQuery) << std::endl;
+        //OE_INFO << LC << "  occlusion query = " << SAYBOOL(_supportsOcclusionQuery) << std::endl;
 
         _supportsDrawInstanced = 
             _supportsGLSL &&
@@ -275,7 +280,7 @@ _supportsRGTC           ( false )
         OE_INFO << LC << "  draw instanced = " << SAYBOOL(_supportsDrawInstanced) << std::endl;
 
         glGetIntegerv( GL_MAX_UNIFORM_BLOCK_SIZE, &_maxUniformBlockSize );
-        OE_INFO << LC << "  max uniform block size = " << _maxUniformBlockSize << std::endl;
+        //OE_INFO << LC << "  max uniform block size = " << _maxUniformBlockSize << std::endl;
 
         _supportsUniformBufferObjects = 
             _supportsGLSL &&
@@ -288,20 +293,45 @@ _supportsRGTC           ( false )
             _supportsUniformBufferObjects = false;
         }
 
+#if !defined(OSG_GLES3_AVAILABLE)
         _supportsNonPowerOfTwoTextures =
             osg::isGLExtensionSupported( id, "GL_ARB_texture_non_power_of_two" );
+#else
+        _supportsNonPowerOfTwoTextures = true;
+#endif
         OE_INFO << LC << "  NPOT textures = " << SAYBOOL(_supportsNonPowerOfTwoTextures) << std::endl;
 
 
-        // Writing to gl_FragDepth is not supported under GLES:
+#if !defined(OSG_GLES3_AVAILABLE)
+        _supportsTextureBuffer = 
+            osg::isGLExtensionOrVersionSupported( id, "GL_ARB_texture_buffer_object", 3.0 ) ||
+            osg::isGLExtensionOrVersionSupported( id, "GL_EXT_texture_buffer_object", 3.0 );
+#else
+        _supportsTextureBuffer = false;
+#endif
+
+        if ( _supportsTextureBuffer )
+        {
+            glGetIntegerv( GL_MAX_TEXTURE_BUFFER_SIZE, &_maxTextureBufferSize );
+        }
+
+        OE_INFO << LC << "  Texture buffers = " << SAYBOOL(_supportsTextureBuffer) << std::endl;
+        if ( _supportsTextureBuffer )
+        {
+            OE_INFO << LC << "  Texture buffer max size = " << _maxTextureBufferSize << std::endl;
+        }       
+
+        bool supportsTransformFeedback =
+            osg::isGLExtensionSupported( id, "GL_ARB_transform_feedback2" );
+        OE_INFO << LC << "  Transform feedback = " << SAYBOOL(supportsTransformFeedback) << "\n";
+
+
+        // Writing to gl_FragDepth is not supported under GLES, is supported under gles3
 #if (defined(OSG_GLES1_AVAILABLE) || defined(OSG_GLES2_AVAILABLE))
         _supportsFragDepthWrite = false;
 #else
         _supportsFragDepthWrite = true;
 #endif
-
-        //_supportsTexture2DLod = osg::isGLExtensionSupported( id, "GL_ARB_shader_texture_lod" );
-        //OE_INFO << LC << "  texture2DLod = " << SAYBOOL(_supportsTexture2DLod) << std::endl;
 
         // NVIDIA:
         bool isNVIDIA = _vendor.find("NVIDIA") == 0;

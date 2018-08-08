@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -23,6 +23,8 @@
 #include <osgEarth/Terrain>
 #include <osgEarth/TerrainEngineNode>
 #include <osgViewer/View>
+#include <osgUtil/LineSegmentIntersector>
+#include <osgEarth/Registry>
 
 using namespace osgEarth;
 using namespace osgEarth::Util;
@@ -76,14 +78,7 @@ MouseCoordsLabelCallback::MouseCoordsLabelCallback( LabelControl* label, Formatt
 _label    ( label ),
 _formatter( formatter )
 {
-#if 0
-    if ( !formatter )
-    {
-        LatLongFormatter* formatter = new LatLongFormatter( LatLongFormatter::FORMAT_DECIMAL_DEGREES );
-        formatter->setPrecision( 5 );
-        _formatter = formatter;
-    }
-#endif
+    //nop
 }
 
 void
@@ -95,7 +90,9 @@ MouseCoordsLabelCallback::set( const GeoPoint& mapCoords, osg::View* view, MapNo
         {
             _label->setText( Stringify()
                 <<  _formatter->format( mapCoords )
-                << ", " << mapCoords.z() );
+                << ", " << mapCoords.z() 
+                << "  |  "
+                << mapCoords.getSRS()->getName() );
         }
         else
         {
@@ -103,7 +100,9 @@ MouseCoordsLabelCallback::set( const GeoPoint& mapCoords, osg::View* view, MapNo
                 << std::fixed
                 << mapCoords.x()
                 << ", " << mapCoords.y()
-                << ", " << mapCoords.z() );
+                << ", " << mapCoords.z()
+                << "  |  "
+                << mapCoords.getSRS()->getName() );
         }
     }
 }
@@ -114,6 +113,7 @@ MouseCoordsLabelCallback::reset( osg::View* view, MapNode* mapNode )
     if ( _label.valid() )
     {
         _label->setText( "" );
+        _label->setText(Stringify() << "No data  |  " << mapNode->getMapSRS()->getName() );
     }
 }
 

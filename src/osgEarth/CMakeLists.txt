@@ -4,30 +4,49 @@ ELSE (DYNAMIC_OSGEARTH)
     ADD_DEFINITIONS(-DOSGEARTH_LIBRARY_STATIC)
 ENDIF(DYNAMIC_OSGEARTH)
 
+# CURL options
 OPTION(CURL_IS_STATIC "on if curl is a static lib " ON)
 MARK_AS_ADVANCED(CURL_IS_STATIC)
 
+# NVTT mipmap generation 
+option(OSGEARTH_ENABLE_NVTT_CPU_MIPMAPS "Use NVTT, if available, to generate texture mipmaps on the CPU" OFF)
+mark_as_advanced(OSGEARTH_ENABLE_NVTT_CPU_MIPMAPS)
+if(OSGEARTH_ENABLE_NVTT_CPU_MIPMAPS)
+    add_definitions(-DOSGEARTH_ENABLE_NVTT_CPU_MIPMAPS)
+endif(OSGEARTH_ENABLE_NVTT_CPU_MIPMAPS)
+
+# TinyXML options
 ADD_DEFINITIONS(-DTIXML_USE_STL)
 
+# Builds the HTTPClient with WIN_INET instead of CURL
+OPTION(OSGEARTH_USE_WININET_FOR_HTTP "Whether to use the WinInet library for HTTP requests (instead of cURL)" OFF)
+if (OSGEARTH_USE_WININET_FOR_HTTP)
+    ADD_DEFINITIONS(-DOSGEARTH_USE_WININET_FOR_HTTP)
+endif (OSGEARTH_USE_WININET_FOR_HTTP)
+
 IF(WIN32)
-    SET(CMAKE_SHARED_LINKER_FLAGS_DEBUG "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} /NODEFAULTLIB:MSVCRT")
+    IF(MSVC)
+        SET(CMAKE_SHARED_LINKER_FLAGS_DEBUG "${CMAKE_SHARED_LINKER_FLAGS_DEBUG} /NODEFAULTLIB:MSVCRT")
+    ENDIF(MSVC)
     IF(CURL_IS_STATIC)
         ADD_DEFINITIONS(-DCURL_STATICLIB)
         SET(TARGET_EXTERNAL_LIBRARIES ws2_32 winmm wldap32)
     ENDIF(CURL_IS_STATIC)
+    LIST(APPEND TARGET_EXTERNAL_LIBRARIES psapi)
 ENDIF(WIN32)
 
 SET(LIB_NAME osgEarth)
 
 set(TARGET_GLSL
-    AlphaEffect.frag.glsl
     DepthOffset.vert.glsl
     Draping.vert.glsl
     Draping.frag.glsl
     GPUClamping.vert.glsl
     GPUClamping.vert.lib.glsl
     GPUClamping.frag.glsl
-    Instancing.vert.glsl)
+    Instancing.vert.glsl
+    PhongLighting.vert.glsl
+    PhongLighting.frag.glsl)
 
 set(SHADERS_CPP "${CMAKE_CURRENT_BINARY_DIR}/AutoGenShaders.cpp")
 
@@ -42,8 +61,6 @@ configure_shaders(
 SET(HEADER_PATH ${OSGEARTH_SOURCE_DIR}/include/${LIB_NAME})
 
 SET(LIB_PUBLIC_HEADERS
-    AlphaEffect
-    AutoScale
     Bounds
     Cache
     CacheEstimator
@@ -51,6 +68,7 @@ SET(LIB_PUBLIC_HEADERS
     CachePolicy
     CacheSeed
     Capabilities
+    Clamping
     ClampableNode
     ClampingTechnique
     ColorFilter
@@ -61,36 +79,44 @@ SET(LIB_PUBLIC_HEADERS
     Cube
     CullingUtils
     DateTime
-    Decluttering
+    DateTimeRange
     DepthOffset
-    DPLineSegmentIntersector
-    Draggers
     DrapeableNode
+    DrapingCullSet
     DrapingTechnique
     DrawInstanced
     ECEF
-    ElevationField
     ElevationLayer
     ElevationLOD
+    ElevationPool
     ElevationQuery
+    Endian
     Export
-	Extension
+    Extension
     FadeEffect
     FileUtils
     GeoCommon
     GeoData
     Geoid
     GeoMath
-	GeoTransform
+    GeoTransform
+    GeometryClamper
+    GLSLChunker
     HeightFieldUtils
+    Horizon
     HTTPClient
     ImageLayer
     ImageMosaic
     ImageToHeightFieldConverter
     ImageUtils
+    IntersectionPicker
     IOTypes
     JsonUtils
+    LandCover
+    LandCoverLayer
     Layer
+    LayerListener
+    Lighting
     LineFunctor
     Locators
     LocalTangentPlane
@@ -106,32 +132,45 @@ SET(LIB_PUBLIC_HEADERS
     MaskLayer
     MaskNode
     MaskSource
+    Memory
     MemCache
+    MetaTile
+    Metrics
     ModelLayer
     ModelSource
+    NativeProgramAdapter
     NodeUtils
     Notify
     optional
+    ObjectIndex
     OverlayDecorator
-    OverlayNode
-	PhongLightingEffect
-    Pickers
+    PagedNode
+    PatchLayer
+    PhongLightingEffect
+    Picker
+    PluginLoader
     PrimitiveIntersector
     Profile
     Profiler
     Progress
     Random
     Registry
+    ResourceReleaser
     Revisioning
+    SceneGraphCallback
+    ScreenSpaceLayout
     Shaders
     ShaderFactory
     ShaderGenerator
     ShaderLoader
     ShaderUtils
-	SharedSARepo
+    Shadowing
+    SharedSARepo
+    SimplexNoise
     SpatialReference
     StateSetCache
-	StateSetLOD
+    StateSetLOD
+    Status
     StringUtils
     TaskService
     Terrain
@@ -139,12 +178,17 @@ SET(LIB_PUBLIC_HEADERS
     TerrainLayer
     TerrainOptions
     TerrainEngineNode
+    TerrainEngineRequirements
+    TerrainResources
+    TerrainTileModel
+    TerrainTileModelFactory
     TerrainTileNode
+    TileKeyDataStore
     Tessellator
-    TextureCompositor
     TileKey
     TileHandler
-	TileSource
+    TileRasterizer
+    TileSource
     TileVisitor
     TimeControl
     TraversalData
@@ -154,8 +198,11 @@ SET(LIB_PUBLIC_HEADERS
     Utils
     Version
     VerticalDatum
+    VideoLayer
     Viewpoint
     VirtualProgram
+    VisibleLayer
+    WrapperLayer
     XmlUtils
 )
 
@@ -164,7 +211,7 @@ IF (NOT TINYXML_FOUND)
     SET(LIB_PUBLIC_HEADERS
         ${LIB_PUBLIC_HEADERS}
         tinystr.h
-        tinyxml.h 
+        tinyxml.h
     )
 ENDIF (NOT TINYXML_FOUND)
 
@@ -181,25 +228,25 @@ ENDIF (NOT TINYXML_FOUND)
 SET(VERSION_GIT_SOURCE "")
 IF (OSGEARTH_EMBED_GIT_SHA)
 	ADD_DEFINITIONS(-DOSGEARTH_EMBED_GIT_SHA)
-	
+
 	# auto-generate the VersionGit file to include the git SHA1 variable.
 	configure_file(
 		"${CMAKE_CURRENT_SOURCE_DIR}/VersionGit.cpp.in"
-		"${CMAKE_CURRENT_BINARY_DIR}/VersionGit.cpp" 
+		"${CMAKE_CURRENT_BINARY_DIR}/VersionGit.cpp"
 		@ONLY)
-    
-	set(VERSION_GIT_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/VersionGit.cpp")	
+
+	set(VERSION_GIT_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/VersionGit.cpp")
 ENDIF (OSGEARTH_EMBED_GIT_SHA)
 
 set(TARGET_SRC
-    AlphaEffect.cpp
-    AutoScale.cpp
     Bounds.cpp
     Cache.cpp
+    CacheBin.cpp
     CacheEstimator.cpp
     CachePolicy.cpp
     CacheSeed.cpp
     Capabilities.cpp
+    Clamping.cpp
     ClampableNode.cpp
     ClampingTechnique.cpp
     ColorFilter.cpp
@@ -208,34 +255,40 @@ set(TARGET_SRC
     Cube.cpp
     CullingUtils.cpp
     DateTime.cpp
-    Decluttering.cpp
+    DateTimeRange.cpp
     DepthOffset.cpp
-    Draggers.cpp
-    DPLineSegmentIntersector.cpp
     DrapeableNode.cpp
+    DrapingCullSet.cpp
     DrapingTechnique.cpp
     DrawInstanced.cpp
     ECEF.cpp
-    ElevationField.cpp
     ElevationLayer.cpp
     ElevationLOD.cpp
+    ElevationPool.cpp
     ElevationQuery.cpp
-	Extension.cpp
+    Extension.cpp
     FadeEffect.cpp
     FileUtils.cpp
     GeoData.cpp
     Geoid.cpp
     GeoMath.cpp
-	GeoTransform.cpp
+    GeoTransform.cpp
+    GeometryClamper.cpp
+    GLSLChunker.cpp
     HeightFieldUtils.cpp
+    Horizon.cpp
     HTTPClient.cpp
     ImageLayer.cpp
     ImageMosaic.cpp
     ImageToHeightFieldConverter.cpp
     ImageUtils.cpp
+    IntersectionPicker.cpp
     IOTypes.cpp
     JsonUtils.cpp
+    LandCover.cpp
+    LandCoverLayer.cpp
     Layer.cpp
+    Lighting.cpp
     Locators.cpp
     LocalTangentPlane.cpp
     Map.cpp
@@ -249,39 +302,53 @@ set(TARGET_SRC
     MaskNode.cpp
     MaskSource.cpp
     MemCache.cpp
+    Memory.cpp
+    MetaTile.cpp
+    Metrics.cpp
     MimeTypes.cpp
     ModelLayer.cpp
     ModelSource.cpp
     NodeUtils.cpp
     Notify.cpp
+    ObjectIndex.cpp
     OverlayDecorator.cpp
-    OverlayNode.cpp
-	PhongLightingEffect.cpp
-    Pickers.cpp
+    PagedNode.cpp
+    PatchLayer.cpp
+    PhongLightingEffect.cpp
     PrimitiveIntersector.cpp
     Profile.cpp
     Profiler.cpp
     Progress.cpp
     Random.cpp
     Registry.cpp
+    ResourceReleaser.cpp
     Revisioning.cpp
+    SceneGraphCallback.cpp
+    ScreenSpaceLayout.cpp
     ShaderFactory.cpp
     ShaderGenerator.cpp
     ShaderLoader.cpp
     ShaderUtils.cpp
+    Shadowing.cpp
+    SimplexNoise.cpp
     SpatialReference.cpp
     StateSetCache.cpp
-	StateSetLOD.cpp
+    StateSetLOD.cpp
+    Status.cpp
     StringUtils.cpp
     TaskService.cpp
     Terrain.cpp
     TerrainLayer.cpp
     TerrainOptions.cpp
     TerrainEngineNode.cpp
+    TerrainResources.cpp
+    TerrainTileModel.cpp
+    TerrainTileModelFactory.cpp
     Tessellator.cpp
-    TextureCompositor.cpp
+    TextureBufferSerializer.cpp
     TileKey.cpp
     TileHandler.cpp
+    TileRasterizer.cpp
     TileVisitor.cpp
     TileSource.cpp
     TimeControl.cpp
@@ -292,18 +359,20 @@ set(TARGET_SRC
     Utils.cpp
     Version.cpp
     VerticalDatum.cpp
+    VideoLayer.cpp
     Viewpoint.cpp
     VirtualProgram.cpp
+    VisibleLayer.cpp
     XmlUtils.cpp
     ${SHADERS_CPP} )
 
 
 ADD_LIBRARY(
-	${LIB_NAME} ${OSGEARTH_USER_DEFINED_DYNAMIC_OR_STATIC}
+    ${LIB_NAME} ${OSGEARTH_USER_DEFINED_DYNAMIC_OR_STATIC}
     ${LIB_PUBLIC_HEADERS}
     ${TINYXML_SRC}
     ${VERSION_GIT_SOURCE}
-	${TARGET_SRC}
+    ${TARGET_SRC}
     ${TARGET_GLSL}
     ${TARGET_IN} )
 

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -17,16 +17,27 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 #include <osgEarthFeatures/FilterContext>
+#include <osgEarthFeatures/Session>
 #include <osgEarthSymbology/ResourceCache>
 #include <osgEarth/Registry>
 
 using namespace osgEarth;
 using namespace osgEarth::Features;
 
+FilterContext::FilterContext() :
+_session(0L),
+_profile(0L),
+_isGeocentric(false),
+_index(0L),
+_shaderPolicy(osgEarth::SHADERPOLICY_GENERATE)
+{
+    //nop
+}
+
 FilterContext::FilterContext(Session*               session,
                              const FeatureProfile*  profile,
                              const GeoExtent&       workingExtent,
-                             FeatureSourceIndex*    index ) :
+                             FeatureIndexBuilder*   index ) :
 _session     ( session ),
 _profile     ( profile ),
 _extent      ( workingExtent, workingExtent ),
@@ -42,7 +53,7 @@ _shaderPolicy( osgEarth::SHADERPOLICY_GENERATE )
         }
         else
         {
-            _resourceCache = new ResourceCache( session->getDBOptions() );
+            _resourceCache = new ResourceCache(); // session->getDBOptions() );
         }
     }
 
@@ -61,6 +72,12 @@ _shaderPolicy( osgEarth::SHADERPOLICY_GENERATE )
     {
         _extent = session->getMapInfo().getProfile()->getExtent();
     }
+
+    // if the session is set, push its name as the first bc.
+    if ( _session.valid() )
+    {
+        pushHistory( _session->getName() );
+    }
 }
 
 FilterContext::FilterContext( const FilterContext& rhs ) :
@@ -72,7 +89,14 @@ _referenceFrame       ( rhs._referenceFrame ),
 _inverseReferenceFrame( rhs._inverseReferenceFrame ),
 _resourceCache        ( rhs._resourceCache.get() ),
 _index                ( rhs._index ),
-_shaderPolicy         ( rhs._shaderPolicy )
+_shaderPolicy         ( rhs._shaderPolicy ),
+_history              ( rhs._history ),
+_outputSRS            ( rhs._outputSRS.get() )
+{
+    //nop
+}
+
+FilterContext::~FilterContext()
 {
     //nop
 }
@@ -81,6 +105,42 @@ void
 FilterContext::setProfile(const FeatureProfile* value)
 {
     _profile = value;
+}
+
+Session*
+FilterContext::getSession()
+{
+    return _session.get();
+}
+
+const Session*
+FilterContext::getSession() const
+{
+    return _session.get();
+}
+
+bool
+FilterContext::isGeoreferenced() const
+{ 
+    return _session.valid() && _profile.valid();
+}
+
+const SpatialReference*
+FilterContext::getOutputSRS() const
+{
+    if (_outputSRS.valid())
+        return _outputSRS.get();
+
+    if (_session.valid() && _session->getMapSRS())
+        return _session->getMapSRS();
+
+    if (_profile.valid() && _profile->getSRS())
+        return _profile->getSRS();
+
+    if (_extent.isSet())
+        return _extent->getSRS();
+
+    return SpatialReference::get("wgs84");
 }
 
 const osgDB::Options*
@@ -149,12 +209,25 @@ FilterContext::toString() const
 
     buf << std::fixed
         << "CONTEXT: ["
-        << "profile extent = "  << profile()->getExtent().toString()
+        << "profile extent = "   << profile()->getExtent().toString()
         << ", working extent = " << extent()->toString()
         << ", geocentric = "     << osgEarth::toString(_isGeocentric)
+        << ", history = "        << getHistory()
         << "]";
 
     std::string str;
     str = buf.str();
     return str;
+}
+
+std::string
+FilterContext::getHistory() const
+{
+    std::stringstream buf;
+    for(unsigned i=0; i<_history.size(); ++i)
+    {
+        if ( i > 0 ) buf << " : ";
+        buf << _history[i];
+    }
+    return buf.str();
 }

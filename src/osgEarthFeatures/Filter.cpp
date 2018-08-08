@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -17,9 +17,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 #include <osgEarthFeatures/Filter>
+#include <osgEarthFeatures/FilterContext>
 #include <osgEarthSymbology/LineSymbol>
 #include <osgEarthSymbology/PointSymbol>
 #include <osgEarth/ECEF>
+#include <osgEarth/Registry>
 #include <osg/MatrixTransform>
 #include <osg/Point>
 #include <osg/LineWidth>
@@ -41,6 +43,9 @@ FeatureFilter::~FeatureFilter()
 
 /********************************************************************************/
         
+#undef  LC
+#define LC "[FeatureFilterRegistry] "
+
 FeatureFilterRegistry::FeatureFilterRegistry()
 {
 }
@@ -70,21 +75,63 @@ FeatureFilterRegistry::add( FeatureFilterFactory* factory )
     _factories.push_back( factory );
 }
 
+#define FEATURE_FILTER_OPTIONS_TAG "__osgEarth::FeatureFilterOptions"
+
 FeatureFilter*
-FeatureFilterRegistry::create( const Config& conf )
+FeatureFilterRegistry::create(const Config& conf, const osgDB::Options* dbo)
 {
-    for (FeatureFilterFactoryList::iterator itr = _factories.begin(); itr != _factories.end(); itr++)
+    std::string driver = conf.key();
+
+    osg::ref_ptr<FeatureFilter> result;
+
+    for (FeatureFilterFactoryList::iterator itr = _factories.begin(); result == 0L && itr != _factories.end(); itr++)
     {
-        FeatureFilter* filter = itr->get()->create( conf );
-        if (filter) return filter;
+        result = itr->get()->create( conf );
     }
-    return 0;
+
+    if ( !result.valid() )
+    {
+        // not found; try to load from plugin.
+        if ( driver.empty() )
+        {
+            OE_WARN << LC << "ILLEGAL- no driver set for feature filter" << std::endl;
+            return 0L;
+        }
+
+        ConfigOptions options(conf);
+
+        osg::ref_ptr<osgDB::Options> dbopt = Registry::instance()->cloneOrCreateOptions(dbo);
+        dbopt->setPluginData( FEATURE_FILTER_OPTIONS_TAG, (void*)&options );
+
+        std::string driverExt = std::string( ".osgearth_featurefilter_" ) + driver;
+        osg::ref_ptr<osg::Object> object = osgDB::readRefObjectFile( driverExt, dbopt.get() );
+        result = dynamic_cast<FeatureFilter*>( object.release() );
+    }
+
+    if ( !result.valid() )
+    {
+        OE_WARN << LC << "Failed to load FeatureFilter driver \"" << driver << "\"" << std::endl;
+    }
+
+    return result.release();
 } 
+
+const ConfigOptions&
+FeatureFilterDriver::getConfigOptions(const osgDB::Options* options) const
+{
+    static ConfigOptions s_default;
+    const void* data = options->getPluginData(FEATURE_FILTER_OPTIONS_TAG);
+    return data ? *static_cast<const ConfigOptions*>(data) : s_default;
+}
 
 /********************************************************************************/
 
+#undef  LC
+#define LC "[FeaturesToNodeFilter] "
+
 FeaturesToNodeFilter::~FeaturesToNodeFilter()
 {
+    //nop
 }
 
 void
@@ -98,9 +145,12 @@ FeaturesToNodeFilter::computeLocalizers( const FilterContext& context, const osg
 {
     if ( context.isGeoreferenced() )
     {
-        if ( context.getSession()->getMapInfo().isGeocentric() )
+        bool ecef = context.getOutputSRS()->isGeographic();
+
+        if (ecef)
         {
-            const SpatialReference* geogSRS = context.profile()->getSRS()->getGeographicSRS();
+
+            const SpatialReference* geogSRS = context.getOutputSRS()->getGeographicSRS();
             GeoExtent geodExtent = extent.transform( geogSRS );
             if ( geodExtent.width() < 180.0 )
             {
@@ -299,26 +349,11 @@ FeaturesToNodeFilter::applyLineSymbology(osg::StateSet*    stateset,
 
         if ( line->stroke()->stipplePattern().isSet() )
         {
-#if 1
             stateset->setAttributeAndModes(
                 new osg::LineStipple(
                     line->stroke()->stippleFactor().value(),
                     line->stroke()->stipplePattern().value()),
                 osg::StateAttribute::ON );
-#else
-            // goofing around...
-            const char* frag =
-                "#version 110\n"
-                "void oe_stipple_frag(inout vec4 color) {\n"
-                "    float x = mod(gl_FragCoord.x, 5.0);\n"
-                "    float y = mod(gl_FragCoord.y, 5.0);\n"
-                "    if (x < y)\n"
-                "        color.a = 0.0;\n"
-                "}\n";
-
-            VirtualProgram* vp = VirtualProgram::getOrCreate(stateset);
-            vp->setFunction("oe_stipple_frag", frag, ShaderComp::LOCATION_FRAGMENT_COLORING);
-#endif
         }
     }
 }

@@ -5,7 +5,10 @@
 # GEOS_FOUND, if false, do not try to link to geos
 # GEOS_INCLUDE_DIR, where to find the headers
 
+SET(GEOS_DIR "" CACHE PATH "Root directory of GEOS distribution")
+
 FIND_PATH(GEOS_INCLUDE_DIR geos/geom/Geometry.h
+  ${GEOS_DIR}
   $ENV{GEOS_DIR}
   NO_DEFAULT_PATH
     PATH_SUFFIXES include
@@ -13,14 +16,15 @@ FIND_PATH(GEOS_INCLUDE_DIR geos/geom/Geometry.h
 
 FIND_PATH(GEOS_INCLUDE_DIR geos/geom/Geometry.h
   PATHS
-  ~/Library/Frameworks/geos/Headers
-  /Library/Frameworks/geos/Headers
+  ${GEOS_DIR}/include
   /usr/local/include/geos
   /usr/local/include/GEOS
   /usr/local/include
   /usr/include/geos
   /usr/include/GEOS
   /usr/include
+  ~/Library/Frameworks/geos/Headers
+  /Library/Frameworks/geos/Headers
   /sw/include/geos 
   /sw/include/GEOS 
   /sw/include # Fink
@@ -39,6 +43,7 @@ FIND_PATH(GEOS_INCLUDE_DIR geos/geom/Geometry.h
 FIND_LIBRARY(GEOS_LIBRARY
   NAMES geos
   PATHS
+    ${GEOS_DIR}/lib
     $ENV{GEOS_DIR}
     NO_DEFAULT_PATH
     PATH_SUFFIXES lib64 lib
@@ -59,17 +64,17 @@ FIND_LIBRARY(GEOS_LIBRARY
   PATH_SUFFIXES lib64 lib
 )
 
-
 FIND_LIBRARY(GEOS_LIBRARY_DEBUG
-  NAMES geod_d geos_i_d geosd
+  NAMES geos_d geos_i_d geosd
   PATHS
+    ${GEOS_DIR}/lib
     $ENV{GEOS_DIR}
     NO_DEFAULT_PATH
     PATH_SUFFIXES lib64 lib
 )
 
 FIND_LIBRARY(GEOS_LIBRARY_DEBUG
-  NAMES geod_d geos_i_d geosd
+  NAMES geos_d geos_i_d geosd
   PATHS
     ~/Library/Frameworks
     /Library/Frameworks

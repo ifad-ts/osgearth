@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -81,19 +84,20 @@ namespace
             const Profile* layerProfile = _layer->getProfile();
 
             //Only try to get data from the source if it actually intersects the key extent
-            bool hasDataInExtent = true;
-            if (tileSource && layerProfile)
-            {
-                GeoExtent ext = _key.getExtent();
-                if (!layerProfile->getSRS()->isEquivalentTo( ext.getSRS()))
-                {
-                    ext = layerProfile->clampAndTransformExtent( ext );
-                }
-                hasDataInExtent = tileSource->hasDataInExtent( ext );
-            }
+            bool hasDataInExtent = _layer->mayHaveDataInExtent(_key.getExtent());
+            //bool hasDataInExtent = true;
+            //if (tileSource && layerProfile)
+            //{
+            //    GeoExtent ext = _key.getExtent();
+            //    if (!layerProfile->getSRS()->isEquivalentTo( ext.getSRS()))
+            //    {
+            //        ext = layerProfile->clampAndTransformExtent( ext );
+            //    }
+            //    hasDataInExtent = tileSource->hasDataInExtent( ext );
+            //}
             
             // fetch the image from the layer.
-            if (hasDataInExtent && _layer->isKeyInRange(_key))
+            if (hasDataInExtent && _layer->isKeyInLegalRange(_key))
             {
                 if ( useMercatorFastPath )
                 {
@@ -211,13 +215,15 @@ TileModelFactory::TileModelFactory(TileNodeRegistry*             liveTiles,
                                    TerrainEngineRequirements*    terrainReqs) :
 _liveTiles     ( liveTiles ),
 _terrainOptions( terrainOptions ),
-_terrainReqs   ( terrainReqs )
+_terrainReqs   ( terrainReqs ),
+_normalMapUnit ( 0 )
 {
-    _meshHFCache = new HeightFieldCache(liveTiles, terrainOptions);
-    _meshHFCache->setTileSize( terrainOptions.tileSize().get() );
+    _meshHFCache = new HeightFieldCache( terrainOptions );
 
-    _normalHFCache = new HeightFieldCache(liveTiles, terrainOptions);
+    _normalHFCache = new HeightFieldCache( terrainOptions );
     _normalHFCache->setTileSize( 257 );
+
+    _debug = terrainOptions.debug() == true;
 }
 
 void
@@ -255,6 +261,14 @@ TileModelFactory::buildElevation(const TileKey&    key,
         if (_liveTiles->get(parentKey, parentNode))
         {
             parentHF = parentNode->getTileModel()->_elevationData.getHeightField();
+            if ( _debug && key.getLOD() > 0 && !parentHF.valid() )
+            {
+                OE_NOTICE << LC << "Could not find a parent tile HF for " << key.str() << "\n";
+            }
+        }
+        else
+        {
+            // Happens if the parent key expired after this task dispatched.
         }
     }
 
@@ -262,7 +276,7 @@ TileModelFactory::buildElevation(const TileKey&    key,
     if (_meshHFCache->getOrCreateHeightField(frame, key, parentHF.get(), hf, isFallback, SAMPLE_FIRST_VALID, interp, progress))
     {
         model->_elevationData = TileModel::ElevationData(
-            hf,
+            hf.get(),
             GeoLocator::createForKey( key, mapInfo ),
             isFallback );
 
@@ -325,6 +339,8 @@ TileModelFactory::buildElevation(const TileKey&    key,
     }
 }
 
+#define EMPTY_NORMAL_MAP_SIZE 3
+
 void
 TileModelFactory::buildNormalMap(const TileKey&    key,
                                  const MapFrame&   frame,
@@ -340,101 +356,73 @@ TileModelFactory::buildNormalMap(const TileKey&    key,
     // Request a heightfield from the map, falling back on lower resolution tiles
     // if necessary (fallback=true)
     osg::ref_ptr<osg::HeightField> hf;
+    osg::ref_ptr<osg::HeightField> parentHF;
+    osg::ref_ptr<const TileModel>  parentModel;
 
     bool isFallback = false;
 
-    // look up the parent's heightfield to use as a template
-    osg::ref_ptr<const TileModel> parentModel;
-    osg::ref_ptr<osg::HeightField> parentHF;
-    
-    TileKey parentKey = key.createParentKey();
-    if ( accumulate )
+    unsigned minNormalLOD =
+        _terrainOptions.minNormalMapLOD().isSet() ?
+        _terrainOptions.minNormalMapLOD().get() : 0u;
+
+    if ( key.getLOD() >= minNormalLOD )
     {
-        osg::ref_ptr<TileNode> parentNode;
-        if (_liveTiles->get(parentKey, parentNode))
+        // look up the parent's heightfield to use as a template
+    
+        TileKey parentKey = key.createParentKey();
+        if ( accumulate )
         {
-            parentModel = parentNode->getTileModel();
-            parentHF = parentModel->_normalData.getHeightField();
+            osg::ref_ptr<TileNode> parentNode;
+            if (_liveTiles->get(parentKey, parentNode))
+            {
+                parentModel = parentNode->getTileModel();
+                parentHF = parentModel->_normalData.getHeightField();
+                if ( parentHF->getNumColumns() == EMPTY_NORMAL_MAP_SIZE )
+                    parentHF = 0L;
+            }
+        }
+
+        // Make a new heightfield:
+        if (_normalHFCache->getOrCreateHeightField(frame, key, parentHF.get(), hf, isFallback, SAMPLE_FIRST_VALID, interp, progress))
+        {
+            if ( isFallback && parentModel.valid() )
+            {
+                model->_normalData = parentModel->_normalData;
+                model->_normalData._fallbackData = true;
+            }
+            else
+            {
+                model->_normalData = TileModel::NormalData(
+                    hf.get(),
+                    GeoLocator::createForKey( key, mapInfo ),
+                    isFallback );
+
+                model->_normalData._unit = _normalMapUnit;
+            }
         }
     }
 
-    // Make a new heightfield:
-    if (_normalHFCache->getOrCreateHeightField(frame, key, parentHF.get(), hf, isFallback, SAMPLE_FIRST_VALID, interp, progress))
+    else
     {
-        if ( isFallback && parentModel.valid() )
-        {
-            model->_normalData = parentModel->_normalData;
-            model->_normalData._fallbackData = true;
-        }
-        else
-        {
-            model->_normalData = TileModel::NormalData(
-                hf,
-                GeoLocator::createForKey( key, mapInfo ),
-                isFallback );
-        }
+        // empty HF must be at least 2x2 for normal texture gen to work
+        hf = HeightFieldUtils::createReferenceHeightField(
+            key.getExtent(), EMPTY_NORMAL_MAP_SIZE, EMPTY_NORMAL_MAP_SIZE, 0u, true );
 
-        // Edge normalization: requires adjacency information.
-        // NOTE: this isn't needed if you use TileNodeRegistry::listenFor's.
-        if ( _terrainOptions.normalizeEdges() == true )
-        {
-            for( int x=-1; x<=1; x++ )
-            {
-                for( int y=-1; y<=1; y++ )
-                {
-                    if ( x != 0 || y != 0 )
-                    {
-                        TileKey neighborKey = key.createNeighborKey(x, y);
-                        if ( neighborKey.valid() )
-                        {
-                            osg::ref_ptr<osg::HeightField> neighborParentHF;
-                            if ( accumulate )
-                            {
-                                TileKey neighborParentKey = neighborKey.createParentKey();
-                                if (neighborParentKey == parentKey)
-                                {
-                                    neighborParentHF = parentHF;
-                                }
-                                else
-                                {
-                                    osg::ref_ptr<TileNode> neighborParentNode;
-                                    if (_liveTiles->get(neighborParentKey, neighborParentNode))
-                                    {
-                                        neighborParentHF = neighborParentNode->getTileModel()->_normalData.getHeightField();
-                                    }
-                                }
-                            }
-                            
-                            // only pull the tile if we have a valid parent HF for it -- otherwise
-                            // you might get a flat tile when upsampling data.
-                            if ( neighborParentHF.valid() )
-                            {
-                                osg::ref_ptr<osg::HeightField> hf;
-                                if (_normalHFCache->getOrCreateHeightField(frame, neighborKey, neighborParentHF.get(), hf, isFallback, SAMPLE_FIRST_VALID, interp, progress) )
-                                {
-                                    model->_normalData.setNeighbor( x, y, hf.get() );
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        model->_normalData = TileModel::NormalData(
+            hf.get(),
+            GeoLocator::createForKey( key, mapInfo ),
+            false );
 
-            // parent too.
-            if ( parentHF.valid() )
-            {
-                model->_normalData.setParent( parentHF.get() );
-            }
-        }
+        model->_normalData._unit = _normalMapUnit;
+    }
 
-        if ( isFallback && parentModel.valid() )
-        {
-            model->_normalTexture = parentModel->_normalTexture.get();
-        }
-        else
-        {
-            model->generateNormalTexture();
-        }
+    if ( isFallback && parentModel.valid() )
+    {
+        model->_normalTexture = parentModel->_normalTexture.get();
+    }
+    else
+    {
+        model->generateNormalTexture();
     }
 }
 
@@ -459,11 +447,15 @@ TileModelFactory::createTileModel(const TileKey&           key,
     // Fetch the image data and make color layers.
     unsigned index = 0;
     unsigned order = 0;
-    for( ImageLayerVector::const_iterator i = frame.imageLayers().begin(); i != frame.imageLayers().end(); ++i )
+
+    ImageLayerVector imageLayers;
+    frame.getLayers(imageLayers);
+
+    for( ImageLayerVector::const_iterator i = imageLayers.begin(); i != imageLayers.end(); ++i )
     {
         ImageLayer* layer = i->get();
 
-        if ( layer->getEnabled() && layer->isKeyInRange(key) )
+        if ( layer->getEnabled() && layer->isKeyInLegalRange(key) )
         {
             BuildColorData build;
             build.init( key, layer, order, frame.getMapInfo(), _terrainOptions, _liveTiles.get(), model.get() );
@@ -508,7 +500,7 @@ TileModelFactory::createTileModel(const TileKey&           key,
     // as fallback data of course)
     if ( !model->_elevationData.getHeightField() )
     {
-        osg::HeightField* hf = HeightFieldUtils::createReferenceHeightField( key.getExtent(), 15, 15 );
+        osg::HeightField* hf = HeightFieldUtils::createReferenceHeightField( key.getExtent(), 15, 15, 0u );
         model->_elevationData = TileModel::ElevationData(
             hf,
             GeoLocator::createForKey(key, frame.getMapInfo()),

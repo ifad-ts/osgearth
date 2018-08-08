@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -42,6 +45,33 @@ namespace osgEarth
 {    
     //------------------------------------------------------------------------
 
+    /**
+     * Utility for storing observables in an osg::Object
+     */
+    template<typename T>
+    class OptionsData : public osg::Object {
+    public:
+        static void set(osg::Object* o, const std::string& name, T* obj) {            
+            osg::UserDataContainer* udc = o->getOrCreateUserDataContainer();
+            unsigned i = udc->getUserObjectIndex(name);
+            if (i == udc->getNumUserObjects()) udc->removeUserObject(i);
+            udc->addUserObject(new OptionsData<T>(name, obj));
+        }
+        static bool lock(const osg::Object* o, const std::string& name, osg::ref_ptr<T>& out) {
+            if (!o) return false;
+            const OptionsData<T>* data = dynamic_cast<const OptionsData<T>*>(osg::getUserObject(o, name));
+            return data ? data->_obj.lock(out) : false;
+        }
+    public:
+        META_Object(osgEarth,OptionsData);
+        OptionsData(const std::string& name, T* obj) : _obj(obj) { setName(name); }
+        OptionsData() { }
+        OptionsData(const OptionsData& rhs, const osg::CopyOp& copy) : osg::Object(rhs, copy), _obj(rhs._obj) { }
+    private:
+        osg::observer_ptr<T> _obj;
+    };
+
+
     struct Utils
     {
         /**
@@ -55,12 +85,9 @@ namespace osgEarth
         
 
         // Polyfill
+        // @deprecated (since we require OSG 3.4.x now)
         static const osg::BoundingBox& getBoundingBox(const osg::Drawable* d) {
-#if OSG_VERSION_GREATER_THAN(3,3,1)
             return d->getBoundingBox();
-#else
-            return d->getBound();
-#endif
         }
     };
 
@@ -68,10 +95,12 @@ namespace osgEarth
      * Removes the given event handler from the view.
      * This is the equivalent of osgViewer::View::removeEventHandler which is not available
      * in older versions of OSG
+     * @deprecated
      */
     extern OSGEARTH_EXPORT void removeEventHandler(osgViewer::View* view, osgGA::GUIEventHandler* handler);
 
     // utility: functor for traversing a target node
+    // @deprecated
     template<typename T> struct TraverseFunctor {
         T* _target;
         TraverseFunctor(T* target) : _target(target) { }
@@ -79,6 +108,7 @@ namespace osgEarth
     };
 
     // utility: node that traverses another node via a functor
+    // @deprecated
     template<typename T>
     struct TraverseNode : public osg::Node {
         TraverseFunctor<T> _tf;
@@ -89,6 +119,7 @@ namespace osgEarth
     };
 
     // utility: cull callback that traverses another node
+    // @deprecated
     struct TraverseNodeCallback : public osg::NodeCallback {
         osg::ref_ptr<osg::Node> _node;
         TraverseNodeCallback(osg::Node* node) : _node(node) { }
@@ -98,8 +129,12 @@ namespace osgEarth
         }
     };
 
+#if OSG_VERSION_LESS_THAN(3,5,6)
+#define OE_HAVE_PIXEL_AUTO_TRANSFORM 1
     /**
      * A pixel-based AutoTransform variant.
+     * NOTE: AutoTransform was refactored for OSG 3.5.6 and this class does
+     * not work with the new version.
      */
     class OSGEARTH_EXPORT PixelAutoTransform : public osg::AutoTransform
     {
@@ -148,6 +183,7 @@ namespace osgEarth
         double _screenSpaceRotationRadians;
         osg::observer_ptr<osg::Node> _sizingNode;
     };
+#endif // OSG_VERSION_LESS_THAN(3,5,6)
 
     /**
      * Proxy class that registers a custom render bin's prototype with the
@@ -169,6 +205,11 @@ namespace osgEarth
         }
 
         osg::ref_ptr<T> _prototype;
+    };
+
+    struct OSGEARTH_EXPORT RenderBinUtils
+    {
+        static unsigned getTotalNumRenderLeaves(osgUtil::RenderBin* bin);
     };
 
     /**
@@ -202,6 +243,17 @@ namespace osgEarth
         GeometryValidator();
         void apply(osg::Geode& geode);
         void apply(osg::Geometry& geom);
+    };
+
+    /**
+     * Allocates and merges buffer objects for each Drawable in the scene graph.
+     */
+    class OSGEARTH_EXPORT AllocateAndMergeBufferObjectsVisitor : public osg::NodeVisitor
+    {
+    public:
+        AllocateAndMergeBufferObjectsVisitor();
+        virtual ~AllocateAndMergeBufferObjectsVisitor() { }
+        void apply(osg::Geode& geode);
     };
 }
 

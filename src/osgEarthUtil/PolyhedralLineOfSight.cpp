@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -35,8 +38,8 @@ namespace
     struct TerrainChangedCallback : public osgEarth::TerrainCallback
     {
         TerrainChangedCallback( PolyhedralLineOfSightNode* los ) : _los(los) { }
-        void onTileAdded(const osgEarth::TileKey& tileKey, osg::Node* terrain, TerrainCallbackContext& ) {
-            _los->terrainChanged( tileKey, terrain );
+        void onTileAdded(const osgEarth::TileKey& tileKey, osg::Node* graph, TerrainCallbackContext& ) {
+            _los->terrainChanged( tileKey, graph );
         }
         PolyhedralLineOfSightNode* _los;
     };
@@ -45,7 +48,7 @@ namespace
 //------------------------------------------------------------------------
 
 PolyhedralLineOfSightNode::PolyhedralLineOfSightNode( MapNode* mapNode ) :
-LocalizedNode( mapNode ),
+GeoPositionNode( mapNode ),
 _startAzim   ( Angle(-45.0, Units::DEGREES) ),
 _endAzim     ( Angle( 45.0, Units::DEGREES) ),
 _startElev   ( Angle(  0.0, Units::DEGREES) ),
@@ -67,7 +70,7 @@ _distance    ( Distance(50000.0, Units::METERS) )
     _terrainCallback = new TerrainChangedCallback(this);
     
     if ( mapNode )
-        mapNode->getTerrain()->addTerrainCallback( _terrainCallback );
+        mapNode->getTerrain()->addTerrainCallback( _terrainCallback.get() );
 
     osg::StateSet* stateSet = this->getOrCreateStateSet();
     stateSet->setMode( GL_BLEND, 1 );
@@ -100,7 +103,7 @@ PolyhedralLineOfSightNode::setMapNode( MapNode* mapNode )
         }
     }
 
-    LocalizedNode::setMapNode( mapNode );
+    GeoPositionNode::setMapNode( mapNode );
 }
 
 void
@@ -161,13 +164,12 @@ PolyhedralLineOfSightNode::traverse(osg::NodeVisitor& nv)
 }
 
 
-bool
-PolyhedralLineOfSightNode::setPosition( const GeoPoint& pos )
+void
+PolyhedralLineOfSightNode::setPosition(const GeoPoint& pos)
 {
-    bool ok = LocalizedNode::setPosition( pos );
+    GeoPositionNode::setPosition( pos );
     recalculateExtent();
     updateSamples();
-    return ok;
 }
 
 
@@ -182,7 +184,7 @@ void
 PolyhedralLineOfSightNode::recalculateExtent()
 {
     // get a local2world matrix for the map position:
-    GeoPoint absMapPos = _mapPosition;
+    GeoPoint absMapPos = getPosition();
     absMapPos.makeAbsolute( getMapNode()->getTerrain() );
     osg::Matrix local2world;
     absMapPos.createLocalToWorld( local2world );
@@ -336,6 +338,8 @@ PolyhedralLineOfSightNode::updateSamples()
 
     osg::Geometry* geom  = _geode->getDrawable(0)->asGeometry();
     osg::Vec3Array* verts = dynamic_cast<osg::Vec3Array*>( geom->getVertexArray() );
+    if (!verts)
+        return;
 
     double distance = _distance.as(Units::METERS);
 

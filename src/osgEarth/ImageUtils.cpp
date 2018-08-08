@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -22,10 +22,12 @@
 #include <osgEarth/Registry>
 #include <osgEarth/Capabilities>
 #include <osgEarth/Random>
+#include <osgEarth/GeoCommon>
 #include <osg/Notify>
 #include <osg/Texture>
 #include <osg/ImageSequence>
 #include <osg/Timer>
+#include <osg/ValueObject>
 #include <osgDB/Registry>
 #include <string.h>
 #include <memory.h>
@@ -33,7 +35,7 @@
 #define LC "[ImageUtils] "
 
 
-#if defined(OSG_GLES1_AVAILABLE) || defined(OSG_GLES2_AVAILABLE)
+#if defined(OSG_GLES1_AVAILABLE) || defined(OSG_GLES2_AVAILABLE) || defined(OSG_GLES3_AVAILABLE)
 #    define GL_RGB8_INTERNAL  GL_RGB8_OES
 #    define GL_RGB8A_INTERNAL GL_RGBA8_OES
 #else
@@ -43,6 +45,7 @@
 
 
 using namespace osgEarth;
+
 
 osg::Image*
 ImageUtils::cloneImage( const osg::Image* input )
@@ -56,11 +59,14 @@ ImageUtils::cloneImage( const osg::Image* input )
     
     osg::Image* clone = osg::clone( input, osg::CopyOp::DEEP_COPY_ALL );
     clone->dirty();
+    if (isNormalized(input) != isNormalized(clone)) {
+        OE_WARN << LC << "Fail in clone.\n";
+    }
     return clone;
 }
 
 void
-ImageUtils::normalizeImage( osg::Image* image )
+ImageUtils::fixInternalFormat( osg::Image* image )
 {
     // OpenGL is lax about internal texture formats, and e.g. allows GL_RGBA to be used
     // instead of the proper GL_RGBA8, etc. Correct that here, since some of our compositors
@@ -72,6 +78,23 @@ ImageUtils::normalizeImage( osg::Image* image )
         else if ( image->getPixelFormat() == GL_RGBA )
             image->setInternalTextureFormat( GL_RGB8A_INTERNAL );
     }
+}
+
+void
+ImageUtils::markAsUnNormalized(osg::Image* image, bool value)
+{
+    if ( image )
+    {
+        image->setUserValue("osgEarth.unnormalized", value);
+    }
+}
+
+bool
+ImageUtils::isUnNormalized(const osg::Image* image)
+{
+    if ( !image ) return false;
+    bool result;
+    return image->getUserValue("osgEarth.unnormalized", result) && (result == true);
 }
 
 bool
@@ -211,10 +234,11 @@ ImageUtils::resizeImage(const osg::Image* input,
         {
             output->allocateImage( out_s, out_t, input->r(), input->getPixelFormat(), input->getDataType(), input->getPacking() );
             output->setInternalTextureFormat( input->getInternalTextureFormat() );
+            markAsNormalized(output.get(), isNormalized(input));
         }
         else
         {
-            // for unsupported write formats, convert to RGBA8 automatically.
+            // for unsupported write formats, convert to normalized RGBA8 automatically.
             output->allocateImage( out_s, out_t, input->r(), GL_RGBA, GL_UNSIGNED_BYTE );
             output->setInternalTextureFormat( GL_RGB8A_INTERNAL );
         }
@@ -233,11 +257,6 @@ ImageUtils::resizeImage(const osg::Image* input,
     {
         PixelReader read( input );
         PixelWriter write( output.get() );
-
-        unsigned int pixel_size_bytes = input->getRowSizeInBytes() / in_s;
-
-        unsigned char* dataOffset = output->getMipmapData(mipmapLevel);
-        unsigned int   dataRowSizeBytes = output->getRowSizeInBytes() >> mipmapLevel;
 
         for( unsigned int output_row=0; output_row < out_t; output_row++ )
         {
@@ -341,10 +360,9 @@ ImageUtils::flattenImage(osg::Image*                             input,
         osg::Image* layer = new osg::Image();
         layer->allocateImage(input->s(), input->t(), 1, input->getPixelFormat(), input->getDataType(), input->getPacking());
         layer->setPixelAspectRatio(input->getPixelAspectRatio());
+        markAsNormalized(layer, isNormalized(input));
 
-#if OSG_MIN_VERSION_REQUIRED(3,1,0)
         layer->setRowLength(input->getRowLength());
-#endif
         layer->setOrigin(input->getOrigin());
         layer->setFileName(input->getFileName());
         layer->setWriteHint(input->getWriteHint());
@@ -353,6 +371,211 @@ ImageUtils::flattenImage(osg::Image*                             input,
         output.push_back(layer);
     }
 
+    return true;
+}
+
+bool
+ImageUtils::bicubicUpsample(const osg::Image* source,
+                            osg::Image* target,
+                            unsigned quadrant,
+                            unsigned stride)
+{
+    const int border = 1; // don't change this.
+
+    int width = ((source->s() - 2*border)/2)+1 + 2*border;
+    int height = ((source->t() - 2*border)/2)+1 + 2*border;
+
+    int s_off = quadrant == 0 || quadrant == 2 ? 0 : source->s()-width;
+    int t_off = quadrant == 2 || quadrant == 3 ? 0 : source->t()-height;
+
+    ImageUtils::PixelReader readSource(source);
+    ImageUtils::PixelWriter writeTarget(target);
+    ImageUtils::PixelReader readTarget(target);
+
+    // copy the main box, which is all odd-numbered cells when there is a border size = 1.
+    for (int t = 1; t<height-1; ++t)
+    {
+        for (int s = 1; s<width-1; ++s)
+        {
+            osg::Vec4 value = readSource(s_off+s, t_off+t);
+            writeTarget(value, (s-1)*2+1, (t-1)*2+1);
+        }
+    }
+
+    // copy the corner border cells.
+    writeTarget(readSource(s_off, t_off), 0, 0); // upper left.
+    writeTarget(readSource(s_off + width - 1, t_off), target->s()-1, 0);
+    writeTarget(readSource(s_off, t_off + height - 1), 0, target->t()-1);
+    writeTarget(readSource(s_off + width - 1, t_off + height - 1), target->s() - 1, target->t() - 1);
+
+    // copy the border intermediate cells.
+    for (int s=1; s<width-1; ++s) // top/bottom:
+    {
+        writeTarget(readSource(s_off+s, t_off), (s-1)*2+1, 0);
+        writeTarget(readSource(s_off+s, t_off + height - 1), (s-1)*2+1, target->t()-1);
+    }
+    for (int t = 1; t < height-1; ++t) // left/right:
+    {
+        writeTarget(readSource(s_off, t_off+t), 0, (t-1)*2+1);
+        writeTarget(readSource(s_off + width - 1, t_off + t), target->s()-1, (t-1)*2+1);
+    }
+
+    // now interpolate the missing columns, including the border cells.
+    for (int s = 2; s<target->s()-2; s += 2)
+    {
+        for (int t = 0; t < target->t(); )
+        {
+            int offset = (s-1) % stride; // the minus1 accounts for the border
+            int s0 = std::max(s - offset, 0);
+            int s1 = std::min(s0 + (int)stride, target->s()-1);
+            double mu = (double)offset / (double)(s1-s0);
+            osg::Vec4 p1 = readTarget(s0, t);
+            osg::Vec4 p2 = readTarget(s1, t);
+            double mu2 = (1.0 - cos(mu*osg::PI))*0.5;
+            osg::Vec4 v = (p1*(1.0-mu2)) + (p2*mu2);
+            writeTarget(v, s, t);
+
+            if (t == 0 || t == target->t()-2) t+=1; else t+=2;
+        }
+    }
+
+    // next interpolate the odd numbered rows
+    for (int s = 0; s < target->s();)
+    {
+        for (int t = 2; t<target->t()-2; t += 2)
+        {
+            int offset = (t-1) % stride; // the minus1 accounts for the border
+            int t0 = std::max(t - offset, 0);
+            int t1 = std::min(t0 + (int)stride, target->t()-1);
+            double mu = (double)offset / double(t1-t0);
+
+            osg::Vec4 p1 = readTarget(s, t0);
+            osg::Vec4 p2 = readTarget(s, t1);
+            double mu2 = (1.0 - cos(mu*osg::PI))*0.5;
+            osg::Vec4 v = (p1*(1.0-mu2)) + (p2*mu2);
+            writeTarget(v, s, t);
+        }
+
+        if (s == 0 || s == target->s()-2) s+=1; else s+=2;
+    }
+
+    // then interpolate the centers
+    for (int s = 2; s<target->s()-2; s += 2)
+    {
+        for (int t = 2; t<target->t()-2; t += 2)
+        {
+            int s_offset = (s-1) % stride;
+            int s0 = std::max(s - s_offset, 0);
+            int s1 = std::min(s0 + (int)stride, target->s()-1);
+
+            int t_offset = (t-1) % stride;
+            int t0 = std::max(t - t_offset, 0);
+            int t1 = std::min(t0 + (int)stride, target->t()-1);
+
+            double mu, mu2;
+
+            osg::Vec4 p1 = readTarget(s0, t);
+            osg::Vec4 p2 = readTarget(s1, t);
+            mu = (double)s_offset / (double)(s1-s0);
+            mu2 = (1.0 - cos(mu*osg::PI))*0.5;
+            osg::Vec4 v1 = (p1*(1.0-mu2)) + (p2*mu2);
+            
+            osg::Vec4 p3 = readTarget(s, t0);
+            osg::Vec4 p4 = readTarget(s, t1);
+            mu = (double)t_offset / (double)(t1-t0);
+            mu2 = (1.0 - cos(mu*osg::PI))*0.5;
+            osg::Vec4 v2 = (p3*(1.0-mu2)) + (p4*mu2);
+
+            osg::Vec4 v = (v1+v2)*0.5;
+
+            writeTarget(v, s, t);
+        }
+    }
+
+
+#if 0
+    // first copy and expand the source quadrant by copying every
+    // even-numbered pixel.
+    for (int s=0; s<=source->s()/2; ++s)
+    {
+        for (int t=0; t<=source->t()/2; ++t)
+        {
+            osg::Vec4 value = readSource(s_off+s, t_off+t);
+            unsigned out_s = s*2, out_t = t*2;
+            writeTarget(value, s*2, t*2);
+        }
+    }
+
+    // next interpolate the odd numbered columns, based on the stride.
+    for (int s = 1; s<target->s()-1; s += 2)
+    {
+        for (int t = 0; t < target->t(); t += 2)
+        {
+            int offset = s % stride;
+            int s0 = std::max(s - offset, 0);
+            int s1 = std::min(s0 + (int)stride, target->s()-1);
+            float mu = (float)offset / (float)(s1-s0);
+
+            osg::Vec4 p1 = readTarget(s0, t);
+            osg::Vec4 p2 = readTarget(s1, t);
+            float mu2 = (1.0 - cosf(mu*osg::PI))*0.5;
+            osg::Vec4 v = (p1*(1.0-mu2)) + (p2*mu2);
+            writeTarget(v, s, t);
+        }
+    }
+
+    // next interpolate the odd numbered rows
+    for (int s = 0; s < target->s(); s += 2)
+    {
+        for (int t = 1; t<target->t()-1; t += 2)
+        {
+            int offset = t % stride;
+            int t0 = std::max(t - offset, 0);
+            int t1 = std::min(t0 + (int)stride, target->t()-1);
+            float mu = (float)offset / float(t1-t0);
+
+            osg::Vec4 p1 = readTarget(s, t0);
+            osg::Vec4 p2 = readTarget(s, t1);
+            float mu2 = (1.0 - cosf(mu*osg::PI))*0.5;
+            osg::Vec4 v = (p1*(1.0-mu2)) + (p2*mu2);
+            writeTarget(v, s, t);
+        }
+    }
+
+    // then interpolate the centers
+    for (int s = 1; s<target->s()-1; s += 2)
+    {
+        for (int t = 1; t<target->t()-1; t += 2)
+        {
+            int s_offset = s % stride;
+            int s0 = std::max(s - s_offset, 0);
+            int s1 = std::min(s0 + (int)stride, target->s()-1);
+
+            int t_offset = t % stride;
+            int t0 = std::max(t - t_offset, 0);
+            int t1 = std::min(t0 + (int)stride, target->t()-1);
+
+            float mu, mu2;
+
+            osg::Vec4 p1 = readTarget(s0, t);
+            osg::Vec4 p2 = readTarget(s1, t);
+            mu = (float)s_offset / (float)(s1-s0);
+            mu2 = (1.0 - cosf(mu*osg::PI))*0.5;
+            osg::Vec4 v1 = (p1*(1.0-mu2)) + (p2*mu2);
+            
+            osg::Vec4 p3 = readTarget(s, t0);
+            osg::Vec4 p4 = readTarget(s, t1);
+            mu = (float)t_offset / (float)(t1-t0);
+            mu2 = (1.0 - cosf(mu*osg::PI))*0.5;
+            osg::Vec4 v2 = (p3*(1.0-mu2)) + (p4*mu2);
+
+            osg::Vec4 v = (v1+v2)*0.5;
+
+            writeTarget(v, s, t);
+        }
+    }
+#endif
+    
     return true;
 }
 
@@ -399,8 +622,8 @@ ImageUtils::buildNearestNeighborMipmaps(const osg::Image* input)
     for( int level=0; level<numMipmapLevels; ++level )
     {
         osg::ref_ptr<osg::Image> temp;
-        ImageUtils::resizeImage(input2, level_s, level_t, result, level, false);
-        ImageUtils::resizeImage(input2, level_s, level_t, temp, 0, false);
+        ImageUtils::resizeImage(input2.get(), level_s, level_t, result, level, false);
+        ImageUtils::resizeImage(input2.get(), level_s, level_t, temp, 0, false);
         level_s >>= 1;
         level_t >>= 1;
         input2 = temp.get();
@@ -464,6 +687,82 @@ ImageUtils::createMipmapBlendedImage( const osg::Image* primary, const osg::Imag
     return result.release();
 }
 
+osgDB::ReaderWriter*
+ImageUtils::getReaderWriterForStream(std::istream& stream) {
+    // Modified from https://oroboro.com/image-format-magic-bytes/
+
+    // Get the length of the stream
+    stream.seekg(0, std::ios::end);
+    unsigned int len = stream.tellg();
+    stream.seekg(0, std::ios::beg);
+
+    if (len < 16) return 0;
+
+    //const char* data = input.c_str();
+    // Read a 16 byte header
+    char data[16];
+    stream.read(data, 16);
+    // Reset reading
+    stream.seekg(0, std::ios::beg);
+
+    // .jpg:  FF D8 FF
+    // .png:  89 50 4E 47 0D 0A 1A 0A
+    // .gif:  GIF87a      
+    //        GIF89a
+    // .tiff: 49 49 2A 00
+    //        4D 4D 00 2A
+    // .bmp:  BM 
+    // .webp: RIFF ???? WEBP 
+    // .ico   00 00 01 00
+    //        00 00 02 00 ( cursor files )
+    switch (data[0])
+    {
+    case '\xFF':
+        return (!strncmp((const char*)data, "\xFF\xD8\xFF", 3)) ?
+            osgDB::Registry::instance()->getReaderWriterForExtension("jpg") : 0;
+
+    case '\x89':
+        return (!strncmp((const char*)data,
+            "\x89\x50\x4E\x47\x0D\x0A\x1A\x0A", 8)) ?
+            osgDB::Registry::instance()->getReaderWriterForExtension("png") : 0;
+
+    case 'G':
+        return (!strncmp((const char*)data, "GIF87a", 6) ||
+            !strncmp((const char*)data, "GIF89a", 6)) ?
+            osgDB::Registry::instance()->getReaderWriterForExtension("gif") : 0;
+
+    case 'I':
+        return (!strncmp((const char*)data, "\x49\x49\x2A\x00", 4)) ?
+            osgDB::Registry::instance()->getReaderWriterForExtension("tif") : 0;
+
+    case 'M':
+        return (!strncmp((const char*)data, "\x4D\x4D\x00\x2A", 4)) ?
+            osgDB::Registry::instance()->getReaderWriterForExtension("tif") : 0;
+
+    case 'B':
+        return ((data[1] == 'M')) ?
+            osgDB::Registry::instance()->getReaderWriterForExtension("bmp") : 0;
+
+    default:
+        return 0;
+    }
+}
+
+osg::Image*
+ImageUtils::readStream(std::istream& stream, const osgDB::Options* options) {
+
+    osgDB::ReaderWriter* rw = getReaderWriterForStream(stream);
+    if (!rw) {
+        return 0;
+    }
+
+    osgDB::ReaderWriter::ReadResult rr = rw->readImage(stream, options);
+    if (rr.validImage()) {
+        return rr.takeImage();
+    }
+    return 0;
+}
+
 namespace
 {
     struct MixImage
@@ -497,8 +796,8 @@ ImageUtils::mix(osg::Image* dest, const osg::Image* src, float a)
     
     PixelVisitor<MixImage> mixer;
     mixer._a = osg::clampBetween( a, 0.0f, 1.0f );
-    mixer._srcHasAlpha = src->getPixelSizeInBits() == 32;
-    mixer._destHasAlpha = src->getPixelSizeInBits() == 32;
+    mixer._srcHasAlpha = hasAlphaChannel(src); //src->getPixelSizeInBits() == 32;
+    mixer._destHasAlpha = hasAlphaChannel(dest); //dest->getPixelSizeInBits() == 32;
 
     mixer.accept( src, dest );  
 
@@ -549,7 +848,7 @@ ImageUtils::cropImage(const osg::Image* image,
     osg::Image* cropped = new osg::Image;
     cropped->allocateImage(windowWidth, windowHeight, image->r(), image->getPixelFormat(), image->getDataType());
     cropped->setInternalTextureFormat( image->getInternalTextureFormat() );
-    
+    ImageUtils::markAsNormalized( cropped, ImageUtils::isNormalized(image) );    
     
     for (int layer=0; layer<image->r(); ++layer)
     {
@@ -697,7 +996,6 @@ ImageUtils::upSampleNN(const osg::Image* src, int quadrant)
     int seed = *(int*)dst->data(0,0);
 
     Random rng(seed+quadrant);
-    int c = 0;
 
     for(int t=0; t<dst->t(); t+=2)
     {
@@ -828,7 +1126,7 @@ ImageUtils::computeTextureCompressionMode(const osg::Image*                 imag
 
     const Capabilities& caps = Registry::capabilities();
 
-#ifndef OSG_GLES2_AVAILABLE
+#if defined(OSG_GLES2_AVAILABLE) && defined(OSG_GLES3_AVAILABLE)
 
     if (image->getPixelFormat() == GL_RGBA && image->getPixelSizeInBits() == 32) 
     {
@@ -885,6 +1183,49 @@ ImageUtils::computeTextureCompressionMode(const osg::Image*                 imag
 #endif
 
     return false;
+}
+
+bool 
+ImageUtils::replaceNoDataValues(osg::Image*       target,
+                                const Bounds&     targetBounds,
+                                const osg::Image* reference,
+                                const Bounds&     referenceBounds)
+{
+    if (target == 0L ||
+        reference == 0L ||
+        !targetBounds.intersects(referenceBounds) )
+    {
+        return false;
+    }
+
+    float
+        xscale = targetBounds.width()/referenceBounds.width(),
+        yscale = targetBounds.height()/referenceBounds.height();
+
+    float
+        xbias = targetBounds.xMin() - referenceBounds.xMin(),
+        ybias = targetBounds.yMin() - referenceBounds.yMin();
+
+    PixelReader readTarget(target);
+    PixelWriter writeTarget(target);
+    PixelReader readReference(reference);
+
+    for(int s=0; s<target->s(); ++s)
+    {
+        for(int t=0; t<target->t(); ++t)
+        {
+            osg::Vec4f pixel = readTarget(s, t);
+            if ( pixel.r() == NO_DATA_VALUE )
+            {
+                float nx = (float)s / (float)(target->s()-1);
+                float ny = (float)t / (float)(target->t()-1);
+                osg::Vec4f refValue = readReference( xscale*nx+xbias, yscale*ny+ybias );
+                writeTarget(refValue, s, t);
+            }
+        }
+    }
+
+    return true;
 }
 
 bool
@@ -950,6 +1291,7 @@ ImageUtils::convert(const osg::Image* image, GLenum pixelFormat, GLenum dataType
     osg::Image* result = new osg::Image();
     result->allocateImage(image->s(), image->t(), image->r(), pixelFormat, dataType);
     memset(result->data(), 0, result->getTotalSizeInBytes());
+    markAsNormalized(result, isNormalized(image));
 
     if ( pixelFormat == GL_RGB && dataType == GL_UNSIGNED_BYTE )
         result->setInternalTextureFormat( GL_RGB8_INTERNAL );
@@ -1022,7 +1364,7 @@ ImageUtils::hasAlphaChannel(const osg::Image* image)
 bool
 ImageUtils::hasTransparency(const osg::Image* image, float threshold)
 {
-    if ( !image || !PixelReader::supports(image) )
+    if ( !image || !hasAlphaChannel(image) || !PixelReader::supports(image) )
         return false;
 
     PixelReader read(image);
@@ -1033,6 +1375,38 @@ ImageUtils::hasTransparency(const osg::Image* image, float threshold)
                     return true;
 
     return false;
+}
+
+
+void
+ImageUtils::activateMipMaps(osg::Texture* tex)
+{
+#ifdef OSGEARTH_ENABLE_NVTT_CPU_MIPMAPS
+    // Verify that this texture requests mipmaps:
+    osg::Texture::FilterMode minFilter = tex->getFilter(tex->MIN_FILTER);
+
+    bool needsMipmaps =
+        minFilter == tex->LINEAR_MIPMAP_LINEAR ||
+        minFilter == tex->LINEAR_MIPMAP_NEAREST ||
+        minFilter == tex->NEAREST_MIPMAP_LINEAR ||
+        minFilter == tex->NEAREST_MIPMAP_NEAREST;
+
+    if (needsMipmaps && tex->getNumImages() > 0)
+    {
+        // See if we have a CPU mipmap generator:
+        osgDB::ImageProcessor* ip = osgDB::Registry::instance()->getImageProcessor();
+        if (ip)
+        {
+            for (unsigned i = 0; i < tex->getNumImages(); ++i)
+            {
+                if (tex->getImage(i)->getNumMipmapLevels() <= 1)
+                {
+                    ip->generateMipMap(*tex->getImage(i), true, ip->USE_CPU);
+                }
+            }
+        }
+    }
+#endif
 }
 
 
@@ -1212,37 +1586,37 @@ namespace
 
     template<> struct GLTypeTraits<GLbyte>
     {
-        static double scale() { return 1.0/128.0; } // XXX
+        static double scale(bool norm) { return norm? 1.0/128.0 : 1.0; } // XXX
     };
 
     template<> struct GLTypeTraits<GLubyte>
     {
-        static double scale() { return 1.0/255.0; }
+        static double scale(bool norm) { return norm? 1.0/255.0 : 1.0; }
     };
 
     template<> struct GLTypeTraits<GLshort>
     {
-        static double scale() { return 1.0/32768.0; } // XXX
+        static double scale(bool norm) { return norm? 1.0/32768.0 : 1.0; } // XXX
     };
 
     template<> struct GLTypeTraits<GLushort>
     {
-        static double scale() { return 1.0/65535.0; }
+        static double scale(bool norm) { return norm? 1.0/65535.0 : 1.0; }
     };
 
     template<> struct GLTypeTraits<GLint>
     {
-        static double scale() { return 1.0/2147483648.0; } // XXX
+        static double scale(bool norm) { return norm? 1.0/2147483648.0 : 1.0; } // XXX
     };
 
     template<> struct GLTypeTraits<GLuint>
     {
-        static double scale() { return 1.0/4294967295.0; }
+        static double scale(bool norm) { return norm? 1.0/4294967295.0 : 1.0; }
     };
 
     template<> struct GLTypeTraits<GLfloat>
     {
-        static double scale() { return 1.0; }
+        static double scale(bool norm) { return 1.0; }
     };
 
     // The Reader function that performs the read.
@@ -1255,7 +1629,7 @@ namespace
         static osg::Vec4 read(const ImageUtils::PixelReader* ia, int s, int t, int r, int m)
         {
             const T* ptr = (const T*)ia->data(s, t, r, m);
-            float l = float(*ptr) * GLTypeTraits<T>::scale();
+            float l = float(*ptr) * GLTypeTraits<T>::scale(ia->_normalized);
             return osg::Vec4(l, l, l, 1.0f);
         }
     };
@@ -1266,7 +1640,7 @@ namespace
         static void write(const ImageUtils::PixelWriter* iw, const osg::Vec4f& c, int s, int t, int r, int m)
         {
             T* ptr = (T*)iw->data(s, t, r, m);
-            (*ptr) = (T)(c.r() / GLTypeTraits<T>::scale());
+            (*ptr) = (T)(c.r() / GLTypeTraits<T>::scale(iw->_normalized));
         }
     };
 
@@ -1276,7 +1650,7 @@ namespace
         static osg::Vec4 read(const ImageUtils::PixelReader* ia, int s, int t, int r, int m)
         {
             const T* ptr = (const T*)ia->data(s, t, r, m);
-            float l = float(*ptr) * GLTypeTraits<T>::scale();
+            float l = float(*ptr) * GLTypeTraits<T>::scale(ia->_normalized);
             return osg::Vec4(l, l, l, 1.0f);
         }
     };
@@ -1287,7 +1661,28 @@ namespace
         static void write(const ImageUtils::PixelWriter* iw, const osg::Vec4f& c, int s, int t, int r, int m)
         {
             T* ptr = (T*)iw->data(s, t, r, m);
-            (*ptr) = (T)(c.r() / GLTypeTraits<T>::scale());
+            (*ptr) = (T)(c.r() / GLTypeTraits<T>::scale(iw->_normalized));
+        }
+    };
+
+    template<typename T>
+    struct ColorReader<GL_RED, T>
+    {
+        static osg::Vec4 read(const ImageUtils::PixelReader* ia, int s, int t, int r, int m)
+        {
+            const T* ptr = (const T*)ia->data(s, t, r, m);
+            float l = float(*ptr) * GLTypeTraits<T>::scale(ia->_normalized);
+            return osg::Vec4(l, l, l, 1.0f);
+        }
+    };
+
+    template<typename T>
+    struct ColorWriter<GL_RED, T>
+    {
+        static void write(const ImageUtils::PixelWriter* iw, const osg::Vec4f& c, int s, int t, int r, int m)
+        {
+            T* ptr = (T*)iw->data(s, t, r, m);
+            (*ptr) = (T)(c.r() / GLTypeTraits<T>::scale(iw->_normalized));
         }
     };
 
@@ -1297,7 +1692,7 @@ namespace
         static osg::Vec4 read(const ImageUtils::PixelReader* ia, int s, int t, int r, int m)
         {
             const T* ptr = (const T*)ia->data(s, t, r, m);
-            float a = float(*ptr) * GLTypeTraits<T>::scale();
+            float a = float(*ptr) * GLTypeTraits<T>::scale(ia->_normalized);
             return osg::Vec4(1.0f, 1.0f, 1.0f, a);
         }
     };
@@ -1308,7 +1703,7 @@ namespace
         static void write(const ImageUtils::PixelWriter* iw, const osg::Vec4f& c, int s, int t, int r, int m)
         {
             T* ptr = (T*)iw->data(s, t, r, m);
-            (*ptr) = (T)(c.a() / GLTypeTraits<T>::scale());
+            (*ptr) = (T)(c.a() / GLTypeTraits<T>::scale(iw->_normalized));
         }
     };
 
@@ -1318,8 +1713,8 @@ namespace
         static osg::Vec4 read(const ImageUtils::PixelReader* ia, int s, int t, int r, int m)
         {
             const T* ptr = (const T*)ia->data(s, t, r, m);
-            float l = float(*ptr++) * GLTypeTraits<T>::scale();
-            float a = float(*ptr) * GLTypeTraits<T>::scale();
+            float l = float(*ptr++) * GLTypeTraits<T>::scale(ia->_normalized);
+            float a = float(*ptr) * GLTypeTraits<T>::scale(ia->_normalized);
             return osg::Vec4(l, l, l, a);
         }
     };
@@ -1330,8 +1725,8 @@ namespace
         static void write(const ImageUtils::PixelWriter* iw, const osg::Vec4f& c, int s, int t, int r, int m )
         {
             T* ptr = (T*)iw->data(s, t, r, m);
-            *ptr++ = (T)( c.r() / GLTypeTraits<T>::scale() );
-            *ptr   = (T)( c.a() / GLTypeTraits<T>::scale() );
+            *ptr++ = (T)( c.r() / GLTypeTraits<T>::scale(iw->_normalized) );
+            *ptr   = (T)( c.a() / GLTypeTraits<T>::scale(iw->_normalized) );
         }
     };
 
@@ -1341,9 +1736,9 @@ namespace
         static osg::Vec4 read(const ImageUtils::PixelReader* ia, int s, int t, int r, int m)
         {
             const T* ptr = (const T*)ia->data(s, t, r, m);
-            float d = float(*ptr++) * GLTypeTraits<T>::scale();
-            float g = float(*ptr++) * GLTypeTraits<T>::scale();
-            float b = float(*ptr) * GLTypeTraits<T>::scale();
+            float d = float(*ptr++) * GLTypeTraits<T>::scale(ia->_normalized);
+            float g = float(*ptr++) * GLTypeTraits<T>::scale(ia->_normalized);
+            float b = float(*ptr) * GLTypeTraits<T>::scale(ia->_normalized);
             return osg::Vec4(d, g, b, 1.0f);
         }
     };
@@ -1354,9 +1749,9 @@ namespace
         static void write(const ImageUtils::PixelWriter* iw, const osg::Vec4f& c, int s, int t, int r, int m )
         {
             T* ptr = (T*)iw->data(s, t, r, m);
-            *ptr++ = (T)( c.r() / GLTypeTraits<T>::scale() );
-            *ptr++ = (T)( c.g() / GLTypeTraits<T>::scale() );
-            *ptr++ = (T)( c.b() / GLTypeTraits<T>::scale() );
+            *ptr++ = (T)( c.r() / GLTypeTraits<T>::scale(iw->_normalized) );
+            *ptr++ = (T)( c.g() / GLTypeTraits<T>::scale(iw->_normalized) );
+            *ptr++ = (T)( c.b() / GLTypeTraits<T>::scale(iw->_normalized) );
         }
     };
 
@@ -1366,10 +1761,10 @@ namespace
         static osg::Vec4 read(const ImageUtils::PixelReader* ia, int s, int t, int r, int m)
         {
             const T* ptr = (const T*)ia->data(s, t, r, m);
-            float d = float(*ptr++) * GLTypeTraits<T>::scale();
-            float g = float(*ptr++) * GLTypeTraits<T>::scale();
-            float b = float(*ptr++) * GLTypeTraits<T>::scale();
-            float a = float(*ptr) * GLTypeTraits<T>::scale();
+            float d = float(*ptr++) * GLTypeTraits<T>::scale(ia->_normalized);
+            float g = float(*ptr++) * GLTypeTraits<T>::scale(ia->_normalized);
+            float b = float(*ptr++) * GLTypeTraits<T>::scale(ia->_normalized);
+            float a = float(*ptr) * GLTypeTraits<T>::scale(ia->_normalized);
             return osg::Vec4(d, g, b, a);
         }
     };
@@ -1380,10 +1775,10 @@ namespace
         static void write(const ImageUtils::PixelWriter* iw, const osg::Vec4f& c, int s, int t, int r, int m)
         {
             T* ptr = (T*)iw->data(s, t, r, m);
-            *ptr++ = (T)( c.r() / GLTypeTraits<T>::scale() );
-            *ptr++ = (T)( c.g() / GLTypeTraits<T>::scale() );
-            *ptr++ = (T)( c.b() / GLTypeTraits<T>::scale() );
-            *ptr++ = (T)( c.a() / GLTypeTraits<T>::scale() );
+            *ptr++ = (T)( c.r() / GLTypeTraits<T>::scale(iw->_normalized) );
+            *ptr++ = (T)( c.g() / GLTypeTraits<T>::scale(iw->_normalized) );
+            *ptr++ = (T)( c.b() / GLTypeTraits<T>::scale(iw->_normalized) );
+            *ptr++ = (T)( c.a() / GLTypeTraits<T>::scale(iw->_normalized) );
         }
     };
 
@@ -1393,9 +1788,9 @@ namespace
         static osg::Vec4 read(const ImageUtils::PixelReader* ia, int s, int t, int r, int m)
         {
             const T* ptr = (const T*)ia->data(s, t, r, m);
-            float b = float(*ptr) * GLTypeTraits<T>::scale();
-            float g = float(*ptr++) * GLTypeTraits<T>::scale();
-            float d = float(*ptr++) * GLTypeTraits<T>::scale();
+            float b = float(*ptr) * GLTypeTraits<T>::scale(ia->_normalized);
+            float g = float(*ptr++) * GLTypeTraits<T>::scale(ia->_normalized);
+            float d = float(*ptr++) * GLTypeTraits<T>::scale(ia->_normalized);
             return osg::Vec4(d, g, b, 1.0f);
         }
     };
@@ -1406,9 +1801,9 @@ namespace
         static void write(const ImageUtils::PixelWriter* iw, const osg::Vec4f& c, int s, int t, int r, int m )
         {
             T* ptr = (T*)iw->data(s, t, r, m);
-            *ptr++ = (T)( c.b() / GLTypeTraits<T>::scale() );
-            *ptr++ = (T)( c.g() / GLTypeTraits<T>::scale() );
-            *ptr++ = (T)( c.r() / GLTypeTraits<T>::scale() );
+            *ptr++ = (T)( c.b() / GLTypeTraits<T>::scale(iw->_normalized) );
+            *ptr++ = (T)( c.g() / GLTypeTraits<T>::scale(iw->_normalized) );
+            *ptr++ = (T)( c.r() / GLTypeTraits<T>::scale(iw->_normalized) );
         }
     };
 
@@ -1418,10 +1813,10 @@ namespace
         static osg::Vec4 read(const ImageUtils::PixelReader* ia, int s, int t, int r, int m)
         {
             const T* ptr = (const T*)ia->data(s, t, r, m);
-            float b = float(*ptr++) * GLTypeTraits<T>::scale();
-            float g = float(*ptr++) * GLTypeTraits<T>::scale();
-            float d = float(*ptr++) * GLTypeTraits<T>::scale();
-            float a = float(*ptr) * GLTypeTraits<T>::scale();
+            float b = float(*ptr++) * GLTypeTraits<T>::scale(ia->_normalized);
+            float g = float(*ptr++) * GLTypeTraits<T>::scale(ia->_normalized);
+            float d = float(*ptr++) * GLTypeTraits<T>::scale(ia->_normalized);
+            float a = float(*ptr) * GLTypeTraits<T>::scale(ia->_normalized);
             return osg::Vec4(d, g, b, a);
         }
     };
@@ -1432,10 +1827,10 @@ namespace
         static void write(const ImageUtils::PixelWriter* iw, const osg::Vec4f& c, int s, int t, int r, int m )
         {
             T* ptr = (T*)iw->data(s, t, r, m);
-            *ptr++ = (T)( c.b() / GLTypeTraits<T>::scale() );
-            *ptr++ = (T)( c.g() / GLTypeTraits<T>::scale() );
-            *ptr++ = (T)( c.r() / GLTypeTraits<T>::scale() );
-            *ptr++ = (T)( c.a() / GLTypeTraits<T>::scale() );
+            *ptr++ = (T)( c.b() / GLTypeTraits<T>::scale(iw->_normalized) );
+            *ptr++ = (T)( c.g() / GLTypeTraits<T>::scale(iw->_normalized) );
+            *ptr++ = (T)( c.r() / GLTypeTraits<T>::scale(iw->_normalized) );
+            *ptr++ = (T)( c.a() / GLTypeTraits<T>::scale(iw->_normalized) );
         }
     };
 
@@ -1600,7 +1995,10 @@ namespace
             break;
         case GL_LUMINANCE:
             return chooseReader<GL_LUMINANCE>(dataType);
-            break;        
+            break;   
+        case GL_RED:
+            return chooseReader<GL_RED>(dataType);
+            break;       
         case GL_ALPHA:
             return chooseReader<GL_ALPHA>(dataType);
             break;        
@@ -1630,18 +2028,74 @@ namespace
 }
     
 ImageUtils::PixelReader::PixelReader(const osg::Image* image) :
-_image(image)
+_bilinear  (false)
 {
-    _colMult = _image->getPixelSizeInBits() / 8;
-    _rowMult = _image->getRowSizeInBytes();
-    _imageSize = _image->getImageSizeInBytes();
-    GLenum dataType = _image->getDataType();
-    _reader = getReader( _image->getPixelFormat(), dataType );
-    if ( !_reader )
+    setImage(image);
+}
+
+void
+ImageUtils::PixelReader::setImage(const osg::Image* image)
+{
+    _image = image;
+    if (image)
     {
-        OE_WARN << "[PixelReader] No reader found for pixel format " << std::hex << _image->getPixelFormat() << std::endl; 
-        _reader = &ColorReader<0,GLbyte>::read;
+        _normalized = ImageUtils::isNormalized(image);
+        _colMult = _image->getPixelSizeInBits() / 8;
+        _rowMult = _image->getRowSizeInBytes();
+        _imageSize = _image->getImageSizeInBytes();
+        GLenum dataType = _image->getDataType();
+        _reader = getReader( _image->getPixelFormat(), dataType );
+        if ( !_reader )
+        {
+            OE_WARN << "[PixelReader] No reader found for pixel format " << std::hex << _image->getPixelFormat() << std::endl; 
+            _reader = &ColorReader<0,GLbyte>::read;
+        }
     }
+}
+
+osg::Vec4
+ImageUtils::PixelReader::operator()(float u, float v, int r, int m) const
+{
+    return operator()((double)u, (double)v, r, m);
+}
+
+osg::Vec4
+ImageUtils::PixelReader::operator()(double u, double v, int r, int m) const
+ {
+     if ( _bilinear )
+     {
+         double sizeS = (double)(_image->s()-1);
+         double sizeT = (double)(_image->t()-1);
+
+         // u, v => [0..1]
+         double s = u * sizeS;
+         double t = v * sizeT;
+
+         double s0 = std::max(floorf(s), 0.0f);
+         double s1 = std::min(s0+1.0f, sizeS);
+         double smix = s0 < s1 ? (s-s0)/(s1-s0) : 0.0f;
+
+         double t0 = std::max(floorf(t), 0.0f);
+         double t1 = std::min(t0+1.0f, sizeT);
+         double tmix = t0 < t1 ? (t-t0)/(t1-t0) : 0.0f;
+
+         osg::Vec4 UL = (*_reader)(this, (int)s0, (int)t0, r, m); // upper left
+         osg::Vec4 UR = (*_reader)(this, (int)s1, (int)t0, r, m); // upper right
+         osg::Vec4 LL = (*_reader)(this, (int)s0, (int)t1, r, m); // lower left
+         osg::Vec4 LR = (*_reader)(this, (int)s1, (int)t1, r, m); // lower right
+
+         osg::Vec4 TOP = UL*(1.0f-smix) + UR*smix;
+         osg::Vec4 BOT = LL*(1.0f-smix) + LR*smix;
+
+         return TOP*(1.0f-tmix) + BOT*tmix;
+     }
+     else
+     {
+         return (*_reader)(this,
+             (int)(u * (double)(_image->s()-1)),
+             (int)(v * (double)(_image->t()-1)),
+             r, m);
+     }
 }
 
 bool
@@ -1691,7 +2145,10 @@ namespace
             break;
         case GL_LUMINANCE:
             return chooseWriter<GL_LUMINANCE>(dataType);
-            break;        
+            break;      
+        case GL_RED:
+            return chooseWriter<GL_RED>(dataType);
+            break;         
         case GL_ALPHA:
             return chooseWriter<GL_ALPHA>(dataType);
             break;        
@@ -1720,15 +2177,19 @@ namespace
 ImageUtils::PixelWriter::PixelWriter(osg::Image* image) :
 _image(image)
 {
-    _colMult = _image->getPixelSizeInBits() / 8;
-    _rowMult = _image->getRowSizeInBytes();
-    _imageSize = _image->getImageSizeInBytes();
-    GLenum dataType = _image->getDataType();
-    _writer = getWriter( _image->getPixelFormat(), dataType );
-    if ( !_writer )
+    if (image)
     {
-        OE_WARN << "[PixelWriter] No writer found for pixel format " << std::hex << _image->getPixelFormat() << std::endl; 
-        _writer = &ColorWriter<0, GLbyte>::write;
+        _normalized = ImageUtils::isNormalized(image);
+        _colMult = _image->getPixelSizeInBits() / 8;
+        _rowMult = _image->getRowSizeInBytes();
+        _imageSize = _image->getImageSizeInBytes();
+        GLenum dataType = _image->getDataType();
+        _writer = getWriter( _image->getPixelFormat(), dataType );
+        if ( !_writer )
+        {
+            OE_WARN << "[PixelWriter] No writer found for pixel format " << std::hex << _image->getPixelFormat() << std::endl; 
+            _writer = &ColorWriter<0, GLbyte>::write;
+        }
     }
 }
 
@@ -1736,4 +2197,79 @@ bool
 ImageUtils::PixelWriter::supports( GLenum pixelFormat, GLenum dataType )
 {
     return getWriter(pixelFormat, dataType) != 0L;
+}
+
+TextureAndImageVisitor::TextureAndImageVisitor() :
+osg::NodeVisitor()
+{
+    setNodeMaskOverride( ~0L );
+    setTraversalMode(TRAVERSE_ALL_CHILDREN);
+}
+
+void
+TextureAndImageVisitor::apply(osg::Texture& texture)
+{
+    for (unsigned k = 0; k < texture.getNumImages(); ++k)
+    {
+        osg::Image* image = texture.getImage(k);
+        if (image)
+        {
+            apply(*image);
+        }
+    }
+}
+
+void
+TextureAndImageVisitor::apply(osg::Node& node)
+{
+    if (node.getStateSet())
+        apply(*node.getStateSet());
+
+    traverse(node);
+}
+
+void
+TextureAndImageVisitor::apply(osg::Geode& geode)
+{
+    if (geode.getStateSet())
+        apply(*geode.getStateSet());
+
+    for (unsigned i = 0; i < geode.getNumDrawables(); ++i) {
+        apply(*geode.getDrawable(i));
+        //if (geode.getDrawable(i) && geode.getDrawable(i)->getStateSet())
+        //    apply(*geode.getDrawable(i)->getStateSet());
+    }
+
+    //traverse(geode);
+}
+
+void
+TextureAndImageVisitor::apply(osg::Drawable& drawable)
+{
+    if (drawable.getStateSet())
+        apply(*drawable.getStateSet());
+
+    //traverse(drawable);
+}
+
+void
+TextureAndImageVisitor::apply(osg::StateSet& stateSet)
+{
+    osg::StateSet::TextureAttributeList& a = stateSet.getTextureAttributeList();
+    for (osg::StateSet::TextureAttributeList::iterator i = a.begin(); i != a.end(); ++i)
+    {
+        osg::StateSet::AttributeList& b = *i;
+        for (osg::StateSet::AttributeList::iterator j = b.begin(); j != b.end(); ++j)
+        {
+            osg::StateAttribute* sa = j->second.first.get();
+            if (sa)
+            {
+                osg::Texture* tex = dynamic_cast<osg::Texture*>(sa);
+                if (tex)
+                {
+                    apply(*tex);
+                }
+            }
+        }
+    }
 }

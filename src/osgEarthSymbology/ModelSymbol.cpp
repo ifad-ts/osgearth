@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -35,7 +35,17 @@ _roll(rhs._roll),
 _autoScale(rhs._autoScale),
 _height(rhs._height),
 _node(rhs._node)
+_minAutoScale(rhs._minAutoScale),
+_maxAutoScale(rhs._maxAutoScale),
+_name(rhs._name),
+_node(rhs._node),
+_maxSizeX(rhs._maxSizeX),
+_maxSizeY(rhs._maxSizeY),
+_scaleX( rhs._scaleX ),
+_scaleY( rhs._scaleY ),
+_scaleZ( rhs._scaleZ )
 {
+    // nop
 }
 
 ModelSymbol::ModelSymbol( const Config& conf ) :
@@ -46,7 +56,14 @@ _headingBias(0.0f),
 _pitch    ( NumericExpression(0.0) ),
 _roll     ( NumericExpression(0.0) ),
 _height   ( NumericExpression(0.0) ),
-_autoScale( false )
+_autoScale( false ),
+_minAutoScale	( 0.0 ),
+_maxAutoScale	( DBL_MAX ),
+_maxSizeX ( FLT_MAX ),
+_maxSizeY ( FLT_MAX ),
+_scaleX    ( NumericExpression(1.0) ),
+_scaleY    ( NumericExpression(1.0) ),
+_scaleZ    ( NumericExpression(1.0) )
 {
     mergeConfig( conf );
 }
@@ -61,10 +78,20 @@ ModelSymbol::getConfig() const
 	conf.addIfSet( "headingBias",    _headingBias );
     conf.addObjIfSet( "pitch",      _pitch );
     conf.addObjIfSet( "roll",       _roll );
+    conf.addObjIfSet( "name",       _name );
     
     conf.addIfSet( "auto_scale", _autoScale );
+	conf.addIfSet( "min_auto_scale", _minAutoScale );
+	conf.addIfSet( "max_auto_scale", _maxAutoScale );
 	conf.addObjIfSet( "height", _height );
     conf.addIfSet( "alias_map", _uriAliasMap );
+
+    conf.addIfSet( "max_size_x", _maxSizeX );
+    conf.addIfSet( "max_size_y", _maxSizeY );
+    
+    conf.addObjIfSet( "scale_x", _scaleX );
+    conf.addObjIfSet( "scale_y", _scaleY );
+    conf.addObjIfSet( "scale_z", _scaleZ );
 
     conf.addNonSerializable( "ModelSymbol::node", _node.get() );
     return conf;
@@ -78,10 +105,22 @@ ModelSymbol::mergeConfig( const Config& conf )
 	conf.getIfSet( "headingBias", _headingBias );
     conf.getObjIfSet( "pitch",   _pitch );
     conf.getObjIfSet( "roll",    _roll );
+    conf.getObjIfSet( "name",    _name );
+
+    conf.getIfSet( "max_size_x", _maxSizeX );
+    conf.getIfSet( "max_size_y", _maxSizeY );
 
     conf.getIfSet( "auto_scale", _autoScale );
+	conf.getIfSet( "min_auto_scale", _minAutoScale);
+	conf.getIfSet( "max_auto_scale", _maxAutoScale);
+
 	conf.getObjIfSet( "height", _height );
+
     conf.getIfSet( "alias_map", _uriAliasMap );
+    
+    conf.getObjIfSet( "scale_x", _scaleX );
+    conf.getObjIfSet( "scale_y", _scaleY );
+    conf.getObjIfSet( "scale_z", _scaleZ );
 
     _node = conf.getNonSerializable<osg::Node>( "ModelSymbol::node" );
 }
@@ -124,6 +163,21 @@ ModelSymbol::parseSLD(const Config& c, Style& style)
         else
             style.getOrCreate<ModelSymbol>()->scale() = NumericExpression(c.value());
     }
+	else if (match(c.key(), "model-min-auto-scale")) {
+		style.getOrCreate<ModelSymbol>()->minAutoScale() = as<double>(c.value(), 0.0f);
+	}
+	else if (match(c.key(), "model-max-auto-scale")) {
+		style.getOrCreate<ModelSymbol>()->maxAutoScale() = as<double>(c.value(), DBL_MAX);
+	}
+    else if ( match(c.key(), "model-scale-x") ) {
+        style.getOrCreate<ModelSymbol>()->scaleX() = NumericExpression(c.value());
+    }
+    else if ( match(c.key(), "model-scale-y") ) {
+        style.getOrCreate<ModelSymbol>()->scaleY() = NumericExpression(c.value());
+    }
+    else if ( match(c.key(), "model-scale-z") ) {
+        style.getOrCreate<ModelSymbol>()->scaleZ() = NumericExpression(c.value());
+    }
     else if ( match(c.key(), "model-heading") ) {
 		if ( match(c.value(), "auto") )
 			style.getOrCreate<ModelSymbol>()->autoHeading() = true;
@@ -133,11 +187,20 @@ ModelSymbol::parseSLD(const Config& c, Style& style)
     else if ( match(c.key(), "model-script") ) {
         style.getOrCreate<ModelSymbol>()->script() = StringExpression(c.value());
     }
+    else if ( match(c.key(), "model-name") ) {
+        style.getOrCreate<ModelSymbol>()->name() = StringExpression(c.value());
+    }
+    else if ( match(c.key(), "model-max-size-x") ) {
+        style.getOrCreate<ModelSymbol>()->maxSizeX() = as<float>(c.value(), FLT_MAX);
+    }
+    else if ( match(c.key(), "model-max-size-y") ) {
+        style.getOrCreate<ModelSymbol>()->maxSizeY() = as<float>(c.value(), FLT_MAX);
+    }
 	else if ( match(c.key(), "model-heading-bias") ) {
 		style.getOrCreate<ModelSymbol>()->headingBias() = as<float>(c.value(), 0.0f);
 	}
 	else if ( match(c.key(), "model-height") ) {
-			style.getOrCreate<ModelSymbol>()->height() = NumericExpression(c.value());
+		style.getOrCreate<ModelSymbol>()->height() = NumericExpression(c.value());
 	}
 }
 

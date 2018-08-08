@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -19,9 +22,13 @@
 #include <osgEarthUtil/TFSPackager>
 
 #include <osgEarth/Registry>
+#include <osgEarth/FileUtils>
+
+#include <osgEarthFeatures/FilterContext>
+#include <osgEarthFeatures/FeatureCursor>
+
 #include <osgDB/FileNameUtils>
 #include <osgDB/FileUtils>
-#include <osgEarth/FileUtils>
 
 #define LC "[TFSPackager] "
 
@@ -233,9 +240,9 @@ public:
                   if (f)
                   {
                       //Reproject the feature to the dest SRS if it's not already
-                      if (!f->getSRS()->isEquivalentTo( _srs ) )
+                      if (!f->getSRS()->isEquivalentTo( _srs.get() ) )
                       {
-                          f->transform( _srs );
+                          f->transform( _srs.get() );
                       }
                       features.push_back( f );
                   }
@@ -320,7 +327,7 @@ void
     osg::ref_ptr< const osgEarth::Profile > profile = osgEarth::Profile::create(extent.getSRS(), extent.xMin(), extent.yMin(), extent.xMax(), extent.yMax(), 1, 1);
 
 
-    TileKey rootKey = TileKey(0, 0, 0, profile );    
+    TileKey rootKey = TileKey(0, 0, 0, profile.get() );    
 
 
     osg::ref_ptr< FeatureTile > root = new FeatureTile( rootKey );
@@ -336,9 +343,9 @@ void
         osg::ref_ptr< Feature > feature = cursor->nextFeature();
 
         //Reproject the feature to the dest SRS if it's not already
-        if (!feature->getSRS()->isEquivalentTo( _srs ) )
+        if (!feature->getSRS()->isEquivalentTo( _srs.get() ) )
         {
-            feature->transform( _srs );
+            feature->transform( _srs.get() );
         }
 
         if (feature->getGeometry() && feature->getGeometry()->getBounds().valid() && feature->getGeometry()->isValid())
@@ -373,13 +380,13 @@ void
     // Print the width of tiles at each level
     for (int i = 0; i <= highestLevel; ++i)
     {
-        TileKey tileKey(i, 0, 0, profile);
+        TileKey tileKey(i, 0, 0, profile.get());
         GeoExtent tileExtent = tileKey.getExtent();
         OE_NOTICE << "Level " << i << " tile size: " << tileExtent.width() << std::endl;
     }
 #endif
 
-    WriteFeaturesVisitor write(features, destination, _method, _srs);
+    WriteFeaturesVisitor write(features, destination, _method, _srs.get());
     root->accept( &write );
 
     //Write out the meta doc

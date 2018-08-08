@@ -1,6 +1,85 @@
 Release Notes
 =============
 
+Version 2.8 (September 2016)
+---------------------------
+
+* Disabled feature tesselation tiling in BuildGeometryFilter unless max_polygon_tiling_angle is explicitly set.  Cropping code was causing issues especially around the poles.  Need to come up with a more general solution in the future.
+* Better support for osg::Fog in VirtualPrograms with FogEffect.  Implemented multiple fog modes.
+* Always applying min_range and max_range in MPGeometry to prevent uniform leakage.
+* Proper support for centroid clamping for MultiPolygons.
+* New requirement to call open() on TileSources and Layers when creating at runtime.  This lets you explicitly get the Status of a layer and report errors to users.
+* Fixes to EGM96 vertical datum grid.
+* BUILD_OSGEARTH_EXAMPLES cmake option for disabling building examples.
+* Added nearest sampling support for heightfields
+* New feature_join for adding attributes from intersecting 
+* osgearth_deformation demo
+* Scatter filter support for pointsets.  Simply places models at each point in the PointSet.
+* Performance optimizations when discarding features in javascript style selectors when returning null styles
+* Feature geometry caching support
+* New min_expiry_frames and min_expiry_time options to TerrainOptions.
+* Proper createTile implementation for Rex engine.
+* RocksDB cache plugin.
+* New osgearth_server application (based on Poco networking libraries).  Serve up osgEarth tiles rendered on the GPU to your favorite web mapping tools like Leaflet, OpenLayers and Cesium!
+* Packager now supports writing to MBTiles
+* New osgearth_skyview example for drawing an "inside out" earth.  Turns out osgearth is a great photosphere viewer!
+* Experimental WinInet support to replace CURL.  New osgearth_http test app.  
+* Upgraded duktape to version 1.4.0
+* Memory usage testing support (osgearth_viewer --monitor to enable)
+* New osgearth_3pv utility application.
+* Better support for pretiled datasets like TFS and Mapnik Vector Tiles in FeatureRasterSource (and agglite driver)
+* Better support for node tethering in EarthManipulator
+* Doxygen support
+* New openstreetmap vector tiles demos (openstreetmap_buildings.earth and openstreetmap_full.earth)
+* Support for Mapnik Vector Tiles datasets
+* Fixed improper inversion of y tilekey in FeatureModelGraph and updated all drivers.
+* CURLOPT_ENCODING support.  If you've built curl against zlib, proper HTTP headers for gzip and deflate will be added and automatically decompressed.
+* New osgearth_splat example
+* New osgEarthSplat NodeKit
+* New "template" plugin based on NLTemplate that allows you to write templatized earth files
+* Support for xi:include in earth files
+* Minimum OpenSceneGraph version is 3.4.0
+* Removed MINIZIP dependency
+* New Triton and Silverlining NodeKits
+* New feature_elevation driver that produces features from 
+* New raster to feature driver for turning rasters to features
+* 330 compatibiity default shader version for GLSL
+* Normal mapping integrated into MP, removed normal map extension.
+* TravisCI and Coverity support
+
+Version 2.7 (July 2015)
+---------------------------
+
+* New ObjectIndex system for picking and selection
+* New RTT-based picker that works for all geometry including GPU-modified geometry
+* Extensions - modular code for extending the capabilities of osgEarth
+* New procedural texture splatting extension
+* Upgraded ShaderLoader for better modularization of VirtualProgram code
+* New "elevation smoothing" property to MP terrain engine
+* New support for default MapNodeOptions
+* Logarithmic depth buffer lets you extend your near and far planes
+* Better Triton and Silverlining support
+* Overhaul of the elevation compositing engine and ElevationQuery utility
+* New Raster Feature driver lets you generate features from raster data
+* Attenuation and min/max range for image layers
+* New shader-based geodetic graticule
+* New day/night color filter
+* Viewpoint: consolidation of look-ats and tethering
+* New CoverageSymbol for rastering features into coverage data; agglite driver support
+* New feature clustering and instancing algorithms for better performance and scalability
+* Noise extension for creating a simplex noise sampler
+* New TerrainShader extension lets you inject arbitrary shader code from an earth file
+* VirtualProgram: specify all VP injection criteria with GLSL #pragmas
+* Normal mapping extension with automatic edge-normalization
+* Bump map extension for simple detail bumping
+* Performance improvements based on GlowCode profiling results
+
+
+Version 2.6 (October 2014)
+--------------------------
+
+Maintenance Release. Release notes TBD.
+
 Version 2.5 (November 2013)
 ---------------------------
 

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -28,10 +31,15 @@
 #include <osgEarth/CacheSeed>
 #include <osgEarth/MapNode>
 #include <osgEarth/Registry>
-#include <osgEarthDrivers/feature_ogr/OGRFeatureOptions>
+#include <osgEarth/FileUtils>
+#include <osgEarth/ImageLayer>
+#include <osgEarth/ElevationLayer>
+#include <osgEarth/TileVisitor>
 #include <osgEarth/FileUtils>
 
-#include <osgEarth/TileVisitor>
+#include <osgEarthFeatures/FeatureCursor>
+
+#include <osgEarthDrivers/feature_ogr/OGRFeatureOptions>
 
 #include <iostream>
 #include <sstream>
@@ -86,7 +94,7 @@ int
         << "        [--index shapefile]             ; Use the feature extents in a shapefile to set the bounding boxes for seeding" << std::endl
         << "        [--mp]                          ; Use multiprocessing to process the tiles.  Useful for GDAL sources as this avoids the global GDAL lock" << std::endl
         << "        [--mt]                          ; Use multithreading to process the tiles." << std::endl
-        << "        [--concurrency]                 ; The number of threads or proceses to use if --mp or --mt are provided." << std::endl
+        << "        [--concurrency]                 ; The number of threads or processes to use if --mp or --mt are provided." << std::endl
         << "        [--verbose]                     ; Displays progress of the seed operation" << std::endl
         << std::endl
         << "    --purge file.earth                  ; Purges a layer cache in a .earth file (interactive)" << std::endl
@@ -105,7 +113,7 @@ int message( const std::string& msg )
 }
 
 int
-    seed( osg::ArgumentParser& args )
+seed( osg::ArgumentParser& args )
 {    
     osgDB::Registry::instance()->getReaderWriterForExtension("png");
     osgDB::Registry::instance()->getReaderWriterForExtension("jpg");
@@ -170,17 +178,23 @@ int
         featureOpt.url() = index;        
 
         osg::ref_ptr< FeatureSource > features = FeatureSourceFactory::create( featureOpt );
-        features->initialize();
-        features->getFeatureProfile();
+        Status status = features->open();
 
-        osg::ref_ptr< FeatureCursor > cursor = features->createFeatureCursor();
-        while (cursor.valid() && cursor->hasMore())
+        if (status.isOK())
         {
-            osg::ref_ptr< Feature > feature = cursor->nextFeature();
-            osgEarth::Bounds featureBounds = feature->getGeometry()->getBounds();
-            GeoExtent ext( feature->getSRS(), featureBounds );
-            ext = ext.transform( mapNode->getMapSRS() );
-            bounds.push_back( ext.bounds() );            
+            osg::ref_ptr< FeatureCursor > cursor = features->createFeatureCursor();
+            while (cursor.valid() && cursor->hasMore())
+            {
+                osg::ref_ptr< Feature > feature = cursor->nextFeature();
+                osgEarth::Bounds featureBounds = feature->getGeometry()->getBounds();
+                GeoExtent ext( feature->getSRS(), featureBounds );
+                ext = ext.transform( mapNode->getMapSRS() );
+                bounds.push_back( ext.bounds() );            
+            }
+        }
+        else
+        {
+            OE_WARN << status.message() << "\n";
         }
     }
 
@@ -280,7 +294,7 @@ int
     
     if (verbose)
     {
-        visitor->setProgressCallback( progress );
+        visitor->setProgressCallback( progress.get() );
     }
 
     if ( minLevel >= 0 )
@@ -306,12 +320,12 @@ int
     // They want to seed an image layer
     if (imageLayerIndex >= 0)
     {
-        osg::ref_ptr< ImageLayer > layer = map->getImageLayerAt( imageLayerIndex );
+        osg::ref_ptr< ImageLayer > layer = map->getLayerAt<ImageLayer>( imageLayerIndex );
         if (layer)
         {
             OE_NOTICE << "Seeding single layer " << layer->getName() << std::endl;
             osg::Timer_t start = osg::Timer::instance()->tick();        
-            seeder.run(layer, map);
+            seeder.run(layer.get(), map);
             osg::Timer_t end = osg::Timer::instance()->tick();
             if (verbose)
             {
@@ -328,12 +342,12 @@ int
     // They want to seed an elevation layer
     else if (elevationLayerIndex >= 0)
     {
-        osg::ref_ptr< ElevationLayer > layer = map->getElevationLayerAt( elevationLayerIndex );
+        osg::ref_ptr< ElevationLayer > layer = map->getLayerAt<ElevationLayer>( elevationLayerIndex );
         if (layer)
         {
             OE_NOTICE << "Seeding single layer " << layer->getName() << std::endl;
             osg::Timer_t start = osg::Timer::instance()->tick();        
-            seeder.run(layer, map);
+            seeder.run(layer.get(), map);
             osg::Timer_t end = osg::Timer::instance()->tick();
             if (verbose)
             {
@@ -348,11 +362,14 @@ int
     }
     // They want to seed the entire map
     else
-    {                
+    {
+        TerrainLayerVector terrainLayers;
+        map->getLayers(terrainLayers);
+
         // Seed all the map layers
-        for (unsigned int i = 0; i < map->getNumImageLayers(); ++i)
+        for (unsigned int i = 0; i < terrainLayers.size(); ++i)
         {            
-            osg::ref_ptr< ImageLayer > layer = map->getImageLayerAt(i);
+            osg::ref_ptr< TerrainLayer > layer = terrainLayers[i].get();
             OE_NOTICE << "Seeding layer" << layer->getName() << std::endl;            
             osg::Timer_t start = osg::Timer::instance()->tick();
             seeder.run(layer.get(), map);            
@@ -363,25 +380,24 @@ int
             }                
         }
 
-        for (unsigned int i = 0; i < map->getNumElevationLayers(); ++i)
-        {
-            osg::ref_ptr< ElevationLayer > layer = map->getElevationLayerAt(i);
-            OE_NOTICE << "Seeding layer" << layer->getName() << std::endl;
-            osg::Timer_t start = osg::Timer::instance()->tick();
-            seeder.run(layer.get(), map);            
-            osg::Timer_t end = osg::Timer::instance()->tick();
-            if (verbose)
-            {
-                OE_NOTICE << "Completed seeding layer " << layer->getName() << " in " << prettyPrintTime( osg::Timer::instance()->delta_s( start, end ) ) << std::endl;
-            }                
-        }        
+        //for (unsigned int i = 0; i < map->getNumElevationLayers(); ++i)
+        //{
+        //    osg::ref_ptr< ElevationLayer > layer = map->getElevationLayerAt(i);
+        //    OE_NOTICE << "Seeding layer" << layer->getName() << std::endl;
+        //    osg::Timer_t start = osg::Timer::instance()->tick();
+        //    seeder.run(layer.get(), map);            
+        //    osg::Timer_t end = osg::Timer::instance()->tick();
+        //    if (verbose)
+        //    {
+        //        OE_NOTICE << "Completed seeding layer " << layer->getName() << " in " << prettyPrintTime( osg::Timer::instance()->delta_s( start, end ) ) << std::endl;
+        //    }                
+        //}        
     }    
 
     return 0;
 }
 
-int
-    list( osg::ArgumentParser& args )
+int list( osg::ArgumentParser& args )
 {
     osg::ref_ptr<osg::Node> node = osgDB::readNodeFiles( args );
     if ( !node.valid() )
@@ -404,13 +420,13 @@ int
     MapFrame mapf( mapNode->getMap() );
 
     TerrainLayerVector layers;
-    std::copy( mapf.imageLayers().begin(), mapf.imageLayers().end(), std::back_inserter(layers) );
-    std::copy( mapf.elevationLayers().begin(), mapf.elevationLayers().end(), std::back_inserter(layers) );
+    mapf.getLayers(layers);
+    //std::copy( mapf.imageLayers().begin(), mapf.imageLayers().end(), std::back_inserter(layers) );
+    //std::copy( mapf.elevationLayers().begin(), mapf.elevationLayers().end(), std::back_inserter(layers) );
 
     for( TerrainLayerVector::iterator i =layers.begin(); i != layers.end(); ++i )
     {
         TerrainLayer* layer = i->get();
-        TerrainLayer::CacheBinMetadata meta;
 
         bool useMFP =
             layer->getProfile() &&
@@ -419,9 +435,10 @@ int
 
         const Profile* cacheProfile = useMFP ? layer->getProfile() : map->getProfile();
 
-        if ( layer->getCacheBinMetadata( cacheProfile, meta ) )
+        TerrainLayer::CacheBinMetadata* meta = layer->getCacheBinMetadata(cacheProfile);
+        if (meta)
         {
-            Config conf = meta.getConfig();
+            Config conf = meta->getConfig();
             std::cout << "Layer \"" << layer->getName() << "\", cache metadata =" << std::endl
                 << conf.toJSON(true) << std::endl;
         }
@@ -444,10 +461,8 @@ struct Entry
 
 
 int
-    purge( osg::ArgumentParser& args )
+purge( osg::ArgumentParser& args )
 {
-    //return usage( "Sorry, but purge is not yet implemented." );
-
     osg::ref_ptr<osg::Node> node = osgDB::readNodeFiles( args );
     if ( !node.valid() )
         return usage( "Failed to read .earth file." );
@@ -465,7 +480,7 @@ int
 
 
     ImageLayerVector imageLayers;
-    map->getImageLayers( imageLayers );
+    map->getLayers( imageLayers );
     for( ImageLayerVector::const_iterator i = imageLayers.begin(); i != imageLayers.end(); ++i )
     {
         ImageLayer* layer = i->get();
@@ -477,18 +492,22 @@ int
 
         const Profile* cacheProfile = useMFP ? layer->getProfile() : map->getProfile();
 
-        CacheBin* bin = layer->getCacheBin( cacheProfile );
-        if ( bin )
+        CacheSettings* cacheSettings = layer->getCacheSettings();
+        if (cacheSettings)
         {
-            entries.push_back(Entry());
-            entries.back()._isImage = true;
-            entries.back()._name = i->get()->getName();
-            entries.back()._bin = bin;
+            CacheBin* bin = cacheSettings->getCacheBin();
+            if ( bin )
+            {
+                entries.push_back(Entry());
+                entries.back()._isImage = true;
+                entries.back()._name = i->get()->getName();
+                entries.back()._bin = bin;
+            }
         }
     }
 
     ElevationLayerVector elevationLayers;
-    map->getElevationLayers( elevationLayers );
+    map->getLayers( elevationLayers );
     for( ElevationLayerVector::const_iterator i = elevationLayers.begin(); i != elevationLayers.end(); ++i )
     {
         ElevationLayer* layer = i->get();
@@ -499,14 +518,18 @@ int
             mapNode->getMapNodeOptions().getTerrainOptions().enableMercatorFastPath() == true;
 
         const Profile* cacheProfile = useMFP ? layer->getProfile() : map->getProfile();
-
-        CacheBin* bin = i->get()->getCacheBin( cacheProfile );
-        if ( bin )
+        
+        CacheSettings* cacheSettings = layer->getCacheSettings();
+        if (cacheSettings)
         {
-            entries.push_back(Entry());
-            entries.back()._isImage = false;
-            entries.back()._name = i->get()->getName();
-            entries.back()._bin = bin;
+            CacheBin* bin = cacheSettings->getCacheBin();
+            if (bin)
+            {
+                entries.push_back(Entry());
+                entries.back()._isImage = false;
+                entries.back()._name = i->get()->getName();
+                entries.back()._bin = bin;
+            }
         }
     }
 

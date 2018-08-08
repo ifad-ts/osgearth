@@ -1,5 +1,5 @@
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -7,10 +7,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -20,8 +23,11 @@
 #include <osgEarthQt/DataManager>
 #include <osgEarthQt/GuiActions>
 
-
 #include <osgEarth/Map>
+#include <osgEarth/ImageLayer>
+#include <osgEarth/ElevationLayer>
+#include <osgEarth/ModelLayer>
+#include <osgEarth/MaskLayer>
 #include <osgEarth/Viewpoint>
 #include <osgEarthAnnotation/AnnotationNode>
 
@@ -102,14 +108,15 @@ namespace
           if (range == 0.0)
               range = 20000000.0;
 
-          _doubleClick = new SetViewpointAction(osgEarth::Viewpoint(focalPoint, 0.0, -90.0, range), views);
+          _doubleClick = new SetViewpointAction(osgEarth::Viewpoint(
+              "doubleclick", focalPoint.x(), focalPoint.y(), focalPoint.z(), 0.0, -90.0, range), views);
         }
         else
         {
           osgEarth::ModelLayer* model = dynamic_cast<osgEarth::ModelLayer*>(_layer.get());
           if (model && _map.valid())
           {
-            osg::ref_ptr<osg::Node> temp = model->getOrCreateSceneGraph( _map.get(), _map->getDBOptions(), 0L );
+            osg::ref_ptr<osg::Node> temp = model->getOrCreateSceneGraph( _map.get(), _map->getReadOptions(), 0L );
             if (temp.valid())
             {
               osg::NodePathList nodePaths = temp->getParentalNodePaths();
@@ -132,7 +139,8 @@ namespace
                 //_map->worldPointToMapPoint(center, output);
 
                 //TODO: make a better range calculation
-                return new SetViewpointAction(osgEarth::Viewpoint(output.vec3d(), 0.0, -90.0, bs.radius() * 4.0), views);
+                return new SetViewpointAction(osgEarth::Viewpoint(
+                    "doubleclick", output.x(), output.y(), output.z(), 0.0, -90.0, bs.radius() * 4.0), views);
               }
             }
           }
@@ -176,23 +184,28 @@ namespace
 
     Action* getDoubleClickAction(const ViewVector& views)
     {
-      if (_annotation.valid())
-      {
-        if (_annotation->getAnnotationData() && _annotation->getAnnotationData()->getViewpoint())
+        if (_annotation.valid())
         {
-          return new SetViewpointAction(osgEarth::Viewpoint(*_annotation->getAnnotationData()->getViewpoint()), views);
+            osgEarth::Viewpoint vp;
+            vp.setNode( _annotation.get() );
+            return new SetViewpointAction( vp, views );
         }
         else if (_map.valid())
         {
-          osg::Vec3d center = _annotation->getBound().center();
+            osg::Vec3d center = _annotation->getBound().center();
 
-          GeoPoint output;
-          output.fromWorld( _map->getSRS(), center );
-          //_map->worldPointToMapPoint(center, output);
+            GeoPoint output;
+            output.fromWorld( _map->getSRS(), center );
+            //_map->worldPointToMapPoint(center, output);
 
-          return new SetViewpointAction(osgEarth::Viewpoint(output.vec3d(), 0.0, -90.0, 1e5), views);
+            osgEarth::Viewpoint vp;
+            vp.focalPoint() = output;
+            vp.range() = 1e5;
+            vp.heading() = 0.0;
+            vp.pitch() = -90.0;
+
+            return new SetViewpointAction(vp, views);
         }
-      }
 
       return 0L;
     }
@@ -418,7 +431,7 @@ void MapCatalogWidget::refreshElevationLayers()
     _elevationsItem->takeChildren();
 	  
     osgEarth::ElevationLayerVector layers;
-    _map->getElevationLayers(layers);
+    _map->getLayers(layers);
     for (osgEarth::ElevationLayerVector::const_iterator it = layers.begin(); it != layers.end(); ++it)
     {
       LayerTreeItem* layerItem = new LayerTreeItem(*it, _map);
@@ -452,7 +465,7 @@ void MapCatalogWidget::refreshImageLayers()
     _imagesItem->takeChildren();
 
     osgEarth::ImageLayerVector layers;
-    _map->getImageLayers(layers);
+    _map->getLayers(layers);
     for (osgEarth::ImageLayerVector::const_iterator it = layers.begin(); it != layers.end(); ++it)
     {
       LayerTreeItem* layerItem = new LayerTreeItem(*it, _map);
@@ -486,7 +499,8 @@ void MapCatalogWidget::refreshModelLayers()
     _modelsItem->takeChildren();
 
     osgEarth::ModelLayerVector layers;
-    _map->getModelLayers(layers);
+    _map->getLayers(layers);
+
     for (osgEarth::ModelLayerVector::const_iterator it = layers.begin(); it != layers.end(); ++it)
     {
       LayerTreeItem* layerItem = new LayerTreeItem(*it, _map);
@@ -523,11 +537,10 @@ void MapCatalogWidget::refreshAnnotations()
     _manager->getAnnotations(annos);
     for (AnnotationVector::const_iterator it = annos.begin(); it != annos.end(); ++it)
     {
-      AnnotationTreeItem* annoItem = new AnnotationTreeItem(*it, _map);
-      annoItem->setText(0, QString(((*it)->getAnnotationData() ? (*it)->getAnnotationData()->getName().c_str() : "Annotation")));
-			annoItem->setCheckState(0, (*it)->getNodeMask() != 0 ? Qt::Checked : Qt::Unchecked);
-
-			_annotationsItem->addChild(annoItem);
+        AnnotationTreeItem* annoItem = new AnnotationTreeItem(*it, _map);
+        annoItem->setText(0, QString( (*it)->getName().c_str() ) );
+        annoItem->setCheckState(0, (*it)->getNodeMask() != 0 ? Qt::Checked : Qt::Unchecked);
+        _annotationsItem->addChild(annoItem);
 
       if (_manager->isSelected(*it))
         annoItem->setSelected(true);
@@ -558,7 +571,8 @@ void MapCatalogWidget::refreshMaskLayers()
     _masksItem->takeChildren();
 
     osgEarth::MaskLayerVector layers;
-    _map->getTerrainMaskLayers(layers);
+    _map->getLayers(layers);
+
     for (osgEarth::MaskLayerVector::const_iterator it = layers.begin(); it != layers.end(); ++it)
     {
       CustomActionTreeItem* layerItem = new CustomActionTreeItem(*it);
@@ -595,7 +609,7 @@ void MapCatalogWidget::refreshViewpoints()
     for (std::vector<osgEarth::Viewpoint>::const_iterator it = viewpoints.begin(); it != viewpoints.end(); ++it)
     {
       ViewpointTreeItem* vpItem = new ViewpointTreeItem(*it);
-      vpItem->setText(0, QString((*it).getName().c_str()));
+      vpItem->setText(0, QString((*it).name()->c_str()));
 			_viewpointsItem->addChild(vpItem);
     }
 

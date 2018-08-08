@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -23,6 +23,9 @@
 #include <osgEarth/ShaderUtils>
 #include <osgEarth/Registry>
 #include <osgEarth/Capabilities>
+#include <osgEarth/DrapeableNode>
+#include <osgEarth/ClampableNode>
+#include <osgEarth/Lighting>
 #include <osg/Notify>
 
 using namespace osgEarth;
@@ -31,17 +34,80 @@ using namespace osgEarth::Symbology;
 
 #define LC "[FeatureModelSource] "
 
-//------------------------------------------------------------------------
+//........................................................................
 
-FeatureModelSourceOptions::FeatureModelSourceOptions( const ConfigOptions& options ) :
-ModelSourceOptions ( options ),
+FeatureModelOptions::FeatureModelOptions(const ConfigOptions& co) :
 _lit               ( true ),
 _maxGranularity_deg( 1.0 ),
-_mergeGeometry     ( false ),
 _clusterCulling    ( true ),
 _backfaceCulling   ( true ),
 _alphaBlending     ( true ),
-_sessionWideResourceCache( true )
+_sessionWideResourceCache( true ),
+_nodeCaching(false)
+{
+    fromConfig(co.getConfig());
+}
+
+void
+FeatureModelOptions::fromConfig(const Config& conf)
+{
+    conf.getObjIfSet("features", _featureSource);
+
+    conf.getObjIfSet( "styles",           _styles );
+    conf.getObjIfSet( "layout",           _layout );
+    conf.getObjIfSet( "paging",           _layout ); // backwards compat.. to be deprecated
+    conf.getObjIfSet( "fading",           _fading );
+    conf.getObjIfSet( "feature_name",     _featureNameExpr );
+    conf.getObjIfSet( "feature_indexing", _featureIndexing );
+
+    conf.getIfSet( "lighting",         _lit );
+    conf.getIfSet( "max_granularity",  _maxGranularity_deg );
+    conf.getIfSet( "cluster_culling",  _clusterCulling );
+    conf.getIfSet( "backface_culling", _backfaceCulling );
+    conf.getIfSet( "alpha_blending",   _alphaBlending );
+    conf.getIfSet( "node_caching",     _nodeCaching );
+    
+    conf.getIfSet( "session_wide_resource_cache", _sessionWideResourceCache );
+
+    // Support a singleton style (convenience)
+    optional<Style> style;
+    conf.getObjIfSet("style", style);
+    if (style.isSet())
+    {
+        if (_styles.valid() == false) _styles = new StyleSheet();
+        _styles->addStyle(style.get());
+    }
+}
+
+Config
+FeatureModelOptions::getConfig() const
+{
+    Config conf;
+    conf.setObj("features", _featureSource);
+
+    conf.setObj( "styles",           _styles );
+    conf.setObj( "layout",           _layout );
+    conf.setObj( "fading",           _fading );
+    conf.setObj( "feature_name",     _featureNameExpr );
+    conf.setObj( "feature_indexing", _featureIndexing );
+
+    conf.set( "lighting",         _lit );
+    conf.set( "max_granularity",  _maxGranularity_deg );
+    conf.set( "cluster_culling",  _clusterCulling );
+    conf.set( "backface_culling", _backfaceCulling );
+    conf.set( "alpha_blending",   _alphaBlending );
+    conf.set( "node_caching",     _nodeCaching );
+    
+    conf.set( "session_wide_resource_cache", _sessionWideResourceCache );
+
+    return conf;
+}
+
+//........................................................................
+
+FeatureModelSourceOptions::FeatureModelSourceOptions(const ConfigOptions& options) :
+ModelSourceOptions(options),
+FeatureModelOptions()
 {
     fromConfig( _conf );
 }
@@ -51,21 +117,20 @@ FeatureModelSourceOptions::fromConfig( const Config& conf )
 {
     conf.getObjIfSet( "features", _featureOptions );
     _featureSource = conf.getNonSerializable<FeatureSource>("feature_source");
-
+    
     conf.getObjIfSet( "styles",           _styles );
     conf.getObjIfSet( "layout",           _layout );
     conf.getObjIfSet( "paging",           _layout ); // backwards compat.. to be deprecated
-    conf.getObjIfSet( "cache_policy",     _cachePolicy );
     conf.getObjIfSet( "fading",           _fading );
     conf.getObjIfSet( "feature_name",     _featureNameExpr );
     conf.getObjIfSet( "feature_indexing", _featureIndexing );
 
     conf.getIfSet( "lighting",         _lit );
     conf.getIfSet( "max_granularity",  _maxGranularity_deg );
-    conf.getIfSet( "merge_geometry",   _mergeGeometry );
     conf.getIfSet( "cluster_culling",  _clusterCulling );
     conf.getIfSet( "backface_culling", _backfaceCulling );
     conf.getIfSet( "alpha_blending",   _alphaBlending );
+    conf.getIfSet( "node_caching",     _nodeCaching );
     
     conf.getIfSet( "session_wide_resource_cache", _sessionWideResourceCache );
 }
@@ -75,26 +140,27 @@ FeatureModelSourceOptions::getConfig() const
 {
     Config conf = ModelSourceOptions::getConfig();
 
-    conf.updateObjIfSet( "features", _featureOptions );    
+    conf.setObj( "features", _featureOptions );    
     if (_featureSource.valid())
     {
         conf.addNonSerializable("feature_source", _featureSource.get());
     }
-    conf.updateObjIfSet( "styles",           _styles );
-    conf.updateObjIfSet( "layout",           _layout );
-    conf.updateObjIfSet( "cache_policy",     _cachePolicy );
-    conf.updateObjIfSet( "fading",           _fading );
-    conf.updateObjIfSet( "feature_name",     _featureNameExpr );
-    conf.updateObjIfSet( "feature_indexing", _featureIndexing );
+    conf.set("feature_source", _featureSourceLayer);
 
-    conf.updateIfSet( "lighting",         _lit );
-    conf.updateIfSet( "max_granularity",  _maxGranularity_deg );
-    conf.updateIfSet( "merge_geometry",   _mergeGeometry );
-    conf.updateIfSet( "cluster_culling",  _clusterCulling );
-    conf.updateIfSet( "backface_culling", _backfaceCulling );
-    conf.updateIfSet( "alpha_blending",   _alphaBlending );
+    conf.setObj( "styles",           _styles );
+    conf.setObj( "layout",           _layout );
+    conf.setObj( "fading",           _fading );
+    conf.setObj( "feature_name",     _featureNameExpr );
+    conf.setObj( "feature_indexing", _featureIndexing );
+
+    conf.set( "lighting",         _lit );
+    conf.set( "max_granularity",  _maxGranularity_deg );
+    conf.set( "cluster_culling",  _clusterCulling );
+    conf.set( "backface_culling", _backfaceCulling );
+    conf.set( "alpha_blending",   _alphaBlending );
+    conf.set( "node_caching",     _nodeCaching );
     
-    conf.updateIfSet( "session_wide_resource_cache", _sessionWideResourceCache );
+    conf.set( "session_wide_resource_cache", _sessionWideResourceCache );
 
     return conf;
 }
@@ -121,49 +187,61 @@ FeatureModelSource::setFeatureSource( FeatureSource* source )
     }
 }
 
-void 
-FeatureModelSource::initialize(const osgDB::Options* dbOptions)
+Status
+FeatureModelSource::initialize(const osgDB::Options* readOptions)
 {
-    ModelSource::initialize( dbOptions );
+    if (readOptions)
+        setReadOptions(readOptions);
     
     // the data source from which to pull features:
     if ( _options.featureSource().valid() )
     {
         _features = _options.featureSource().get();
     }
+
     else if ( _options.featureOptions().isSet() )
     {
         _features = FeatureSourceFactory::create( _options.featureOptions().value() );
-        if ( !_features.valid() )
-        {
-            OE_WARN << LC << "No valid feature source provided!" << std::endl;
-        }
     }
 
-    // initialize the feature source if it exists:
-    if ( _features.valid() )
-    {
-        _features->initialize( dbOptions );
+    if (!_features.valid())
+        return Status::Error(Status::ServiceUnavailable, "Failed to create a feature driver");
 
-        // Try to fill the DataExtent list using the FeatureProfile
-        const FeatureProfile* featureProfile = _features->getFeatureProfile();
-        if (featureProfile != NULL)
-        {
-            if (featureProfile->getProfile() != NULL)
-            {
-                // Use specified profile's GeoExtent
-                getDataExtents().push_back(DataExtent(featureProfile->getProfile()->getExtent()));
-            }
-            else if (featureProfile->getExtent().isValid() == true)
-            {
-                // Use FeatureProfile's GeoExtent
-                getDataExtents().push_back(DataExtent(featureProfile->getExtent()));
-            }
-        }
-    }
-    else
+    // open the feature source if it exists:
+    const Status& featuresStatus = _features->open(_readOptions.get());
+    if (featuresStatus.isError())
+        return featuresStatus;
+
+    // Try to fill the DataExtent list using the FeatureProfile
+    const FeatureProfile* featureProfile = _features->getFeatureProfile();
+    if (featureProfile == NULL)
+        return Status::Error("Failed to establish a feature profile");
+
+    if (featureProfile->getProfile() != NULL)
     {
-        OE_WARN << LC << "No FeatureSource; nothing will be rendered (" << getName() << ")" << std::endl;
+        // Use specified profile's GeoExtent
+        getDataExtents().push_back(DataExtent(featureProfile->getProfile()->getExtent()));
+    }
+    else if (featureProfile->getExtent().isValid() == true)
+    {
+        // Use FeatureProfile's GeoExtent
+        getDataExtents().push_back(DataExtent(featureProfile->getExtent()));
+    }
+
+    return Status::OK();
+}
+
+void
+FeatureModelSource::setReadOptions(const osgDB::Options* readOptions)
+{
+    _readOptions = Registry::cloneOrCreateOptions(readOptions);
+    
+    // for texture atlas support
+    _readOptions->setObjectCacheHint(osgDB::Options::CACHE_IMAGES);
+
+    if (_features.valid())
+    {
+        _features->setReadOptions(_readOptions.get());
     }
 }
 
@@ -171,6 +249,10 @@ osg::Node*
 FeatureModelSource::createNodeImplementation(const Map*        map,
                                              ProgressCallback* progress )
 {
+    // trivial bailout.
+    if (!getStatus().isOK())
+        return 0L;
+
     // user must provide a valid map.
     if ( !map )
     {
@@ -181,7 +263,6 @@ FeatureModelSource::createNodeImplementation(const Map*        map,
     // make sure the feature source initialized properly:
     if ( !_features.valid() || !_features->getFeatureProfile() )
     {
-        OE_WARN << LC << "Invalid feature source" << std::endl;
         return 0L;
     }
 
@@ -190,6 +271,7 @@ FeatureModelSource::createNodeImplementation(const Map*        map,
     if ( !factory )
     {
         OE_WARN << LC << "Unable to create a feature node factory!" << std::endl;
+        setStatus(Status::Error(Status::ServiceUnavailable, "Failed to create a feature node factory"));
         return 0L;
     }
 
@@ -198,20 +280,14 @@ FeatureModelSource::createNodeImplementation(const Map*        map,
         map, 
         _options.styles().get(), 
         _features.get(), 
-        _dbOptions.get() );
+        _readOptions.get() );
+
+    // Name the session (for debugging purposes)
+    session->setName( this->getName() );
 
     // Graph that will render feature models. May included paged data.
-    FeatureModelGraph* graph = new FeatureModelGraph( 
-       session,
-       _options,
-       factory,
-       this,
-       _preMergeOps.get(),
-       _postMergeOps.get() );
-
-    // then run the ops on the staring graph:
-    firePostProcessors( graph );
-
+    FeatureModelGraph* graph = new FeatureModelGraph(session, _options, factory, getSceneGraphCallbacks());
+    graph->setSceneGraphCallbacks(getSceneGraphCallbacks());
     return graph;
 }
 
@@ -224,7 +300,29 @@ osg::Group*
 FeatureNodeFactory::getOrCreateStyleGroup(const Style& style,
                                           Session*     session)
 {
-    osg::Group* group = new osg::Group();
+    osg::Group* group = 0L;
+
+    // If we're draping, the style group will be a DrapeableNode.
+    const AltitudeSymbol* alt = style.get<AltitudeSymbol>();
+    if (alt &&
+        alt->clamping() == AltitudeSymbol::CLAMP_TO_TERRAIN &&
+        alt->technique() == AltitudeSymbol::TECHNIQUE_DRAPE )
+    {
+        group = new DrapeableNode();
+    }
+
+    else if (alt &&
+        alt->clamping() == alt->CLAMP_TO_TERRAIN &&
+        alt->technique() == alt->TECHNIQUE_GPU)
+    {
+        group = new ClampableNode();
+    }
+
+    // Otherwise, a normal group.
+    if ( !group )
+    {
+        group = new osg::Group();
+    }
 
     // apply necessary render styles.
     const RenderSymbol* render = style.get<RenderSymbol>();
@@ -247,8 +345,9 @@ FeatureNodeFactory::getOrCreateStyleGroup(const Style& style,
 
             if ( Registry::capabilities().supportsGLSL() )
             {
-                stateset->addUniform( Registry::shaderFactory()->createUniformForGLMode(
-                    GL_LIGHTING, render->lighting().value()));
+                stateset->setDefine(OE_LIGHTING_DEFINE, render->lighting().get());
+                //stateset->addUniform( Registry::shaderFactory()->createUniformForGLMode(
+                //    GL_LIGHTING, render->lighting().value()));
             }
         }
 
@@ -259,11 +358,13 @@ FeatureNodeFactory::getOrCreateStyleGroup(const Style& style,
                 (render->backfaceCulling() == true ? osg::StateAttribute::ON : osg::StateAttribute::OFF) | osg::StateAttribute::OVERRIDE );
         }
 
+#if !(defined(OSG_GLES2_AVAILABLE) || defined(OSG_GLES3_AVAILABLE) || defined(OSG_GL3_AVAILABLE) )
         if ( render->clipPlane().isSet() )
         {
             GLenum mode = GL_CLIP_PLANE0 + (render->clipPlane().value());
             group->getOrCreateStateSet()->setMode(mode, 1);
         }
+#endif
 
         if ( render->minAlpha().isSet() )
         {

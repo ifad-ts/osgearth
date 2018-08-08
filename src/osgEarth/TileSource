@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -33,6 +33,8 @@
 #include <osgEarth/Profile>
 #include <osgEarth/ThreadingUtils>
 #include <osgEarth/MemCache>
+#include <osgEarth/Status>
+#include <osgEarth/Containers>
 
 #include <osg/Referenced>
 #include <osg/Object>
@@ -46,6 +48,8 @@
 namespace osgEarth
 {
     class ProgressCallback;
+    class Map;
+    class MapFrame;
 
     /**
      * Configuration options for a tile source driver.
@@ -53,22 +57,6 @@ namespace osgEarth
     class OSGEARTH_EXPORT TileSourceOptions : public DriverConfigOptions
     {
     public:
-
-        /** Size (in each dimension) of tiles to generate. */
-        optional<int>& tileSize() { return _tileSize; }
-        const optional<int>& tileSize() const { return _tileSize; }
-
-        /** For heightfields, treat this value as a "no data" marker. */
-        optional<float>& noDataValue() { return _noDataValue; }
-        const optional<float>& noDataValue() const { return _noDataValue; }
-
-        /** For heightfields, treat everything below this value as a "no data" marker. */
-        optional<float>& minValidValue() { return _minValidValue; }
-        const optional<float>& minValidValue() const { return _minValidValue; }
-
-        /** For heightfields, treat everything above this value as a "no data" marker. */
-        optional<float>& maxValidValue() { return _maxValidValue; }
-        const optional<float>& maxValidValue() const { return _maxValidValue; }
 
         /** File in which to store a tile blacklist. */
         optional<std::string>& blacklistFilename() { return _blacklistFilename; }
@@ -87,20 +75,13 @@ namespace osgEarth
         optional<bool>& bilinearReprojection() { return _bilinearReprojection; }
         const optional<bool>& bilinearReprojection() const { return _bilinearReprojection; }
 
-        /** Force the tilesource to report this as the maximum available LOD */
-        optional<unsigned>& maxDataLevel() { return _maxDataLevel; }
-        const optional<unsigned>& maxDataLevel() const { return _maxDataLevel; }
+        /** Whether to rasterize into coverage data, which contains discrete non-interpolable values. */
+        optional<bool>& coverage() { return _coverage; }
+        const optional<bool>& coverage() const { return _coverage; }
 
-    public:
-        /** For backwards-compatibility; use minValidValue() instead 
-         *  @deprecated */
-        optional<float>& noDataMinValue() { return _minValidValue; }
-        const optional<float>& noDataMinValue() const { return _minValidValue; }
-
-        /** For backwards-compatibility; use maxValidValue() instead 
-         *  @deprecated */
-        optional<float>& noDataMaxValue() { return _maxValidValue; }
-        const optional<float>& noDataMaxValue() const { return _maxValidValue; }
+        /** osgDB::Options option string to pass through to osgDB reader/writers. */
+        optional<std::string>& osgOptionString() { return _osgOptionString; }
+        const optional<std::string>& osgOptionString() const { return _osgOptionString; }
 
     public:
         TileSourceOptions( const ConfigOptions& options =ConfigOptions() );
@@ -117,20 +98,19 @@ namespace osgEarth
     private:
         void fromConfig( const Config& conf );
 
-        optional<int>            _tileSize;
-        optional<float>          _noDataValue, _minValidValue, _maxValidValue;
         optional<ProfileOptions> _profileOptions;
         optional<std::string>    _blacklistFilename;
         optional<int>            _L2CacheSize;
         optional<bool>           _bilinearReprojection;
-        optional<unsigned>       _maxDataLevel;
+        optional<bool>           _coverage;
+        optional<std::string>    _osgOptionString;
     };
 
 
     /**
      * A collection of tiles that should be considered blacklisted
      */
-    class OSGEARTH_EXPORT TileBlacklist : public virtual osg::Referenced
+    class OSGEARTH_EXPORT TileBlacklist : public osg::Referenced
     {
     public:
         /**
@@ -162,11 +142,6 @@ namespace osgEarth
         bool contains(const TileKey& key) const;
 
         /**
-         *Returns the size of the blacklist
-         */
-        unsigned int size() const;
-
-        /**
          *Reads a TileBlacklist from the given istream
          */
         static TileBlacklist* read(std::istream &in);
@@ -187,9 +162,7 @@ namespace osgEarth
         void write(const std::string &filename) const;
 
     private:
-        typedef std::set<TileKey> BlacklistedTiles;
-        BlacklistedTiles _tiles;
-        mutable osgEarth::Threading::ReadWriteMutex _mutex;
+        mutable LRUCache<TileKey, bool> _tiles; // using as a set (value unused)
     };
 
     /**
@@ -212,26 +185,6 @@ namespace osgEarth
         /** When using MODE_WRITE, create the data store if necessary */
         static const Mode MODE_CREATE;
 
-
-        /** Initialization status */
-        struct Status
-        {
-        public:
-            Status() { }
-            Status(const Status& rhs) : _msg(rhs._msg) { }
-            Status(const std::string& msg) : _msg(msg) { }
-            bool isOK() const { return _msg.empty(); }
-            bool isError() const { return !_msg.empty(); }
-            const std::string& message() const { return _msg; }
-            bool operator == (const Status& rhs) const { return _msg.compare(rhs._msg)==0; }
-            bool operator != (const Status& rhs) const { return _msg.compare(rhs._msg)!=0; }
-            static Status Error(const std::string& msg) { return Status(msg); }
-        private:
-            std::string _msg;
-        };
-
-        static Status STATUS_OK;
-
         /** interface name, used by the plugin system. */
         static const char* INTERFACE_NAME;
 
@@ -249,20 +202,34 @@ namespace osgEarth
         TileSource(const TileSourceOptions& options);
 
         /**
-         * Gets the status of this tile source.
+         * Opens the tile source and returns the initial status.
          */
+        const Status& open(
+            const Mode&           openMode  =MODE_READ,
+            const osgDB::Options* dbOptions =0L);
+
+        //! Gets the status of this tile source.
         const Status& getStatus() const { return _status; }
 
-        /**
-         * Gets the number of pixels per tile for this TileSource.
-         */
+        //! Gets the number of pixels per tile for this TileSource.
         virtual int getPixelsPerTile() const;
+        virtual void setPixelsPerTile(unsigned size);
 
-        /**
-         * Gets the list of areas with data for this TileSource
-         */
+        //! Gets the list of areas with data for this TileSource
         const DataExtentList& getDataExtents() const { return _dataExtents; }
         DataExtentList& getDataExtents() { return _dataExtents; }
+
+        //! Value representing no data
+        float getNoDataValue() const { return _noDataValue; }
+        void setNoDataValue(float value) { _noDataValue = value; }
+
+        //! Values less than this are considered "no data"
+        float getMinValidValue() const { return _minValidValue; }
+        void setMinValidValue(float value) { _minValidValue = value; }
+
+        //! Values greater than this are considered "no data"
+        float getMaxValidValue() const { return _maxValidValue; }
+        void setMaxValidValue(float value) { _maxValidValue = value; }
 
         /**
          * Creates an image for the given TileKey. The TileKey's profile must match
@@ -323,24 +290,6 @@ namespace osgEarth
         virtual const Profile* getProfile() const;
 
         /**
-         * Gets the nodata elevation value
-         */
-        virtual float getNoDataValue() {
-            return _options.noDataValue().value(); }
-
-        /**
-         * Gets the nodata min value
-         */
-        virtual float getNoDataMinValue() {
-            return _options.noDataMinValue().value(); }
-
-        /**
-         * Gets the nodata max value
-         */
-        virtual float getNoDataMaxValue() {
-            return _options.noDataMaxValue().value(); }
-
-        /**
          * Gets the preferred extension for this TileSource
          * @deprecated No longer used
          */
@@ -351,27 +300,6 @@ namespace osgEarth
          */
         TileBlacklist* getBlacklist();
         const TileBlacklist* getBlacklist() const;
-
-        /**
-         * Whether or not the source has data for the given TileKey
-         */
-        virtual bool hasData(const TileKey& key) const;
-
-        /**
-         * Whether or not the source has data to create fallback tile for 
-         * the given TileKey
-         */
-        virtual bool hasDataForFallback(const TileKey& key) const;
-
-        /**
-         * Whether the tile source can generate data for the specified LOD.
-         */
-        virtual bool hasDataAtLOD( unsigned lod ) const;
-
-        /**
-         * Whether the tile source can generate data within the specified extent
-         */
-        virtual bool hasDataInExtent( const GeoExtent& extent ) const;
 
         /**
          * Whether this TileSource produces tiles whose data can change after
@@ -389,13 +317,6 @@ namespace osgEarth
             { return CachePolicy::DEFAULT; }
 
         /**
-         * Starts up the tile source.
-         */
-        const Status& open(
-            const Mode&           openMode  =MODE_READ,
-            const osgDB::Options* dbOptions =0L);
-
-        /**
          * The open mode (passed to startup).
          */
         const Mode& getMode() const { return _mode; }
@@ -404,6 +325,12 @@ namespace osgEarth
          * The options used to construct this tile source.
          */
         const TileSourceOptions& getOptions() const { return _options; }
+
+        /**
+         * Set the L2 cache size default (if the size was not set in 
+         * the options or environment). Must call this before open().
+         */
+        void setDefaultL2CacheSize(int size);
 
     public:
 
@@ -416,9 +343,8 @@ namespace osgEarth
 
     protected:
 
-
         /**
-         * Initializes the tile source (called by startup)
+         * Initializes the tile source (called by open)
          *
          * The osgEarth engine calls this function to initialize a TileSource using an
          * active osgDB::Options. The method returns a status code indicating whether
@@ -430,7 +356,7 @@ namespace osgEarth
          * The Subclass should override this to report a correct initialization status.
          * The default implementation reports STATUS_OK (for compatibility).
          */
-        virtual Status initialize(const osgDB::Options* dbOptions);
+        virtual Status initialize(const osgDB::Options* readOptions) =0;
 
         /**
          * Creates an image for the given TileKey.
@@ -463,7 +389,16 @@ namespace osgEarth
          * status by returning it from initialize(), but you can call this
          * later, e.g. in the event of an unrecoverable error.
          */
-        void setStatus( Status status );
+        void setStatus(const Status& value) { _status = value; }
+
+        /**
+         * Accesses the map frame that synchronizes with a map if one is set.
+         * Note; the map frame might be empty/invalid.
+         */
+        MapFrame& getMapFrame() const;
+
+        //! Compat - do not override
+        unsigned getTileSize() const { return getPixelsPerTile(); }
 
 
     protected: // deprecated
@@ -482,7 +417,7 @@ namespace osgEarth
     private:
 
         osg::ref_ptr<const Profile> _profile;
-        const TileSourceOptions     _options;
+        TileSourceOptions _options;
 
         friend class Map;
         friend class MapEngine;
@@ -494,9 +429,17 @@ namespace osgEarth
 
         osg::ref_ptr<MemCache> _memCache;
 
-        DataExtentList _dataExtents;
-        Status         _status;
-        Mode           _mode;
+        DataExtentList  _dataExtents;
+        Status          _status;
+        Mode            _mode;
+        unsigned        _tileSize;     
+        float           _noDataValue;
+        float           _minValidValue;
+        float           _maxValidValue;
+
+        bool _openCalled;
+
+        mutable Threading::Mutex _mutex;
     };
 
 

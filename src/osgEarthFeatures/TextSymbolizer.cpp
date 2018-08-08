@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -81,18 +81,27 @@ TextSymbolizer::create(Feature*             feature,
 
     t->setColor( _symbol.valid() && _symbol->fill().isSet() ? _symbol->fill()->color() : Color::White );
 
-    osgText::Font* font = 0L;
+    osg::ref_ptr<osgText::Font> font;
     if ( _symbol.valid() && _symbol->font().isSet() )
     {
-        font = osgText::readFontFile( *_symbol->font() );
+        font = osgText::readRefFontFile( *_symbol->font() );
+        
+#if OSG_VERSION_LESS_THAN(3,5,8)
         // mitigates mipmapping issues that cause rendering artifacts for some fonts/placement
         if ( font )
             font->setGlyphImageMargin( 2 );
+#endif
     }
     if ( !font )
         font = Registry::instance()->getDefaultFont();
+
     if ( font )
+    {
         t->setFont( font );
+
+        // OSG 3.4.1+ adds a program, so we remove it since we're using VPs.
+        t->setStateSet(0L);
+    }
 
     if ( _symbol.valid() )
     {

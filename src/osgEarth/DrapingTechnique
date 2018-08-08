@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -21,8 +24,11 @@
 
 #include <osgEarth/Common>
 #include <osgEarth/OverlayDecorator>
+#include <osgEarth/DrapeableNode>
+#include <osgEarth/DrapingCullSet>
 #include <osg/TexGenNode>
 #include <osg/Uniform>
+#include <vector>
 
 namespace osgEarth
 {
@@ -37,7 +43,7 @@ namespace osgEarth
      * This class is similar in scope to osgSim::OverlayNode, but is optimized
      * for use with osgEarth and geocentric terrains.
      */
-    class OSGEARTH_EXPORT DrapingTechnique : public OverlayTechnique
+    class OSGEARTH_INTERNAL DrapingTechnique : public OverlayTechnique
     {
     public:
         DrapingTechnique();
@@ -77,7 +83,7 @@ namespace osgEarth
         bool getOverlayBlending() const { return _rttBlending; }
 
         /**
-         * Whether to attach the RTT to camera to the stencil buffer.  Default = true.
+         * Whether to attach the RTT to camera to the stencil buffer.  Default = false.
          * Some older cards don't have very good support 
          */
         void setAttachStencil( bool value );
@@ -95,8 +101,7 @@ namespace osgEarth
         virtual bool hasData(
             OverlayDecorator::TechRTTParams& params) const;
 
-        void reestablish(
-            TerrainEngineNode* engine );
+        virtual bool optimizeToVisibleBound() const { return true; }
 
         void preCullTerrain(
             OverlayDecorator::TechRTTParams& params,
@@ -109,7 +114,9 @@ namespace osgEarth
         void onInstall( TerrainEngineNode* engine );
 
         void onUninstall( TerrainEngineNode* engine );
-
+        
+        const osg::BoundingSphere& getBound(
+            OverlayDecorator::TechRTTParams& params) const;
 
     protected:
         virtual ~DrapingTechnique() { }
@@ -122,6 +129,10 @@ namespace osgEarth
         bool                          _rttBlending;
         bool                          _attachStencil;
         double                        _maxFarNearRatio;
+
+        mutable DrapingManager _drapingManager;
+        DrapingManager& getDrapingManager() { return _drapingManager; }
+        friend class MapNode;
 
         struct TechData : public osg::Referenced
         {

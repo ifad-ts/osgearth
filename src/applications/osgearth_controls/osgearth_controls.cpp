@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -34,7 +37,7 @@ using namespace osgEarth::Util::Controls;
 
 
 void createControls( ControlCanvas* );
-ImageControl* s_imageControl;
+ImageControl* s_imageControl = 0L;
 
 
 int main(int argc, char** argv)
@@ -42,10 +45,15 @@ int main(int argc, char** argv)
     osg::ArgumentParser arguments(&argc,argv);       
     osgViewer::Viewer viewer(arguments);
 
-    osg::Group* root = new osg::Group();
     osg::Node* node = osgEarth::Util::MapNodeHelper().load(arguments, &viewer);
-    if ( node )
-        root->addChild( node );
+    if (!node)
+    {
+        OE_WARN << "No earth file on the command line." << std::endl;
+        return -1;
+    }
+    
+    osg::Group* root = new osg::Group();
+    root->addChild( node );
 
     // create a surface to house the controls
     ControlCanvas* cs = ControlCanvas::getOrCreate( &viewer );
@@ -86,7 +94,8 @@ struct RotateImage : public ControlEventHandler
 {
     void onValueChanged( Control* control, float value )
     {
-        s_imageControl->setRotation( Angular(value) );
+        if (s_imageControl)
+            s_imageControl->setRotation( Angular(value) );
     }
 };
 
@@ -103,7 +112,7 @@ createControls( ControlCanvas* cs )
         center->setVertAlign( Control::ALIGN_CENTER );
 
         // Add an image:
-        osg::ref_ptr<osg::Image> image = osgDB::readImageFile("http://osgearth.org/images/octocat-icon.png");
+        osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile("../data/osgearth.gif");
         if ( image.valid() )
         {
             s_imageControl = new ImageControl( image.get() );

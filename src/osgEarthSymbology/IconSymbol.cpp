@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -44,7 +44,7 @@ IconSymbol::IconSymbol( const Config& conf ) :
 InstanceSymbol        ( conf ),
 _alignment            ( ALIGN_CENTER_BOTTOM ),
 _heading              ( NumericExpression(0.0) ),
-_declutter            ( false ),
+_declutter            ( true ),
 _occlusionCull        ( false ),
 _occlusionCullAltitude( 200000 )
 {
@@ -112,7 +112,7 @@ IconSymbol::getImage( unsigned maxSize ) const
         {
             osg::ref_ptr<osgDB::Options> dbOptions = Registry::instance()->cloneOrCreateOptions();
             dbOptions->setObjectCacheHint( osgDB::Options::CACHE_IMAGES );
-            _image = URI(_url->eval(), _url->uriContext()).getImage( dbOptions.get() );
+            _image = _url->evalURI().getImage( dbOptions.get() );
             if ( _image.valid() && (maxSize < (unsigned int)_image->s() || maxSize < (unsigned int)_image->t()) )
             {
                 unsigned new_s, new_t;

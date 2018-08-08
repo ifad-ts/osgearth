@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -36,6 +36,11 @@ namespace osgEarth
         */
         ProgressCallback();
         virtual ~ProgressCallback() { }
+
+        /**
+         * Report an error and set the canceled flag to true.
+         */
+        virtual void reportError(const std::string& msg);
 
         /**
         * Callback function that will be called.
@@ -89,7 +94,16 @@ namespace osgEarth
          */
         virtual bool isCanceled() { return _canceled; }
 
+        /**
+         * Whether reportError was called
+         */
+        virtual bool failed() { return _failed; }
+
+        /**
+         * Status/error message
+         */
         std::string& message() { return _message; }
+        const std::string& message() const { return _message; }
 
         /**
          * Resets the canceled flag.
@@ -109,14 +123,19 @@ namespace osgEarth
         /**
          * Access user stats
          */
-        fast_map<std::string,double>& stats() { return _stats; }
+        typedef fast_map<std::string,double> Stats;
+        Stats& stats() { return _stats; }
+        double& stats(const std::string& name);
+        bool& collectStats() { return _collectStats; } 
+        const bool& collectStats() const { return _collectStats; }        
 
     protected:
-        volatile unsigned _numStages;
         std::string       _message;
         mutable  bool     _needsRetry;
         mutable  bool     _canceled;
-        mutable  fast_map<std::string, double> _stats;
+        mutable  bool     _failed;
+        mutable  Stats    _stats;
+        mutable  bool     _collectStats;
     };
 
 
@@ -131,6 +150,8 @@ namespace osgEarth
         */
         ConsoleProgressCallback();
         virtual ~ConsoleProgressCallback() { }
+
+        virtual void reportError(const std::string& msg);
 
         /**
         * Callback function that will be called.

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -121,14 +121,17 @@ class NullStreamBuffer : public std::streambuf
 
 struct NullStream : public std::ostream
 {
-    NullStream():
-        std::ostream(new NullStreamBuffer) {}
+    NullStream() :
+         std::ostream(_nsb = new NullStreamBuffer) {}
         
     virtual ~NullStream()
     {
         delete rdbuf();
         rdbuf(0);
+        //delete _nsb;
     }
+
+    NullStreamBuffer* _nsb;
 };
 
 std::ostream&

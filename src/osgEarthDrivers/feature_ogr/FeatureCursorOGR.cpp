@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -19,7 +19,9 @@
 #include "FeatureCursorOGR"
 #include <osgEarthFeatures/OgrUtils>
 #include <osgEarthFeatures/Feature>
+#include <osgEarthFeatures/FilterContext>
 #include <osgEarth/Registry>
+#include <osg/Math>
 #include <algorithm>
 
 #define LC "[FeatureCursorOGR] "
@@ -42,16 +44,22 @@ namespace
     }
 
     /**
-     * Checks to see if all points in the Geometry are valid.
+     * Checks to see if all points in the Geometry are valid, and makes minor repairs
+     * if necessary. Returns false if the geometry cannot be validated.
      */
-    inline bool isGeometryValid( Geometry* geometry )
+    inline bool validateGeometry( Geometry* geometry )
     {        
         if (!geometry) return false;
 
         if (!geometry->isValid()) return false;
 
-        for (Geometry::const_iterator i = geometry->begin(); i != geometry->end(); ++i)
+        for (Geometry::iterator i = geometry->begin(); i != geometry->end(); ++i)
         {
+            // a "NaN" Z value is automatically changed to zero:
+            if (osg::isNaN(i->z()))
+                i->z() = 0.0;
+
+            // then we test for a valid point.
             if (!isPointValid( *i ))
             {
                 return false;
@@ -62,12 +70,12 @@ namespace
 }
 
 
-FeatureCursorOGR::FeatureCursorOGR(OGRDataSourceH           dsHandle,
-                                   OGRLayerH                layerHandle,
-                                   const FeatureSource*     source,
-                                   const FeatureProfile*    profile,
-                                   const Symbology::Query&  query,
-                                   const FeatureFilterList& filters ) :
+FeatureCursorOGR::FeatureCursorOGR(OGRDataSourceH              dsHandle,
+                                   OGRLayerH                   layerHandle,
+                                   const FeatureSource*        source,
+                                   const FeatureProfile*       profile,
+                                   const Symbology::Query&     query,
+                                   const FeatureFilterChain*   filters) :
 _source           ( source ),
 _dsHandle         ( dsHandle ),
 _layerHandle      ( layerHandle ),
@@ -76,6 +84,7 @@ _spatialFilter    ( 0L ),
 _query            ( query ),
 _chunkSize        ( 500 ),
 _nextHandleToQueue( 0L ),
+_resultSetEndReached(false),
 _profile          ( profile ),
 _filters          ( filters )
 {
@@ -89,22 +98,18 @@ _filters          ( filters )
         std::string driverName = OGR_Dr_GetName( OGR_DS_GetDriver( dsHandle ) );             
         // Quote the layer name if it is a shapefile, so we can handle any weird filenames like those with spaces or hyphens.
         // Or quote any layers containing spaces for PostgreSQL
-        if (driverName == "ESRI Shapefile" || from.find(" ") != std::string::npos)
-        {                        
-            std::string delim = "'";  //Use single quotes by default
-            if (driverName.compare("PostgreSQL") == 0)
-            {
-                //PostgreSQL uses double quotes as identifier delimeters
-                delim = "\"";
-            }            
-            from = delim + from + delim;                    
+        if (driverName == "ESRI Shapefile" || driverName == "VRT" ||
+            from.find(" ") != std::string::npos)
+        {
+            std::string delim = "\"";
+            from = delim + from + delim;
         }
 
-        if ( query.expression().isSet() )
+        if ( _query.expression().isSet() )
         {
             // build the SQL: allow the Query to include either a full SQL statement or
             // just the WHERE clause.
-            expr = query.expression().value();
+            expr = _query.expression().value();
 
             // if the expression is just a where clause, expand it into a complete SQL expression.
             std::string temp = osgEarth::toLower(expr);
@@ -126,9 +131,9 @@ _filters          ( filters )
         }
 
         //Include the order by clause if it's set
-        if (query.orderby().isSet())
+        if (_query.orderby().isSet())
         {                     
-            std::string orderby = query.orderby().value();
+            std::string orderby = _query.orderby().value();
             
             std::string temp = osgEarth::toLower(orderby);
 
@@ -143,15 +148,22 @@ _filters          ( filters )
             expr += (" " + orderby );
         }
 
+        // if the tilekey is set, convert it to feature profile coords
+        if ( _query.tileKey().isSet() && !_query.bounds().isSet() && profile )
+        {
+            GeoExtent localEx = _query.tileKey()->getExtent().transform( profile->getSRS() );
+            _query.bounds() = localEx.bounds();
+        }
+
         // if there's a spatial extent in the query, build the spatial filter:
-        if ( query.bounds().isSet() )
+        if ( _query.bounds().isSet() )
         {
             OGRGeometryH ring = OGR_G_CreateGeometry( wkbLinearRing );
-            OGR_G_AddPoint(ring, query.bounds()->xMin(), query.bounds()->yMin(), 0 );
-            OGR_G_AddPoint(ring, query.bounds()->xMin(), query.bounds()->yMax(), 0 );
-            OGR_G_AddPoint(ring, query.bounds()->xMax(), query.bounds()->yMax(), 0 );
-            OGR_G_AddPoint(ring, query.bounds()->xMax(), query.bounds()->yMin(), 0 );
-            OGR_G_AddPoint(ring, query.bounds()->xMin(), query.bounds()->yMin(), 0 );
+            OGR_G_AddPoint(ring, _query.bounds()->xMin(), _query.bounds()->yMin(), 0 );
+            OGR_G_AddPoint(ring, _query.bounds()->xMin(), _query.bounds()->yMax(), 0 );
+            OGR_G_AddPoint(ring, _query.bounds()->xMax(), _query.bounds()->yMax(), 0 );
+            OGR_G_AddPoint(ring, _query.bounds()->xMax(), _query.bounds()->yMin(), 0 );
+            OGR_G_AddPoint(ring, _query.bounds()->xMin(), _query.bounds()->yMin(), 0 );
 
             _spatialFilter = OGR_G_CreateGeometry( wkbPolygon );
             OGR_G_AddGeometryDirectly( _spatialFilter, ring ); 
@@ -191,7 +203,7 @@ FeatureCursorOGR::~FeatureCursorOGR()
 bool
 FeatureCursorOGR::hasMore() const
 {
-    return _resultSetHandle && ( _queue.size() > 0 || _nextHandleToQueue != 0L );
+    return _resultSetHandle && _queue.size() > 0;
 }
 
 Feature*
@@ -200,7 +212,7 @@ FeatureCursorOGR::nextFeature()
     if ( !hasMore() )
         return 0L;
 
-    if ( _queue.size() == 0 && _nextHandleToQueue )
+    if ( _queue.size() == 1u )
         readChunk();
 
     // do this in order to hold a reference to the feature we return, so the caller
@@ -212,7 +224,6 @@ FeatureCursorOGR::nextFeature()
     return _lastFeatureReturned.get();
 }
 
-
 // reads a chunk of features into a memory cache; do this for performance
 // and to avoid needing the OGR Mutex every time
 void
@@ -221,82 +232,73 @@ FeatureCursorOGR::readChunk()
     if ( !_resultSetHandle )
         return;
     
-    FeatureList preProcessList;
-    
     OGR_SCOPED_LOCK;
 
-    if ( _nextHandleToQueue )
+    while( _queue.size() < _chunkSize && !_resultSetEndReached )
     {
-        osg::ref_ptr<Feature> f = OgrUtils::createFeature( _nextHandleToQueue, _profile->getSRS() );
-        if ( f.valid() && !_source->isBlacklisted(f->getFID()) )
+        FeatureList filterList;
+        while( filterList.size() < _chunkSize && !_resultSetEndReached )
         {
-            if ( isGeometryValid( f->getGeometry() ) )
+            OGRFeatureH handle = OGR_L_GetNextFeature( _resultSetHandle );
+            if ( handle )
             {
-                _queue.push( f );
+                osg::ref_ptr<Feature> feature = OgrUtils::createFeature( handle, _profile.get() );
 
-                if ( _filters.size() > 0 )
-                    preProcessList.push_back( f.release() );
-            }
-            else
-            {
-                OE_INFO << LC << "Skipping feature with invalid geometry: " << f->getGeoJSON() << std::endl;
-            }
-        }
-        OGR_F_Destroy( _nextHandleToQueue );
-        _nextHandleToQueue = 0L;
-    }
-
-    unsigned handlesToQueue = _chunkSize - _queue.size();
-    bool resultSetEndReached = false;
-
-    for( unsigned i=0; i<handlesToQueue; i++ )
-    {
-        OGRFeatureH handle = OGR_L_GetNextFeature( _resultSetHandle );
-        if ( handle )
-        {
-            osg::ref_ptr<Feature> f = OgrUtils::createFeature( handle, _profile->getSRS() );
-            if ( f.valid() && !_source->isBlacklisted(f->getFID()) )
-            {
-                if (isGeometryValid( f->getGeometry() ) )
+                if (feature.valid())
                 {
-                    _queue.push( f );
-
-                    if ( _filters.size() > 0 )
-                        preProcessList.push_back( f.release() );
+                    if (!_source->isBlacklisted(feature->getFID()))
+                    {
+                        if (validateGeometry( feature->getGeometry() ))
+                        {
+                            filterList.push_back( feature.release() );
+                        }
+                        else
+                        {
+                            OE_DEBUG << LC << "Invalid geometry found at feature " << feature->getFID() << std::endl;
+                        }
+                    }
+                    else
+                    {
+                        OE_DEBUG << LC << "Blacklisted feature " << feature->getFID() << " skipped" << std::endl;
+                    }
                 }
                 else
                 {
-                    OE_INFO << LC << "Skipping feature with invalid geometry: " << f->getGeoJSON() << std::endl;
+                    OE_DEBUG << LC << "Skipping NULL feature" << std::endl;
                 }
-            }            
-            OGR_F_Destroy( handle );
+                OGR_F_Destroy( handle );
+            }
+            else
+            {
+                _resultSetEndReached = true;
+            }
         }
-        else
+
+        // preprocess the features using the filter list:
+        if ( _filters.valid() && !_filters->empty() )
         {
-            resultSetEndReached = true;
-            break;
+            FilterContext cx;
+            cx.setProfile( _profile.get() );
+            if (_query.bounds().isSet())
+            {
+                cx.extent() = GeoExtent(_profile->getSRS(), _query.bounds().get());
+            }
+            else
+            {
+                cx.extent() = _profile->getExtent();
+            }
+
+            for( FeatureFilterChain::const_iterator i = _filters->begin(); i != _filters->end(); ++i )
+            {
+                FeatureFilter* filter = i->get();
+                cx = filter->push( filterList, cx );
+            }
+        }
+
+        for(FeatureList::const_iterator i = filterList.begin(); i != filterList.end(); ++i)
+        {
+            _queue.push( i->get() );
         }
     }
-
-    // preprocess the features using the filter list:
-    if ( preProcessList.size() > 0 )
-    {
-        FilterContext cx;
-        cx.setProfile( _profile.get() );
-
-        for( FeatureFilterList::const_iterator i = _filters.begin(); i != _filters.end(); ++i )
-        {
-            FeatureFilter* filter = i->get();
-            cx = filter->push( preProcessList, cx );
-        }
-    }
-
-    // read one more for "more" detection:
-    if (!resultSetEndReached)
-        _nextHandleToQueue = OGR_L_GetNextFeature( _resultSetHandle );
-    else
-        _nextHandleToQueue = 0L;
-
-    //OE_NOTICE << "read " << _queue.size() << " features ... " << std::endl;
 }
 

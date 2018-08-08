@@ -8,15 +8,19 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 #include <osgEarthUtil/Fog>
+#include <osg/Fog>
 #include <osgEarthUtil/Shaders>
 #include <osgEarth/Registry>
 #include <osgEarth/Capabilities>
@@ -27,6 +31,30 @@
 
 using namespace osgEarth;
 using namespace osgEarth::Util;
+
+
+void FogCallback::operator() (osg::StateAttribute* attr, osg::NodeVisitor* nv)
+{
+    // Update the oe_fog_algo uniform to reflect the current algorithm.
+    osg::Fog* fog = static_cast<osg::Fog*>(attr);
+    for (unsigned int i = 0; i < attr->getNumParents(); i++)
+    {
+        osg::StateSet* stateSet = attr->getParent(i);
+
+        if (fog->getMode() == osg::Fog::LINEAR)
+        {
+            stateSet->getOrCreateUniform("oe_fog_algo", osg::Uniform::INT)->set(0);
+        }
+        else if (fog->getMode() == osg::Fog::EXP)
+        {
+            stateSet->getOrCreateUniform("oe_fog_algo", osg::Uniform::INT)->set(1);
+        }
+        else if (fog->getMode() == osg::Fog::EXP2)
+        {
+            stateSet->getOrCreateUniform("oe_fog_algo", osg::Uniform::INT)->set(2);
+        }
+    }
+}
 
 
 FogEffect::FogEffect()
@@ -42,8 +70,8 @@ void FogEffect::attach( osg::StateSet* stateSet )
 {
     VirtualProgram* vp = VirtualProgram::getOrCreate( stateSet );
     Shaders pkg;
-    pkg.loadFunction( vp, pkg.Fog_Vertex );
-    pkg.loadFunction( vp, pkg.Fog_Fragment );
+    pkg.load( vp, pkg.Fog_Vertex );
+    pkg.load( vp, pkg.Fog_Fragment );
     _statesets.push_back(stateSet);
 }
 
@@ -53,8 +81,8 @@ void FogEffect::detach( osg::StateSet* stateSet )
     if ( vp )
     {
         Shaders pkg;
-        pkg.unloadFunction( vp, pkg.Fog_Vertex );
-        pkg.unloadFunction( vp, pkg.Fog_Fragment );
+        pkg.unload( vp, pkg.Fog_Vertex );
+        pkg.unload( vp, pkg.Fog_Fragment );
     }
 }
 
@@ -65,7 +93,7 @@ void FogEffect::detach()
         osg::ref_ptr<osg::StateSet> stateset;
         if ( (*it).lock(stateset) )
         {
-            detach( stateset );
+            detach( stateset.get() );
             (*it) = 0L;
         }
     }

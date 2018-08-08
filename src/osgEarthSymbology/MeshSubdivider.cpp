@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -260,7 +260,7 @@ namespace
                 _i0 < rhs._i0 ? true :
                 _i0 > rhs._i0 ? false :
                 _i1 < rhs._i1 ? true :
-                _i1 > rhs._i1 ? false :
+                //_i1 > rhs._i1 ? false : // redundant :)
                 false;
         }
         bool operator == (const Edge& rhs) const { return _i0==rhs._i0 && _i1==rhs._i1; }
@@ -296,11 +296,16 @@ namespace
 
                 numElementsInCurrentEBO = 0;
             }
-            ebo->push_back( static_cast<VTYPE>( i->_i0 ) );
-            ebo->push_back( static_cast<VTYPE>( i->_i1 ) );
-            ebo->push_back( static_cast<VTYPE>( i->_i2 ) );
 
-            numElementsInCurrentEBO += 3;
+            if (ebo)
+            {
+                ebo->push_back( static_cast<VTYPE>( i->_i0 ) );
+                ebo->push_back( static_cast<VTYPE>( i->_i1 ) );
+                ebo->push_back( static_cast<VTYPE>( i->_i2 ) );
+
+                numElementsInCurrentEBO += 3;
+            }
+
             ++totalTrisWritten;
         }
 
@@ -476,10 +481,15 @@ namespace
 
                 numElementsInCurrentEBO = 0;
             }
-            ebo->push_back( static_cast<VTYPE>( i->_i0 ) );
-            ebo->push_back( static_cast<VTYPE>( i->_i1 ) );
 
-            numElementsInCurrentEBO += 3;
+            if (ebo)
+            {
+                ebo->push_back( static_cast<VTYPE>( i->_i0 ) );
+                ebo->push_back( static_cast<VTYPE>( i->_i1 ) );
+
+                numElementsInCurrentEBO += 3;
+            }
+
             ++totalLinesWritten;
         }
 
@@ -563,9 +573,11 @@ namespace
             osg::Vec3d v0_w = (*data._verts)[line._i0] * L2W;
             osg::Vec3d v1_w = (*data._verts)[line._i1] * L2W;
 
-            double g0 = angleBetween(v0_w, v1_w);
+            bool validLine = 
+                !osg::equivalent(v0_w.length2(), 0.0) &&
+                !osg::equivalent(v1_w.length2(), 0.0);
 
-            if ( g0 > granularity )
+            if ( validLine && angleBetween(v0_w, v1_w) > granularity )
             {
                 data._verts->push_back( geocentricMidpoint(v0_w, v1_w, interp) * W2L );
 
@@ -601,14 +613,14 @@ namespace
                 geom.removePrimitiveSet(0);
 
             // set the new VBO.
-            geom.setVertexArray( data._verts );
+            geom.setVertexArray( data._verts.get() );
             if ( geom.getVertexArray()->getVertexBufferObject() && data._verts->getVertexBufferObject() )
             {
                 data._verts->getVertexBufferObject()->setUsage( geom.getVertexArray()->getVertexBufferObject()->getUsage() );
             }
 
-            if ( data._colors )
-                geom.setColorArray( data._colors );
+            if ( data._colors.valid() )
+                geom.setColorArray( data._colors.get() );
 
 #ifdef STRIPIFY_LINES
             // detect and assemble line strips/loop
@@ -851,6 +863,9 @@ namespace
         const osg::Matrixd&  L2W, // local=>world xform
         unsigned int         maxElementsPerEBO )
     {
+        if ( geom.getNumPrimitiveSets() == 0 )
+            return;
+
         GLenum mode = geom.getPrimitiveSet(0)->getMode();
 
         if ( mode == GL_POINTS )

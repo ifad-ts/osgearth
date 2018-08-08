@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -117,7 +117,7 @@ URIContext::add( const std::string& sub ) const
 }
 
 void
-URIContext::apply( osgDB::Options* options )
+URIContext::store( osgDB::Options* options )
 {
     if ( options )
     {
@@ -153,10 +153,20 @@ URI::URI()
     //nop
 }
 
+URI::URI(const URI& rhs) :
+_baseURI(rhs._baseURI),
+_fullURI(rhs._fullURI),
+_context(rhs._context),
+_cacheKey(rhs._cacheKey)
+{
+    //nop
+}
+
 URI::URI( const std::string& location )
 {
     _baseURI = location;
     _fullURI = location;
+    ctorCacheKey();
 }
 
 URI::URI( const std::string& location, const URIContext& context )
@@ -164,12 +174,14 @@ URI::URI( const std::string& location, const URIContext& context )
     _context = context;
     _baseURI = location;
     _fullURI = context.getOSGPath( _baseURI );
+    ctorCacheKey();
 }
 
 URI::URI( const char* location )
 {
     _baseURI = std::string(location);
     _fullURI = _baseURI;
+    ctorCacheKey();
 }
 
 URI
@@ -179,7 +191,18 @@ URI::append( const std::string& suffix ) const
     result._baseURI = _baseURI + suffix;
     result._fullURI = _fullURI + suffix;
     result._context = _context;
+    result.ctorCacheKey();
     return result;
+}
+
+void
+URI::ctorCacheKey()
+{
+    std::string temp = Stringify() << std::hex << std::setw(8) << std::setfill('0') << osgEarth::hashString(_fullURI);
+    _cacheKey
+        .append(temp.substr(0, 3)).append("/")
+        .append(temp.substr(3, 3)).append("/")
+        .append(temp.substr(6));
 }
 
 bool
@@ -190,35 +213,6 @@ URI::isRemote() const
 
 namespace
 {
-    // extracts a CacheBin from the dboptions; if one cannot be found, fall back on the
-    // default CacheBin of a Cache found in the dboptions; failing that, call back on
-    // the default CacheBin of the registry-wide cache.
-    CacheBin* s_getCacheBin(const osgDB::Options* dbOptions)
-    {
-        const osgDB::Options* o = dbOptions;
-        
-        if ( o == 0L )
-        {
-            o = Registry::instance()->getDefaultOptions();
-        }
-
-        CacheBin* bin = CacheBin::get( o );
-        if ( !bin )
-        {
-            Cache* cache = Cache::get( o );
-            if ( !cache )
-            {
-                cache = Registry::instance()->getCache();
-            }
-
-            if ( cache )
-            {
-                bin = cache->getOrCreateDefaultBin();
-            }
-        }
-        return bin;
-    }
-
     // convert an osgDB::ReaderWriter::ReadResult to an osgEarth::ReadResult
     ReadResult toReadResult( osgDB::ReaderWriter::ReadResult& rr )
     {
@@ -271,7 +265,7 @@ namespace
         }
 
         // no archive; just read it normally
-        std::ifstream input( uri.c_str() );
+        std::ifstream input( uri.c_str(), std::ios::binary );
         if ( input.is_open() )
         {
             input >> std::noskipws;
@@ -296,7 +290,7 @@ namespace
     {
         bool callbackRequestsCaching( URIReadCallback* cb ) const { return !cb || ((cb->cachingSupport() & URIReadCallback::CACHE_OBJECTS) != 0); }
         ReadResult fromCallback( URIReadCallback* cb, const std::string& uri, const osgDB::Options* opt ) { return cb->readObject(uri, opt); }
-        ReadResult fromCache( CacheBin* bin, const std::string& key) { return bin->readObject(key); }
+        ReadResult fromCache( CacheBin* bin, const std::string& key) { return bin->readObject(key, 0L); }
         ReadResult fromHTTP( const std::string& uri, const osgDB::Options* opt, ProgressCallback* p, TimeStamp lastModified )
         {
             HTTPRequest req(uri);            
@@ -306,14 +300,16 @@ namespace
             }
             return HTTPClient::readObject(req, opt, p);
         }
-        ReadResult fromFile( const std::string& uri, const osgDB::Options* opt ) { return ReadResult(osgDB::readObjectFile(uri, opt)); }
+        ReadResult fromFile( const std::string& uri, const osgDB::Options* opt ) {
+            return ReadResult(osgDB::readRefObjectFile(uri, opt).get());
+        }
     };
 
     struct ReadNode
     {
         bool callbackRequestsCaching( URIReadCallback* cb ) const { return !cb || ((cb->cachingSupport() & URIReadCallback::CACHE_NODES) != 0); }
         ReadResult fromCallback( URIReadCallback* cb, const std::string& uri, const osgDB::Options* opt ) { return cb->readNode(uri, opt); }
-        ReadResult fromCache( CacheBin* bin, const std::string& key ) { return bin->readObject(key); }
+        ReadResult fromCache( CacheBin* bin, const std::string& key ) { return bin->readObject(key, 0L); }
         ReadResult fromHTTP( const std::string& uri, const osgDB::Options* opt, ProgressCallback* p, TimeStamp lastModified )
         {
             HTTPRequest req(uri);            
@@ -323,7 +319,9 @@ namespace
             }
             return HTTPClient::readNode(req, opt, p);
         }
-        ReadResult fromFile( const std::string& uri, const osgDB::Options* opt ) { return ReadResult(osgDB::readNodeFile(uri, opt)); }
+        ReadResult fromFile( const std::string& uri, const osgDB::Options* opt ) {
+            return ReadResult(osgDB::readRefNodeFile(uri, opt));
+        }
     };
 
     struct ReadImage
@@ -337,7 +335,7 @@ namespace
             return r;
         }                
         ReadResult fromCache( CacheBin* bin, const std::string& key) { 
-            ReadResult r = bin->readImage(key);
+            ReadResult r = bin->readImage(key, 0L);
             if ( r.getImage() ) r.getImage()->setFileName( key );
             return r;
         }
@@ -352,7 +350,7 @@ namespace
             return r;
         }
         ReadResult fromFile( const std::string& uri, const osgDB::Options* opt ) { 
-            ReadResult r = ReadResult(osgDB::readImageFile(uri, opt));
+            ReadResult r = ReadResult(osgDB::readRefImageFile(uri, opt));
             if ( r.getImage() ) r.getImage()->setFileName( uri );
             return r;
         }
@@ -362,7 +360,7 @@ namespace
     {
         bool callbackRequestsCaching( URIReadCallback* cb ) const { return !cb || ((cb->cachingSupport() & URIReadCallback::CACHE_STRINGS) != 0); }
         ReadResult fromCallback( URIReadCallback* cb, const std::string& uri, const osgDB::Options* opt ) { return cb->readString(uri, opt); }
-        ReadResult fromCache( CacheBin* bin, const std::string& key) { return bin->readString(key); }
+        ReadResult fromCache( CacheBin* bin, const std::string& key) { return bin->readString(key, 0L); }
         ReadResult fromHTTP( const std::string& uri, const osgDB::Options* opt, ProgressCallback* p, TimeStamp lastModified )
         {
             HTTPRequest req(uri);            
@@ -397,7 +395,7 @@ namespace
             // if we have an option string, incorporate it.
             if ( inputURI.optionString().isSet() )
             {
-                osgDB::Options* newLocalOptions = osg::clone(localOptions.get());
+                osgDB::Options* newLocalOptions = Registry::cloneOrCreateOptions(localOptions.get());
                 newLocalOptions->setOptionString(
                     inputURI.optionString().get() + " " + localOptions->getOptionString());
                 localOptions = newLocalOptions;
@@ -451,7 +449,7 @@ namespace
                     if ( !gotResultFromCallback )
                     {
                         // no callback, just read from a local file.
-                        result = reader.fromFile( uri.full(), localOptions );
+                        result = reader.fromFile( uri.full(), localOptions.get() );
                     }
                 }
 
@@ -460,24 +458,24 @@ namespace
                 {
                     bool callbackCachingOK = !cb || reader.callbackRequestsCaching(cb);
 
-                    // establish the caching policy.
                     optional<CachePolicy> cp;
-                    CachePolicy::fromOptions(localOptions.get(), cp);
-                    Registry::instance()->resolveCachePolicy( cp );                    
+                    osg::ref_ptr<CacheBin> bin;
 
-                    // get a cache bin if we need it:
-                    CacheBin* bin = 0L;
-                    if ( (cp->usage() != CachePolicy::USAGE_NO_CACHE) && callbackCachingOK )
+                    CacheSettings* cacheSettings = CacheSettings::get(localOptions.get());
+                    if (cacheSettings)
                     {
-                        bin = s_getCacheBin( localOptions.get() );
-                    }                    
-
+                        cp = cacheSettings->cachePolicy();
+                        if (cp->isCacheEnabled() && callbackCachingOK)
+                        {
+                            bin = cacheSettings->getCacheBin(); 
+                        }
+                    }
 
                     bool expired = false;
                     // first try to go to the cache if there is one:
                     if ( bin && cp->isCacheReadable() )
                     {                                                
-                        result = reader.fromCache( bin, uri.cacheKey() );                        
+                        result = reader.fromCache( bin.get(), uri.cacheKey() );                        
                         if ( result.succeeded() )
                         {                                        
                             expired = cp->isExpired(result.lastModifiedTime());
@@ -490,7 +488,7 @@ namespace
                     {                        
                         // Need to do this to support nested PLODs and Proxynodes.
                         osg::ref_ptr<osgDB::Options> remoteOptions =
-                            Registry::instance()->cloneOrCreateOptions( localOptions );
+                            Registry::instance()->cloneOrCreateOptions( localOptions.get() );
                         remoteOptions->getDatabasePathList().push_front( osgDB::getFilePath(uri.full()) );
 
                         // Store the existing object from the cache if there is one.
@@ -518,7 +516,8 @@ namespace
                                 {                                    
                                     OE_DEBUG << LC << uri.full() << " not modified, using cached result" << std::endl;
                                     // Touch the cached item to update it's last modified timestamp so it doesn't expire again immediately.
-                                    bin->touch( uri.cacheKey() );
+                                    if (bin)
+                                        bin->touch( uri.cacheKey() );
                                 }
                                 else
                                 {
@@ -528,20 +527,13 @@ namespace
                             }
 
                             // write the result to the cache if possible:
-                            if ( result.succeeded() && !result.isFromCache() && bin && cp->isCacheWriteable() )
+                            if ( result.succeeded() && !result.isFromCache() && bin && cp->isCacheWriteable() && bin )
                             {
                                 OE_DEBUG << LC << "Writing " << uri.cacheKey() << " to cache" << std::endl;
-                                bin->write( uri.cacheKey(), result.getObject(), result.metadata() );
+                                bin->write( uri.cacheKey(), result.getObject(), result.metadata(), remoteOptions.get() );
                             }
                         }
                     }
-
-                    OE_TEST << LC 
-                        << uri.base() << ": " 
-                        << (result.succeeded() ? "OK" : "FAILED") 
-                        << "; policy=" << cp->usageString()
-                        << (result.isFromCache() && result.succeeded() ? "; (from cache)" : "")
-                        << std::endl;
                 }
 
 
@@ -555,6 +547,13 @@ namespace
                     }
                 }
             }
+
+            OE_TEST << LC
+                << uri.base() << ": "
+                << (result.succeeded() ? "OK" : "FAILED")
+                //<< "; policy=" << cp->usageString()
+                << (result.isFromCache() && result.succeeded() ? "; (from cache)" : "")
+                << std::endl;
         }
 
         // post-process if there's a post-URI callback.

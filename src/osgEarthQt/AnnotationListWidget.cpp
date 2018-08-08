@@ -1,5 +1,5 @@
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2015 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -7,10 +7,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -187,7 +190,6 @@ void AnnotationListWidget::refresh()
   {
     _annoList->clear();
 
-    osgEarth::Annotation::AnnotationData* annoData = 0L;
     bool annoDataSet = false;
 
     AnnotationVector annos;
@@ -195,28 +197,19 @@ void AnnotationListWidget::refresh()
     for (AnnotationVector::const_iterator it = annos.begin(); it != annos.end(); ++it)
     {
       AnnotationListItem* item = new AnnotationListItem(*it);
-      item->setText(QString(tr((*it)->getAnnotationData() ? (*it)->getAnnotationData()->getName().c_str() : "Annotation")));
+      item->setText( QString(tr((*it)->getName())) );
       item->setCheckState((*it)->getNodeMask() != 0 ? Qt::Checked : Qt::Unchecked);
 
       _annoList->addItem(item);
 
       if (_manager->isSelected(*it))
       {
-        if (!annoDataSet)
-        {
-          annoData = (*it)->getAnnotationData();
-          annoDataSet = true;
-        }
-        else
-          annoData = 0L;
-
         item->setSelected(true);
       }
     }
 
     _nameField->setText(tr(annoData ? annoData->getName().c_str() : "-----"));
     _priorityField->setText(annoData ? QString::number(annoData->getPriority()) : tr("-----"));
-    _viewpointField->setText(tr(annoData && annoData->getViewpoint() ? annoData->getViewpoint()->toString().c_str() : "-----"));
     _descriptionField->setText(tr(annoData ? annoData->getDescription().c_str() : ""));
   }
 
@@ -253,7 +246,8 @@ void AnnotationListWidget::onItemDoubleClicked(QListWidgetItem* item)
       output.fromWorld( _manager->map()->getSRS(), center );
       //_manager->map()->worldPointToMapPoint(center, output);
 
-      _manager->doAction(this, new SetViewpointAction(osgEarth::Viewpoint(output.vec3d(), 0.0, -90.0, 1e5), _views));
+      _manager->doAction(this, new SetViewpointAction(osgEarth::Viewpoint(
+          "doubleclick", output.x(), output.y(), output.z(), 0.0, -90.0, 1e5), _views));
     }
   }
 }

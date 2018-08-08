@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -74,7 +74,8 @@ public:
       _options( options ),
       _featureCount(-1),
       _needsSync(false),
-      _writable(false)
+      _writable(false),
+      _geometryType(Geometry::TYPE_UNKNOWN)
     {
         //nop
     }
@@ -108,30 +109,41 @@ public:
     }
 
     //override
-    void initialize( const osgDB::Options* dbOptions )
+    Status initialize(const osgDB::Options* dbOptions)
     {
+        // Data source at a URL?
         if ( _options.url().isSet() )
         {
             _source = _options.url()->full();
+
+            // ..inside a zip file?
+            if (osgEarth::endsWith(_source, ".zip", false) || _source.find(".zip/") != std::string::npos)
+            {
+                _source = Stringify() << "/vsizip/" << _source;
+            }
         }
+
+        // ..or database connection?
         else if ( _options.connection().isSet() )
         {
             _source = _options.connection().value();
         }
         
-        // establish the geometry:
+        // ..or inline geometry?
         _geometry = 
             _options.geometry().valid()       ? _options.geometry().get() :
             _options.geometryConfig().isSet() ? parseGeometry( *_options.geometryConfig() ) :
             _options.geometryUrl().isSet()    ? parseGeometryUrl( *_options.geometryUrl(), dbOptions ) :
             0L;
-    }
 
-    /** Called once at startup to create the profile for this feature set. Successful profile
-        creation implies that the datasource opened succesfully. */
-    const FeatureProfile* createFeatureProfile()
-    {
-        FeatureProfile* result = 0L;
+        // If nothing was set, we're done
+        if (_source.empty() && !_geometry.valid())
+        {
+            return Status::Error(Status::ConfigurationError, "No URL, connection, or inline geometry provided");
+        }
+
+        // Try to open the datasource and establish a feature profile.        
+        FeatureProfile* featureProfile = 0L;
 
         // see if we have a custom profile.
         osg::ref_ptr<const Profile> profile;
@@ -147,7 +159,6 @@ public:
             GeoExtent ex;
             if ( profile.valid() )
             {                
-                //ex = profile->getExtent();
                 ex = GeoExtent(profile->getSRS(), _geometry->getBounds());
             }
 
@@ -156,149 +167,163 @@ public:
                 // default to WGS84 Lat/Long
                 ex = osgEarth::Registry::instance()->getGlobalGeodeticProfile()->getExtent();
             }
-            result = new FeatureProfile( ex );
+
+            featureProfile = new FeatureProfile( ex );
         }
 
         else if ( !_source.empty() )
         {
-            // otherwise, assume we're loading from the URL:
+            // otherwise, assume we're loading from the URL/connection:
             OGR_SCOPED_LOCK;
 
             // load up the driver, defaulting to shapefile if unspecified.
             std::string driverName = _options.ogrDriver().value();
             if ( driverName.empty() )
                 driverName = "ESRI Shapefile";
+
             _ogrDriverHandle = OGRGetDriverByName( driverName.c_str() );
 
             // attempt to open the dataset:
             int openMode = _options.openWrite().isSet() && _options.openWrite().value() ? 1 : 0;
 
-            _dsHandle = OGROpen( _source.c_str(), openMode, &_ogrDriverHandle );
-            if ( _dsHandle )
-            {
-                if (openMode == 1) _writable = true;
+            _dsHandle = OGROpenShared( _source.c_str(), openMode, &_ogrDriverHandle );
+            if ( !_dsHandle )
+                return Status::Error(Status::ResourceUnavailable, Stringify() << "Failed to open \"" << _source << "\"");
+
+            if (openMode == 1)
+                _writable = true;
                 
-                _layerHandle = openLayer(_dsHandle, _options.layer().value());
+            // Open a specific layer within the data source, if applicable:
+            _layerHandle = openLayer(_dsHandle, _options.layer().value());
+            if ( !_layerHandle )
+                return Status::Error(Status::ResourceUnavailable, Stringify() << "Failed to open layer \"" << _options.layer().get() << "\" from \"" << _source << "\"");
 
-                if ( _layerHandle )
-                {                                     
-                    GeoExtent extent;
 
-                    // if the user provided a profile, user that:
-                    if ( profile.valid() )
-                    {
-                        result = new FeatureProfile( profile->getExtent() );
-                    }
-
-                    else
-                    {
-                        // extract the SRS and Extent:                
-                        OGRSpatialReferenceH srHandle = OGR_L_GetSpatialRef( _layerHandle );
-                        if ( srHandle )
-                        {
-                            osg::ref_ptr<SpatialReference> srs = SpatialReference::createFromHandle( srHandle, false );
-                            if ( srs.valid() )
-                            {
-                                // extract the full extent of the layer:
-                                OGREnvelope env;
-                                if ( OGR_L_GetExtent( _layerHandle, &env, 1 ) == OGRERR_NONE )
-                                {
-                                    GeoExtent extent( srs.get(), env.MinX, env.MinY, env.MaxX, env.MaxY );
-                                    
-                                    // got enough info to make the profile!
-                                    result = new FeatureProfile( extent );
-                                }
-                            }
-                        }
-                    }
-
-                    // assuming we successfully opened the layer, build a spatial index if requested.
-                    if ( _options.buildSpatialIndex() == true )
-                    {
-                        if ( (_options.forceRebuildSpatialIndex() == true) || (OGR_L_TestCapability(_layerHandle, OLCFastSpatialFilter) == 0) )
-                        {
-                            OE_INFO << LC << "Building spatial index for " << getName() << std::endl;
-                            std::stringstream buf;
-                            const char* name = OGR_FD_GetName( OGR_L_GetLayerDefn( _layerHandle ) );
-                            buf << "CREATE SPATIAL INDEX ON " << name;
-                            std::string bufStr;
-                            bufStr = buf.str();
-                            OE_DEBUG << LC << "SQL: " << bufStr << std::endl;
-                            OGR_DS_ExecuteSQL( _dsHandle, bufStr.c_str(), 0L, 0L );
-                        }
-                        else
-                        {
-                            OE_INFO << LC << "Use existing spatial index for " << getName() << std::endl;
-                        }
-                    }
-
-                    //Get the feature count
-                    _featureCount = OGR_L_GetFeatureCount( _layerHandle, 1 );
-
-                    initSchema();
-
-                    OGRwkbGeometryType wkbType = OGR_FD_GetGeomType( OGR_L_GetLayerDefn( _layerHandle ) );
-                    if (
-                        wkbType == wkbPolygon ||
-                        wkbType == wkbPolygon25D )
-                    {
-                        _geometryType = Geometry::TYPE_POLYGON;
-                    }
-                    else if (
-                        wkbType == wkbLineString ||
-                        wkbType == wkbLineString25D )
-                    {
-                        _geometryType = Geometry::TYPE_LINESTRING;
-                    }
-                    else if (
-                        wkbType == wkbLinearRing )
-                    {
-                        _geometryType = Geometry::TYPE_RING;
-                    }
-                    else if ( 
-                        wkbType == wkbPoint ||
-                        wkbType == wkbPoint25D )
-                    {
-                        _geometryType = Geometry::TYPE_POINTSET;
-                    }
-                    else if (
-                        wkbType == wkbGeometryCollection ||
-                        wkbType == wkbGeometryCollection25D ||
-                        wkbType == wkbMultiPoint ||
-                        wkbType == wkbMultiPoint25D ||
-                        wkbType == wkbMultiLineString ||
-                        wkbType == wkbMultiLineString25D ||
-                        wkbType == wkbMultiPolygon ||
-                        wkbType == wkbMultiPolygon25D )
-                    {
-                        _geometryType = Geometry::TYPE_MULTI;
-                    }
-                }
+            // if the user provided a profile, use that:
+            if ( profile.valid() )
+            {
+                featureProfile = new FeatureProfile( profile->getExtent() );
             }
+
+            // otherwise extract one from the layer:
             else
             {
-                OE_INFO << LC << "failed to open dataset at \"" << _source << "\" error " << CPLGetLastErrorMsg() << std::endl;
+                // extract the SRS and Extent:                
+                OGRSpatialReferenceH srHandle = OGR_L_GetSpatialRef( _layerHandle );
+                if (!srHandle)
+                    return Status::Error(Status::ResourceUnavailable, Stringify() << "No spatial reference found in \"" << _source << "\"");
+
+                osg::ref_ptr<SpatialReference> srs = SpatialReference::createFromHandle(srHandle);
+                if (!srs.valid())
+                    return Status::Error(Status::ResourceUnavailable, Stringify() << "Unrecognized SRS found in \"" << _source << "\"");
+
+                // extract the full extent of the layer:
+                OGREnvelope env;
+                if ( OGR_L_GetExtent( _layerHandle, &env, 1 ) != OGRERR_NONE )
+                    return Status::Error(Status::ResourceUnavailable, Stringify() << "Invalid extent returned from \"" << _source << "\"");
+
+                GeoExtent extent( srs.get(), env.MinX, env.MinY, env.MaxX, env.MaxY );
+                if ( !extent.isValid() )
+                    return Status::Error(Status::ResourceUnavailable, Stringify() << "Invalid extent returned from \"" << _source << "\"");
+
+                // Made it!
+                featureProfile = new FeatureProfile(extent);
+            }
+
+
+            // assuming we successfully opened the layer, build a spatial index if requested.
+            if ( _options.buildSpatialIndex() == true )
+            {
+                if ( (_options.forceRebuildSpatialIndex() == true) || (OGR_L_TestCapability(_layerHandle, OLCFastSpatialFilter) == 0) )
+                {
+                    OE_INFO << LC << "Building spatial index for " << getName() << std::endl;
+                    std::stringstream buf;
+                    const char* name = OGR_FD_GetName( OGR_L_GetLayerDefn( _layerHandle ) );
+                    buf << "CREATE SPATIAL INDEX ON " << name;
+                    std::string bufStr;
+                    bufStr = buf.str();
+                    OE_DEBUG << LC << "SQL: " << bufStr << std::endl;
+                    OGR_DS_ExecuteSQL( _dsHandle, bufStr.c_str(), 0L, 0L );
+                }
+                else
+                {
+                    OE_INFO << LC << "Use existing spatial index for " << getName() << std::endl;
+                }
+            }
+
+
+            //Get the feature count
+            _featureCount = OGR_L_GetFeatureCount( _layerHandle, 1 );
+
+            // establish the feature schema:
+            initSchema();
+
+            // establish the geometry type for this feature layer:
+            OGRwkbGeometryType wkbType = OGR_FD_GetGeomType( OGR_L_GetLayerDefn( _layerHandle ) );
+            if (
+                wkbType == wkbPolygon ||
+                wkbType == wkbPolygon25D )
+            {
+                _geometryType = Geometry::TYPE_POLYGON;
+            }
+            else if (
+                wkbType == wkbLineString ||
+                wkbType == wkbLineString25D )
+            {
+                _geometryType = Geometry::TYPE_LINESTRING;
+            }
+            else if (
+                wkbType == wkbLinearRing )
+            {
+                _geometryType = Geometry::TYPE_RING;
+            }
+            else if ( 
+                wkbType == wkbPoint ||
+                wkbType == wkbPoint25D )
+            {
+                _geometryType = Geometry::TYPE_POINTSET;
+            }
+            else if (
+                wkbType == wkbGeometryCollection ||
+                wkbType == wkbGeometryCollection25D ||
+                wkbType == wkbMultiPoint ||
+                wkbType == wkbMultiPoint25D ||
+                wkbType == wkbMultiLineString ||
+                wkbType == wkbMultiLineString25D ||
+                wkbType == wkbMultiPolygon ||
+                wkbType == wkbMultiPolygon25D )
+            {
+                _geometryType = Geometry::TYPE_MULTI;
             }
         }
-        else
+
+        // finally, if we're establish a profile, set it for this source.
+        if ( featureProfile )
         {
-            OE_INFO << LC 
-                << "Feature Source: no valid source data available" << std::endl;
+            if ( _options.geoInterp().isSet() )
+            {
+                featureProfile->geoInterp() = _options.geoInterp().get();
+            }
+            setFeatureProfile(featureProfile);
         }
 
-        return result;
+        else
+        {
+            return Status::Error(Status::ResourceUnavailable, "Failed to establish a valid feature profile");
+        }
+
+        return Status::OK();
     }
 
-
     //override
-    FeatureCursor* createFeatureCursor( const Symbology::Query& query )
+    FeatureCursor* createFeatureCursor(const Symbology::Query& query)
     {
         if ( _geometry.valid() )
         {
             return new GeometryFeatureCursor(
                 _geometry.get(),
                 getFeatureProfile(),
-                _options.filters() );
+                getFilters() );
         }
         else
         {
@@ -326,8 +351,8 @@ public:
                     layerHandle, 
                     this,
                     getFeatureProfile(),
-                    query, 
-                    _options.filters() );
+                    query,
+                    getFilters() );
             }
             else
             {
@@ -361,19 +386,22 @@ public:
         return _featureCount;
     }
 
+    bool supportsGetFeature() const
+    {
+        return true;
+    }
+
     virtual Feature* getFeature( FeatureID fid )
     {
         Feature* result = NULL;
 
-        if ( !isBlacklisted(fid) )
+        if ( _layerHandle && !isBlacklisted(fid) )
         {
             OGR_SCOPED_LOCK;
             OGRFeatureH handle = OGR_L_GetFeature( _layerHandle, fid);
             if (handle)
             {
-                const FeatureProfile* p = getFeatureProfile();
-                const SpatialReference* srs = p ? p->getSRS() : 0L;
-                result = OgrUtils::createFeature( handle, srs );
+                result = OgrUtils::createFeature( handle, getFeatureProfile() );
                 OGR_F_Destroy( handle );
             }
         }
@@ -524,7 +552,7 @@ public:
         supportsExtension( "osgearth_feature_ogr", "OGR feature driver for osgEarth" );
     }
 
-    virtual const char* className()
+    virtual const char* className() const
     {
         return "OGR Feature Reader";
     }

@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -91,10 +94,13 @@ DateTime::DateTime(int year, int month, int day, double hour)
     else memset( &_tm, 0, sizeof(tm) );
 }
 
-DateTime::DateTime(const std::string& input)
+DateTime::DateTime(const std::string& input) :
+_time_t(0)
 {
     bool ok = false;
     int year, month, day, hour, min, sec;
+    
+    ::memset( &_tm, 0, sizeof(tm) );
 
     if (sscanf(input.c_str(), "%4d-%2d-%2dT%2d:%2d:%2d", &year, &month, &day, &hour, &min, &sec) == 6)
     {
@@ -143,7 +149,6 @@ DateTime::DateTime(const std::string& input)
         _time_t =  this->timegm( &_tm );
         tm* temp = ::gmtime( &_time_t );
         if ( temp ) _tm = *temp;
-        else memset( &_tm, 0, sizeof(tm) );
     }
 }
 

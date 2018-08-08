@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -17,12 +17,18 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 #include <osgEarthFeatures/FeatureCursor>
+#include <osgEarthFeatures/Filter>
 
 using namespace osgEarth::Features;
 using namespace osgEarth::Symbology;
 using namespace OpenThreads;
 
 //---------------------------------------------------------------------------
+
+FeatureCursor::~FeatureCursor()
+{
+    //nop
+}
 
 void
 FeatureCursor::fill( FeatureList& list )
@@ -35,11 +41,16 @@ FeatureCursor::fill( FeatureList& list )
 
 //---------------------------------------------------------------------------
 
-FeatureListCursor::FeatureListCursor( const FeatureList& features, bool clone ) :
+FeatureListCursor::FeatureListCursor(const FeatureList& features) :
 _features( features ),
-_clone   ( clone )
+_clone   ( false )
 {
     _iter = _features.begin();
+}
+
+FeatureListCursor::~FeatureListCursor()
+{
+    //nop
 }
 
 bool
@@ -58,7 +69,7 @@ FeatureListCursor::nextFeature()
 
 //---------------------------------------------------------------------------
 
-GeometryFeatureCursor::GeometryFeatureCursor( Geometry* geom ) :
+GeometryFeatureCursor::GeometryFeatureCursor(Geometry* geom) :
 _geom( geom )
 {
     //nop
@@ -66,16 +77,22 @@ _geom( geom )
 
 GeometryFeatureCursor::GeometryFeatureCursor(Geometry* geom,
                                              const FeatureProfile* fp,
-                                             const FeatureFilterList& filters ) :
-_geom( geom ),
+                                             const FeatureFilterChain* filters) :
+_geom          ( geom ),
 _featureProfile( fp ),
-_filters( filters )
+_filterChain   ( filters )
+{
+    //nop
+}
+
+GeometryFeatureCursor::~GeometryFeatureCursor()
 {
     //nop
 }
 
 bool
-GeometryFeatureCursor::hasMore() const {
+GeometryFeatureCursor::hasMore() const
+{
     return _geom.valid();
 }
 
@@ -85,14 +102,31 @@ GeometryFeatureCursor::nextFeature()
     if ( hasMore() )
     {        
         _lastFeature = new Feature( _geom.get(), _featureProfile.valid() ? _featureProfile->getSRS() : 0L );
+
+        if ( _featureProfile && _featureProfile->geoInterp().isSet() )
+            _lastFeature->geoInterp() = _featureProfile->geoInterp().get();
+
         FilterContext cx;
         cx.setProfile( _featureProfile.get() );
+
         FeatureList list;
         list.push_back( _lastFeature.get() );
-        for( FeatureFilterList::const_iterator i = _filters.begin(); i != _filters.end(); ++i ) {
-            cx = i->get()->push( list, cx );
+
+        if (_filterChain.valid())
+        {
+            for( FeatureFilterChain::const_iterator i = _filterChain->begin(); i != _filterChain->end(); ++i )
+            {
+                cx = i->get()->push( list, cx );
+            }
         }
+
+        if ( list.empty() )
+        {
+            _lastFeature = 0L;
+        }
+
         _geom = 0L;
     }
+
     return _lastFeature.get();
 }

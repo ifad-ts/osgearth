@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -31,8 +34,10 @@
 #include <osgEarthUtil/GeodeticGraticule>
 #include <osgEarthUtil/MGRSGraticule>
 #include <osgEarthUtil/UTMGraticule>
+#include <osgEarthUtil/GARSGraticule>
 
 using namespace osgEarth::Util;
+using namespace osgEarth::Annotation;
 
 int
 usage( const std::string& msg )
@@ -40,9 +45,10 @@ usage( const std::string& msg )
     OE_NOTICE 
         << msg << std::endl
         << "USAGE: osgearth_graticule [options] file.earth" << std::endl
-        << "   --geodetic            : display a geodetic (lat/long) graticule" << std::endl
+        << "   --geodetic            : display a Lat/Long graticule" << std::endl
         << "   --utm                 : display a UTM graticule" << std::endl
-        << "   --mgrs                : display an MGRS graticule" << std::endl;        
+        << "   --mgrs                : display an MGRS graticule" << std::endl
+        << "   --gars                : display a GARS graticule" << std::endl;
     return -1;
 }
 
@@ -57,7 +63,8 @@ main(int argc, char** argv)
     // parse command line:
     bool isUTM = arguments.read("--utm");
     bool isMGRS = arguments.read("--mgrs");
-    bool isGeodetic = !isUTM && !isMGRS;
+    bool isGeodetic = arguments.read("--geodetic");
+    bool isGARS = arguments.read("--gars");
 
     // load the .earth file from the command line.
     MapNode* mapNode = MapNode::load( arguments );
@@ -74,32 +81,37 @@ main(int argc, char** argv)
     Formatter* formatter = 0L;
     if ( isUTM )
     {
-        UTMGraticule* gr = new UTMGraticule( mapNode );
-        root->addChild( gr );
+        UTMGraticule* gr = new UTMGraticule();
+        mapNode->getMap()->addLayer(gr);
         formatter = new MGRSFormatter();
     }
     else if ( isMGRS )
     {
-        MGRSGraticule* gr = new MGRSGraticule( mapNode );
-        root->addChild( gr );
+        MGRSGraticule* gr = new MGRSGraticule();
+        mapNode->getMap()->addLayer(gr);
         formatter = new MGRSFormatter();
+    }
+    else if ( isGARS )
+    {
+        GARSGraticule* gr = new GARSGraticule();
+        mapNode->getMap()->addLayer(gr);
+        formatter = new LatLongFormatter();
     }
     else // if ( isGeodetic )
     {
-        GeodeticGraticule* gr = new GeodeticGraticule( mapNode );
-        GeodeticGraticuleOptions o = gr->getOptions();
-        o.lineStyle()->getOrCreate<LineSymbol>()->stroke()->color().set(1,0,0,1);
-        gr->setOptions( o );
-        root->addChild( gr );
+        GeodeticGraticule* gr = new GeodeticGraticule();
+        mapNode->getMap()->addLayer(gr);
         formatter = new LatLongFormatter();
     }
-
+   
     // mouse coordinate readout:
     ControlCanvas* canvas = new ControlCanvas();
     root->addChild( canvas );
+    VBox* vbox = new VBox();
+    canvas->addControl( vbox );
 
     LabelControl* readout = new LabelControl();
-    canvas->addControl( readout );
+    vbox->addControl( readout );
 
     MouseCoordsTool* tool = new MouseCoordsTool( mapNode );
     tool->addCallback( new MouseCoordsLabelCallback(readout, formatter) );

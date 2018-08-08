@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -26,6 +26,17 @@ Query::Query( const Config& conf )
     mergeConfig( conf );
 }
 
+Query::Query(const Query& rhs) :
+_bounds(rhs._bounds),
+_expression(rhs._expression),
+_orderby(rhs._orderby),
+_tileKey(rhs._tileKey),
+_mapFrame(rhs._mapFrame),
+_limit(rhs._limit)
+{
+    //nop
+}
+
 void
 Query::mergeConfig( const Config& conf )
 {
@@ -45,6 +56,8 @@ Query::mergeConfig( const Config& conf )
             b.value<double>( "xmax", 0.0 ),
             b.value<double>( "ymax", 0.0 ) );
     }
+
+    conf.getIfSet("limit", _limit);
 }
 
 Config
@@ -53,6 +66,7 @@ Query::getConfig() const
     Config conf( "query" );
     conf.addIfSet( "expr", _expression );
     conf.addIfSet( "orderby", _orderby);
+    conf.addIfSet( "limit", _limit);
     if ( _bounds.isSet() ) {
         Config bc( "extent" );
         bc.add( "xmin", toString(_bounds->xMin()) );
@@ -96,22 +110,35 @@ Query::combineWith( const Query& rhs ) const
     {
         merged.tileKey() = *_tileKey;
     }
-    else
+    else if ( rhs._tileKey.isSet() )
     {
-        // merge the bounds:
-        if ( bounds().isSet() && rhs.bounds().isSet() )
-        {
-            merged.bounds() = bounds()->intersectionWith( *rhs.bounds() );
-        }
-        else if ( bounds().isSet() )
-        {
-            merged.bounds() = *bounds();
-        }
-        else if ( rhs.bounds().isSet() )
-        {
-            merged.bounds() = *rhs.bounds();
-        }
+        merged.tileKey() = *rhs._tileKey;
+    }
+
+    // merge the bounds:
+    if ( bounds().isSet() && rhs.bounds().isSet() )
+    {
+        merged.bounds() = bounds()->intersectionWith( *rhs.bounds() );
+    }
+    else if ( bounds().isSet() )
+    {
+        merged.bounds() = *bounds();
+    }
+    else if ( rhs.bounds().isSet() )
+    {
+        merged.bounds() = *rhs.bounds();
     }
 
     return merged;
 }
+
+void Query::setMap(const Map* map)
+{
+    _mapFrame.setMap(map);
+}
+
+void Query::setMap(const MapFrame& mapf)
+{
+    _mapFrame = mapf;
+}
+

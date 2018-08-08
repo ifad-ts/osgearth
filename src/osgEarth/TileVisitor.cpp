@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -103,7 +103,7 @@ void TileVisitor::estimate()
     CacheEstimator est;
     est.setMinLevel( _minLevel );
     est.setMaxLevel( _maxLevel );
-    est.setProfile( _profile ); 
+    est.setProfile( _profile.get() ); 
     for (unsigned int i = 0; i < _extents.size(); i++)
     {                
         est.addExtent( _extents[ i ] );
@@ -270,7 +270,7 @@ void MultithreadedTileVisitor::run(const Profile* mapProfile)
 bool MultithreadedTileVisitor::handleTile( const TileKey& key )        
 {    
     // Add the tile to the task queue.
-    _taskService->add( new HandleTileTask(_tileHandler, this, key ) );
+    _taskService->add( new HandleTileTask(_tileHandler.get(), this, key ) );
     return true;
 }
 
@@ -291,11 +291,14 @@ bool TaskList::load( const std::string &filename)
         std::vector< std::string > parts;
         StringTokenizer(line, parts, "," );
 
-
-        _keys.push_back( TileKey(as<unsigned int>(parts[0], 0), 
-            as<unsigned int>(parts[1], 0), 
-            as<unsigned int>(parts[2], 0),
-            _profile ) );
+        if (parts.size() >= 3)
+        {
+            _keys.push_back( TileKey(
+                as<unsigned int>(parts[0], 0u), 
+                as<unsigned int>(parts[1], 0u), 
+                as<unsigned int>(parts[2], 0u),
+                _profile.get() ) );
+        }
     }
 
 
@@ -467,7 +470,7 @@ void MultiprocessTileVisitor::processBatch()
     // Add the task file as a temp file to the task to make sure it gets deleted
     task->addTempFile( filename );
 
-    _taskService->add(task);
+    _taskService->add(task.get());
     _batch.clear();
 }
 

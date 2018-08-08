@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -29,7 +29,13 @@
 #include <osgEarth/StringUtils>
 #include <osgEarth/HTTPClient>
 #include <osgEarth/TileVisitor>
+#include <osgEarth/ImageLayer>
+#include <osgEarth/ElevationLayer>
+
+#include <osgEarthFeatures/FeatureCursor>
+
 #include <osgEarthUtil/TMSPackager>
+
 #include <osgEarthDrivers/feature_ogr/OGRFeatureOptions>
 #include <osgEarthDrivers/tms/TMSOptions>
 
@@ -71,7 +77,8 @@ usage( const std::string& msg = "" )
         << "            [--db-options]                : db options string to pass to the image writer in quotes (e.g., \"JPEG_QUALITY 60\")\n"
         << "            [--mp]                          ; Use multiprocessing to process the tiles.  Useful for GDAL sources as this avoids the global GDAL lock" << std::endl
         << "            [--mt]                          ; Use multithreading to process the tiles." << std::endl
-        << "            [--concurrency]                 ; The number of threads or proceses to use if --mp or --mt are provided." << std::endl
+        << "            [--concurrency]                 ; The number of threads or processes to use if --mp or --mt are provided." << std::endl
+        << "            [--alpha-mask]                  ; Mask out imagery that isn't in the provided extents." << std::endl
         << std::endl
         << "            [--verbose]                     ; Displays progress of the operation" << std::endl;
 
@@ -145,6 +152,8 @@ makeTMS( osg::ArgumentParser& args )
     args.read("-c", concurrency);
     args.read("--concurrency", concurrency);
 
+    bool applyAlphaMask = args.read("--alpha-mask");
+
     bool writeXML = true;
 
     // load up the map
@@ -162,8 +171,9 @@ makeTMS( osg::ArgumentParser& args )
         featureOpt.url() = index;        
 
         osg::ref_ptr< FeatureSource > features = FeatureSourceFactory::create( featureOpt );
-        features->initialize();
-        features->getFeatureProfile();
+        Status s = features->open();
+        if (s.isError())
+            return usage(s.message());
 
         osg::ref_ptr< FeatureCursor > cursor = features->createFeatureCursor();
         while (cursor.valid() && cursor->hasMore())
@@ -302,7 +312,7 @@ makeTMS( osg::ArgumentParser& args )
 
     if (verbose)
     {
-        visitor->setProgressCallback( progress );
+        visitor->setProgressCallback( progress.get() );
     }
 
     visitor->setMinLevel( minLevel );
@@ -320,12 +330,13 @@ makeTMS( osg::ArgumentParser& args )
     // Setup a TMSPackager with all the options.
     TMSPackager packager;
     packager.setExtension(extension);
-    packager.setVisitor(visitor);
+    packager.setVisitor(visitor.get());
     packager.setDestination(rootFolder);    
     packager.setElevationPixelDepth(elevationPixelDepth);
-    packager.setWriteOptions(options);    
+    packager.setWriteOptions(options.get());    
     packager.setOverwrite(overwrite);
     packager.setKeepEmpties(keepEmpties);
+    packager.setApplyAlphaMask(applyAlphaMask);
 
 
     // new map for an output earth file if necessary.
@@ -333,7 +344,7 @@ makeTMS( osg::ArgumentParser& args )
     if( !outEarth.empty() )
     {
         // copy the options from the source map first
-        outMap = new Map( map->getInitialMapOptions() );
+        outMap = new Map(); //new Map( map->getInitialMapOptions() );
     }
 
     std::string outEarthFile = osgDB::concatPaths( rootFolder, osgDB::getSimpleFileName( outEarth ) );
@@ -342,7 +353,7 @@ makeTMS( osg::ArgumentParser& args )
     // Package an individual image layer
     if (imageLayerIndex >= 0)
     {        
-        ImageLayer* layer = map->getImageLayerAt(imageLayerIndex);
+        ImageLayer* layer = map->getLayerAt<ImageLayer>(imageLayerIndex);
         if (layer)
         {
             packager.run(layer, map);
@@ -360,7 +371,7 @@ makeTMS( osg::ArgumentParser& args )
     // Package an individual elevation layer
     else if (elevationLayerIndex >= 0)
     {        
-        ElevationLayer* layer = map->getElevationLayerAt(elevationLayerIndex);
+        ElevationLayer* layer = map->getLayerAt<ElevationLayer>(elevationLayerIndex);
         if (layer)
         {
             packager.run(layer, map);
@@ -376,11 +387,14 @@ makeTMS( osg::ArgumentParser& args )
         }
     }
     else
-    {        
+    {
+        ImageLayerVector imageLayers;
+        map->getLayers(imageLayers);
+
         // Package all the ImageLayer's
-        for (unsigned int i = 0; i < map->getNumImageLayers(); i++)
+        for (unsigned int i = 0; i < imageLayers.size(); i++)
         {            
-            ImageLayer* layer = map->getImageLayerAt(i);        
+            ImageLayer* layer = imageLayers[i].get();
             OE_NOTICE << "Packaging " << layer->getName() << std::endl;
             osg::Timer_t start = osg::Timer::instance()->tick();
             packager.run(layer, map);
@@ -407,17 +421,18 @@ makeTMS( osg::ArgumentParser& args )
                     outEarthFile );
 
                 ImageLayerOptions layerOptions( packager.getLayerName(), tms );
-                layerOptions.mergeConfig( layer->getInitialOptions().getConfig( true ) );
-                layerOptions.cachePolicy() = CachePolicy::NO_CACHE;
 
-                outMap->addImageLayer( new ImageLayer( layerOptions ) );
+                outMap->addLayer( new ImageLayer( layerOptions ) );
             }
         }    
 
         // Package all the ElevationLayer's
-        for (unsigned int i = 0; i < map->getNumElevationLayers(); i++)
+        ElevationLayerVector elevationLayers;
+        map->getLayers(elevationLayers);
+
+        for (unsigned int i = 0; i < elevationLayers.size(); i++)
         {            
-            ElevationLayer* layer = map->getElevationLayerAt(i);        
+            ElevationLayer* layer = elevationLayers[i].get();
             OE_NOTICE << "Packaging " << layer->getName() << std::endl;
             osg::Timer_t start = osg::Timer::instance()->tick();
             packager.run(layer, map);
@@ -443,10 +458,8 @@ makeTMS( osg::ArgumentParser& args )
                     outEarthFile );
 
                 ElevationLayerOptions layerOptions( packager.getLayerName(), tms );
-                layerOptions.mergeConfig( layer->getInitialOptions().getConfig( true ) );
-                layerOptions.cachePolicy() = CachePolicy::NO_CACHE;
 
-                outMap->addElevationLayer( new ElevationLayer( layerOptions ) );
+                outMap->addLayer( new ElevationLayer( layerOptions ) );
             }
         }
 

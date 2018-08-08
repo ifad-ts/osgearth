@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -98,23 +98,37 @@ void
 AltitudeSymbol::parseSLD(const Config& c, Style& style)
 {
     if ( match(c.key(), "altitude-clamping") ) {
-        if      ( match(c.value(), "none") )     
+        if      ( match(c.value(), "none") ) {
             style.getOrCreate<AltitudeSymbol>()->clamping() = CLAMP_NONE;
-        else if ( match(c.value(), "terrain") )  
+        }
+        else if ( match(c.value(), "terrain") )  {
             style.getOrCreate<AltitudeSymbol>()->clamping() = CLAMP_TO_TERRAIN;
-        else if ( match(c.value(), "absolute") ) 
+        }
+        else if ( match(c.value(), "absolute") ) {
             style.getOrCreate<AltitudeSymbol>()->clamping() = CLAMP_ABSOLUTE;
-        else if ( match(c.value(), "relative") ) 
+        }
+        else if ( match(c.value(), "relative") ) {
             style.getOrCreate<AltitudeSymbol>()->clamping() = CLAMP_RELATIVE_TO_TERRAIN;
-        else if ( match(c.value(), "terrain-drape") )
-        {
+        }
+        else if ( match(c.value(), "relative-gpu") ) {
+            style.getOrCreate<AltitudeSymbol>()->clamping() = CLAMP_RELATIVE_TO_TERRAIN;
+            style.getOrCreate<AltitudeSymbol>()->technique() = TECHNIQUE_GPU;
+        }
+        else if ( match(c.value(), "terrain-drape") ) {
             style.getOrCreate<AltitudeSymbol>()->clamping()  = CLAMP_TO_TERRAIN;
             style.getOrCreate<AltitudeSymbol>()->technique() = TECHNIQUE_DRAPE;
         }
-        else if ( match(c.value(), "terrain-gpu") )
-        {
+        else if ( match(c.value(), "terrain-gpu") ) {
             style.getOrCreate<AltitudeSymbol>()->clamping()  = CLAMP_TO_TERRAIN;
             style.getOrCreate<AltitudeSymbol>()->technique() = TECHNIQUE_GPU;
+        }
+        else if ( match(c.value(), "terrain-scene") ) {
+            style.getOrCreate<AltitudeSymbol>()->clamping()  = CLAMP_TO_TERRAIN;
+            style.getOrCreate<AltitudeSymbol>()->technique() = TECHNIQUE_SCENE;
+        }
+        else if ( match(c.value(), "relative-scene") ) {
+            style.getOrCreate<AltitudeSymbol>()->clamping()  = CLAMP_RELATIVE_TO_TERRAIN;
+            style.getOrCreate<AltitudeSymbol>()->technique() = TECHNIQUE_SCENE;
         }
     }
     else if ( match(c.key(), "altitude-technique") ) {

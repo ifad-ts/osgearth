@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -17,6 +17,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 #include <osgEarth/CachePolicy>
+#include <osgEarth/Cache>
 #include <limits.h>
 
 using namespace osgEarth;
@@ -60,34 +61,6 @@ _maxAge ( rhs._maxAge ),
 _minTime( rhs._minTime )
 {
     //nop
-}
-
-bool
-CachePolicy::fromOptions( const osgDB::Options* dbOptions, optional<CachePolicy>& out )
-{
-    if ( dbOptions )
-    {
-        std::string jsonString = dbOptions->getPluginStringData( "osgEarth::CachePolicy" );
-        if ( !jsonString.empty() )
-        {
-            Config conf;
-            conf.fromJSON( jsonString );
-            CachePolicy temp( conf );
-            out->mergeAndOverride( temp );
-            return true;
-        }
-    }
-    return false;
-}
-
-void
-CachePolicy::apply( osgDB::Options* dbOptions )
-{
-    if ( dbOptions )
-    {
-        Config conf = getConfig();
-        dbOptions->setPluginStringData( "osgEarth::CachePolicy", conf.toJSON() );
-    }
 }
 
 void
@@ -136,6 +109,16 @@ CachePolicy::operator == (const CachePolicy& rhs) const
         (_minTime.get() == rhs._minTime.get());
 }
 
+CachePolicy&
+CachePolicy::operator = ( const CachePolicy& rhs )
+{
+    _usage  = optional<Usage>(rhs._usage);
+    _maxAge = optional<TimeSpan>(rhs._maxAge);
+    _minTime = optional<TimeStamp>(rhs._minTime);
+
+    return *this;
+}
+
 std::string
 CachePolicy::usageString() const
 {
@@ -144,6 +127,13 @@ CachePolicy::usageString() const
     if ( _usage == USAGE_CACHE_ONLY)  return "cache-only";
     if ( _usage == USAGE_NO_CACHE)    return "no-cache";
     return "unknown";
+}
+
+bool
+CachePolicy::empty() const
+{
+    bool isSet = _usage.isSet() || _maxAge.isSet() || _minTime.isSet();
+    return !isSet;
 }
 
 void

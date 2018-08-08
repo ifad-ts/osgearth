@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -17,14 +17,15 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 #include <osgEarthSymbology/ResourceCache>
+#include <osg/Texture2D>
 
 using namespace osgEarth;
 using namespace osgEarth::Symbology;
 
 
 // internal thread-safety not required since we mutex it in this object.
-ResourceCache::ResourceCache(const osgDB::Options* dbOptions ) :
-_dbOptions    ( dbOptions ),
+ResourceCache::ResourceCache() : // const osgDB::Options* dbOptions ) :
+//_dbOptions    ( dbOptions ),
 _skinCache    ( false ),
 _instanceCache( false ),
 _resourceLibraryCache( false )
@@ -33,8 +34,38 @@ _resourceLibraryCache( false )
 }
 
 bool
+ResourceCache::getOrCreateLineTexture(const URI& uri, osg::ref_ptr<osg::Texture>& output, const osgDB::Options* readOptions)
+{
+    Threading::ScopedMutexLock lock(_texMutex);
+    TextureCache::Record rec;
+    if (_texCache.get(uri.full(), rec) && rec.value().valid())
+    {
+        output = rec.value().get();
+    }
+    else
+    {
+        osg::ref_ptr<osg::Image> image = uri.getImage(readOptions);
+        if (image.valid())
+        {
+            osg::Texture2D* tex = new osg::Texture2D(image);
+            tex->setWrap( osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE );
+            tex->setWrap( osg::Texture::WRAP_T, osg::Texture::REPEAT );
+            tex->setFilter( osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR );
+            tex->setFilter( osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+            tex->setMaxAnisotropy( 4.0f );
+            tex->setResizeNonPowerOfTwoHint( false );
+            output = tex;
+            _texCache.insert(uri.full(), output.get());
+        }
+    }
+
+    return output.valid();
+}
+
+bool
 ResourceCache::getOrCreateStateSet(SkinResource*                skin,
-                                   osg::ref_ptr<osg::StateSet>& output)
+                                   osg::ref_ptr<osg::StateSet>& output,
+                                   const osgDB::Options*        readOptions)
 {
     output = 0L;
     //std::string key = skin->getConfig().toJSON(false);
@@ -58,7 +89,7 @@ ResourceCache::getOrCreateStateSet(SkinResource*                skin,
         else
         {
             // still not there, make it.
-            output = skin->createStateSet( _dbOptions.get() );
+            output = skin->createStateSet(readOptions);
             if ( output.valid() )
             {
                 _skinCache.insert( key, output.get() );
@@ -72,7 +103,8 @@ ResourceCache::getOrCreateStateSet(SkinResource*                skin,
 
 bool
 ResourceCache::getOrCreateInstanceNode(InstanceResource*        res,
-                                       osg::ref_ptr<osg::Node>& output)
+                                       osg::ref_ptr<osg::Node>& output,
+                                       const osgDB::Options*    readOptions)
 {
     output = 0L;
     std::string key = res->getConfig().toJSON(false);
@@ -90,7 +122,7 @@ ResourceCache::getOrCreateInstanceNode(InstanceResource*        res,
         else
         {
             // still not there, make it.
-            output = res->createNode( _dbOptions.get() );
+            output = res->createNode(readOptions);
             if ( output.valid() )
             {
                 _instanceCache.insert( key, output.get() );
@@ -103,7 +135,8 @@ ResourceCache::getOrCreateInstanceNode(InstanceResource*        res,
 
 bool
 ResourceCache::cloneOrCreateInstanceNode(InstanceResource*        res,
-                                         osg::ref_ptr<osg::Node>& output)
+                                         osg::ref_ptr<osg::Node>& output,
+                                         const osgDB::Options*    readOptions)
 {
     output = 0L;
     std::string key = res->getConfig().toJSON(false);
@@ -112,20 +145,23 @@ ResourceCache::cloneOrCreateInstanceNode(InstanceResource*        res,
     {
         Threading::ScopedMutexLock exclusive( _instanceMutex );
 
+        // Deep copy everything except for images.  Some models may share imagery so we only want one copy of it at a time.
+        osg::CopyOp copyOp = osg::CopyOp::DEEP_COPY_ALL & ~osg::CopyOp::DEEP_COPY_IMAGES & ~osg::CopyOp::DEEP_COPY_TEXTURES;
+
         // double check to avoid race condition
         InstanceCache::Record rec;
         if ( _instanceCache.get(key, rec) && rec.value().valid() )
         {
-            output = osg::clone(rec.value().get(), osg::CopyOp::DEEP_COPY_ALL);
+            output = osg::clone(rec.value().get(), copyOp);
         }
         else
         {
             // still not there, make it.
-            output = res->createNode( _dbOptions.get() );
+            output = res->createNode(readOptions);
             if ( output.valid() )
             {
                 _instanceCache.insert( key, output.get() );
-                output = osg::clone(output.get(), osg::CopyOp::DEEP_COPY_ALL);
+                output = osg::clone(output.get(), copyOp);
             }
         }
     }

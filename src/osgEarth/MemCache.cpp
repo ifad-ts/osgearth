@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -41,7 +41,7 @@ namespace
             //nop
         }
 
-        ReadResult readObject(const std::string& key )
+        ReadResult readObject(const std::string& key, const osgDB::Options*)
         {
             MemCacheLRU::Record rec;
             _lru.get(key, rec);
@@ -63,21 +63,22 @@ namespace
             }
         }
 
-        ReadResult readImage(const std::string& key)
+        ReadResult readImage(const std::string& key, const osgDB::Options* readOptions)
         {
-            return readObject( key );
+            return readObject(key, readOptions);
         }
 
-        ReadResult readString(const std::string& key)
+        ReadResult readString(const std::string& key, const osgDB::Options* readOptions)
         {
-            return readObject( key );
+            return readObject(key, readOptions);
         }
 
-        bool write( const std::string& key, const osg::Object* object, const Config& meta )
+        bool write( const std::string& key, const osg::Object* object, const Config& meta, const osgDB::Options* writeOptions)
         {
             if ( object ) 
             {
-                _lru.insert( key, std::make_pair(object, meta) );
+                osg::ref_ptr<const osg::Object> cloned = osg::clone(object, osg::CopyOp::DEEP_COPY_ALL);
+                _lru.insert( key, std::make_pair(cloned.get(), meta) );
                 return true;
             }
             else
@@ -107,6 +108,11 @@ namespace
         {
             _lru.clear();
             return true;
+        }
+
+        std::string getHashedKey(const std::string& key) const
+        {
+            return key;
         }
 
         MemCacheLRU _lru;

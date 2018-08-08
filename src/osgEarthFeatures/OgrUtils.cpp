@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -21,6 +24,14 @@
 #define LC "[FeatureSource] "
 
 using namespace osgEarth::Features;
+
+#ifndef GDAL_VERSION_AT_LEAST
+#define GDAL_VERSION_AT_LEAST(MAJOR, MINOR, REV) ((GDAL_VERSION_MAJOR>MAJOR) || (GDAL_VERSION_MAJOR==MAJOR && (GDAL_VERSION_MINOR>MINOR || (GDAL_VERSION_MINOR==MINOR && GDAL_VERSION_REV>=REV))))
+#endif
+
+#if GDAL_VERSION_AT_LEAST(2,1,0)
+#  define GDAL_HAS_M_TYPES
+#endif
 
 
 void
@@ -82,48 +93,67 @@ OgrUtils::createGeometry( OGRGeometryH geomHandle )
 
     OGRwkbGeometryType wkbType = OGR_G_GetGeometryType( geomHandle );        
 
-    if (
-        wkbType == wkbPolygon ||
-        wkbType == wkbPolygon25D )
+    int numPoints, numGeoms;
+
+    switch (wkbType)
     {
-        output = createPolygon( geomHandle );
-    }
-    else if (
-        wkbType == wkbLineString ||
-        wkbType == wkbLineString25D )
-    {
-        int numPoints = OGR_G_GetPointCount( geomHandle );
+    case wkbPolygon:
+    case wkbPolygon25D:
+#ifdef GDAL_HAS_M_TYPES
+    case wkbPolygonM:
+    case wkbPolygonZM:
+#endif
+        output = createPolygon(geomHandle);
+        break;
+
+    case wkbLineString:
+    case wkbLineString25D:
+#ifdef GDAL_HAS_M_TYPES
+    case wkbLineStringM:
+    case wkbLineStringZM:
+#endif
+        numPoints = OGR_G_GetPointCount( geomHandle );
         output = new Symbology::LineString( numPoints );
         populate( geomHandle, output, numPoints );
-    }
-    else if (
-        wkbType == wkbLinearRing )
-    {
-        int numPoints = OGR_G_GetPointCount( geomHandle );
+        break;
+
+    case wkbLinearRing:
+        numPoints = OGR_G_GetPointCount( geomHandle );
         output = new Symbology::Ring( numPoints );
         populate( geomHandle, output, numPoints );
-    }
-    else if ( 
-        wkbType == wkbPoint ||
-        wkbType == wkbPoint25D )
-    {
-        int numPoints = OGR_G_GetPointCount( geomHandle );
+        break;
+
+    case wkbPoint:
+    case wkbPoint25D:
+#ifdef GDAL_HAS_M_TYPES
+    case wkbPointM:
+    case wkbPointZM:
+#endif
+        numPoints = OGR_G_GetPointCount( geomHandle );
         output = new Symbology::PointSet( numPoints );
         populate( geomHandle, output, numPoints );
-    }
-    else if (
-        wkbType == wkbGeometryCollection ||
-        wkbType == wkbGeometryCollection25D ||
-        wkbType == wkbMultiPoint ||
-        wkbType == wkbMultiPoint25D ||
-        wkbType == wkbMultiLineString ||
-        wkbType == wkbMultiLineString25D ||
-        wkbType == wkbMultiPolygon ||
-        wkbType == wkbMultiPolygon25D )
-    {
-        Symbology::MultiGeometry* multi = new Symbology::MultiGeometry();
+        break;
 
-        int numGeoms = OGR_G_GetGeometryCount( geomHandle );
+    case wkbGeometryCollection:
+    case wkbGeometryCollection25D:
+    case wkbMultiPoint:
+    case wkbMultiPoint25D:
+    case wkbMultiLineString:
+    case wkbMultiLineString25D:
+    case wkbMultiPolygon:
+    case wkbMultiPolygon25D:
+#ifdef GDAL_HAS_M_TYPES
+    case wkbGeometryCollectionM:
+    case wkbGeometryCollectionZM:
+    case wkbMultiPointM:
+    case wkbMultiPointZM:
+    case wkbMultiLineStringM:
+    case wkbMultiLineStringZM:
+    case wkbMultiPolygonM:
+    case wkbMultiPolygonZM:
+#endif
+        Symbology::MultiGeometry* multi = new Symbology::MultiGeometry();
+        numGeoms = OGR_G_GetGeometryCount( geomHandle );
         for( int n=0; n<numGeoms; n++ )
         {
             OGRGeometryH subGeomRef = OGR_G_GetGeometryRef( geomHandle, n );
@@ -133,8 +163,8 @@ OgrUtils::createGeometry( OGRGeometryH geomHandle )
                 if ( geom ) multi->getComponents().push_back( geom );
             }
         } 
-
         output = multi;
+        break;
     }
 
     return output;
@@ -201,11 +231,14 @@ OgrUtils::createOgrGeometry(const osgEarth::Symbology::Geometry* geometry, OGRwk
         case Geometry::TYPE_MULTI: 
             {
                 const osgEarth::Symbology::MultiGeometry* multi = dynamic_cast<const MultiGeometry*>(geometry);
-                osgEarth::Symbology::Geometry::Type componentType = multi->getComponentType();
-                requestedType = componentType == Geometry::TYPE_POLYGON ? wkbMultiPolygon : 
-                    componentType == Geometry::TYPE_POINTSET ? wkbMultiPoint :
-                    componentType == Geometry::TYPE_LINESTRING ? wkbMultiLineString :
-                    wkbNone;                    
+                if (multi)
+                {
+                    osgEarth::Symbology::Geometry::Type componentType = multi->getComponentType();
+                    requestedType = componentType == Geometry::TYPE_POLYGON ? wkbMultiPolygon : 
+                        componentType == Geometry::TYPE_POINTSET ? wkbMultiPoint :
+                        componentType == Geometry::TYPE_LINESTRING ? wkbMultiLineString :
+                        wkbNone;                    
+                }
             }
             break;
         }
@@ -259,6 +292,23 @@ OgrUtils::createOgrGeometry(const osgEarth::Symbology::Geometry* geometry, OGRwk
         return shape_handle;
     }
 }
+
+Feature*
+OgrUtils::createFeature(OGRFeatureH handle, const FeatureProfile* profile)
+{
+    Feature* f = 0L;
+    if ( profile )
+    {
+        f = createFeature( handle, profile->getSRS() );
+        if ( f && profile->geoInterp().isSet() )
+            f->geoInterp() = profile->geoInterp().get();
+    }
+    else
+    {
+        f = createFeature( handle, (const SpatialReference*)0L );
+    }
+    return f;
+}            
 
 Feature*
 OgrUtils::createFeature( OGRFeatureH handle, const SpatialReference* srs )

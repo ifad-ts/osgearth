@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -35,6 +35,11 @@ KML_LineStyle::scan( xml_node<>* node, Style& style, KMLContext& cx )
         if ( !width.empty() )
         {
             line->stroke()->width() = as<float>( width, 1.0f );
+
+            if ( line->stroke()->width() == 0.0f )
+            {
+                line->stroke()->width() = 1.0f;
+            }
         }
     }
 }

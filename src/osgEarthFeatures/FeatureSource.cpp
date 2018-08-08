@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -20,6 +20,7 @@
 #include <osgEarthFeatures/ResampleFilter>
 #include <osgEarthFeatures/BufferFilter>
 #include <osgEarthFeatures/ConvertTypeFilter>
+#include <osgEarthFeatures/FilterContext>
 #include <osgEarth/Registry>
 #include <osg/Notify>
 #include <osgDB/ReadFile>
@@ -39,10 +40,11 @@ DriverConfigOptions( options )
 
 FeatureSourceOptions::~FeatureSourceOptions()
 {
+    //nop
 }
 
 void
-FeatureSourceOptions::fromConfig( const Config& conf )
+FeatureSourceOptions::fromConfig(const Config& conf)
 {
     unsigned numResamples = 0;
 
@@ -50,40 +52,22 @@ FeatureSourceOptions::fromConfig( const Config& conf )
     conf.getIfSet   ( "name",         _name );
     conf.getObjIfSet( "profile",      _profile );
     conf.getObjIfSet( "cache_policy", _cachePolicy );
+    conf.getIfSet   ( "geo_interpolation", "great_circle", _geoInterp, GEOINTERP_GREAT_CIRCLE );
+    conf.getIfSet   ( "geo_interpolation", "rhumb_line",   _geoInterp, GEOINTERP_RHUMB_LINE );
+    conf.getIfSet   ( "fid_attribute", _fidAttribute );
 
-    const ConfigSet& children = conf.children();
-    for( ConfigSet::const_iterator i = children.begin(); i != children.end(); ++i )
-    {
-        const Config& child = *i;
-
-        if (!child.empty())
-        {
-            FeatureFilter* filter = FeatureFilterRegistry::instance()->create( child );
-            if (filter)
-            {
-                //Do some checks to make sure resample filters are applied before buffering.
-                ResampleFilter* resample = dynamic_cast< ResampleFilter*>( filter );
-                BufferFilter* buffer = dynamic_cast< BufferFilter*>(filter );
-                if (resample)
-                {
-                    numResamples++;
-                }
-                else if (buffer)
-                {
-                    if ( numResamples > 0 )
-                    {
-                        OE_WARN << LC 
-                            << "Warning: Resampling should be applied after buffering, as buffering"
-                            << " will remove colinear segments created by the resample operation."
-                            << std::endl;
-                    }
-                }
-
-                OE_DEBUG << "Added FeatureFilter " << filter->getConfig().toJSON(true) << std::endl;
-                _filters.push_back( filter );
-            }
-        }        
+    // For backwards-compatibility (before adding the "filters" block)
+    // TODO: Remove at some point in the distant future.
+    const std::string bcstrings[3] = { "resample", "buffer", "convert" };
+    for(unsigned i=0; i<3; ++i) {
+        if ( conf.hasChild(bcstrings[i]) ) {
+            _filterOptions.push_back( conf.child(bcstrings[i]) );
+        }
     }
+
+    const Config& filters = conf.child("filters");
+    for(ConfigSet::const_iterator i = filters.children().begin(); i != filters.children().end(); ++i)
+        _filterOptions.push_back( *i );
 }
 
 Config
@@ -93,12 +77,20 @@ FeatureSourceOptions::getConfig() const
 
     conf.updateIfSet   ( "open_write",   _openWrite );
     conf.updateIfSet   ( "name",         _name );
-    conf.updateObjIfSet( "profile",      _profile );
-    conf.updateObjIfSet( "cache_policy", _cachePolicy );
-    
-    for( FeatureFilterList::const_iterator i = _filters.begin(); i != _filters.end(); ++i )
+    conf.setObj( "profile",      _profile );
+    conf.setObj( "cache_policy", _cachePolicy );
+    conf.updateIfSet   ( "geo_interpolation", "great_circle", _geoInterp, GEOINTERP_GREAT_CIRCLE );
+    conf.updateIfSet   ( "geo_interpolation", "rhumb_line",   _geoInterp, GEOINTERP_RHUMB_LINE );
+    conf.updateIfSet   ( "fid_attribute", _fidAttribute );
+
+    if ( !_filterOptions.empty() )
     {
-        conf.update( i->get()->getConfig() );        
+        Config filters;
+        for(unsigned i=0; i<_filterOptions.size(); ++i)
+        {
+            filters.add( _filterOptions[i].getConfig() );
+        }
+        conf.update( "filters", filters );
     }
 
     return conf;
@@ -107,41 +99,59 @@ FeatureSourceOptions::getConfig() const
 //------------------------------------------------------------------------
 
 FeatureSource::FeatureSource(const ConfigOptions&  options,
-                             const osgDB::Options* dbOptions) :
+                             const osgDB::Options* readOptions) :
 _options( options )
 {    
-    _dbOptions  = dbOptions;
-    _uriContext = URIContext( dbOptions );
-    _cache      = Cache::get( dbOptions );
+    _readOptions  = readOptions;
+    _uriContext  = URIContext( _readOptions.get() );
 }
 
 FeatureSource::~FeatureSource()
 {
+    //nop
 }
 
-const FeatureProfile*
-FeatureSource::getFeatureProfile() const
+const Status&
+FeatureSource::open(const osgDB::Options* readOptions)
 {
-    if ( !_featureProfile.valid() )
+    if ( readOptions )
+        _readOptions = readOptions;
+    
+    // Create and initialize the filters.
+    for(unsigned i=0; i<_options.filters().size(); ++i)
     {
-        FeatureSource* nonConstThis = const_cast<FeatureSource*>(this);
-
-        ScopedLock<Mutex> doubleCheckLock( nonConstThis->_createMutex );
+        const ConfigOptions& conf = _options.filters()[i];
+        FeatureFilter* filter = FeatureFilterRegistry::instance()->create( conf.getConfig(), 0L );
+        if ( filter )
         {
-            if ( !_featureProfile.valid() )
-            {
-                // caching pattern                
-                nonConstThis->_featureProfile = nonConstThis->createFeatureProfile();
-            }
+            if (_filters.valid() == false)
+                _filters = new FeatureFilterChain();
+
+            _filters->push_back( filter );
+            filter->initialize( readOptions );
         }
     }
-    return _featureProfile.get();
+
+    _status = initialize(readOptions);
+    return _status;
 }
 
-const FeatureFilterList&
+void
+FeatureSource::setFeatureProfile(const FeatureProfile* fp)
+{
+    _featureProfile = fp;
+}
+
+const FeatureFilterChain*
 FeatureSource::getFilters() const
 {
-    return _options.filters();
+    return _filters.get();
+}
+
+FeatureCursor*
+FeatureSource::createFeatureCursor()
+{
+    return createFeatureCursor(Symbology::Query());
 }
 
 const FeatureSchema&
@@ -179,6 +189,22 @@ FeatureSource::isBlacklisted( FeatureID fid ) const
     return _blacklist.find( fid ) != _blacklist.end();
 }
 
+void
+FeatureSource::applyFilters(FeatureList& features, const GeoExtent& extent) const
+{
+    // apply filters before returning.
+    if (_filters.valid() && _filters->empty() == false)
+    {
+        FilterContext cx;
+        cx.setProfile( getFeatureProfile() );
+        cx.extent() = extent;
+        for(FeatureFilterChain::const_iterator filter = _filters->begin(); filter != _filters->end(); ++filter)
+        {
+            cx = filter->get()->push( features, cx );
+        }
+    }
+}
+
 //------------------------------------------------------------------------
 
 #undef  LC
@@ -188,7 +214,7 @@ FeatureSource::isBlacklisted( FeatureID fid ) const
 FeatureSource*
 FeatureSourceFactory::create( const FeatureSourceOptions& options )
 {
-    FeatureSource* featureSource = 0L;
+    osg::ref_ptr<FeatureSource> source;
 
     if ( !options.getDriver().empty() )
     {
@@ -197,13 +223,14 @@ FeatureSourceFactory::create( const FeatureSourceOptions& options )
         osg::ref_ptr<osgDB::Options> rwopts = Registry::instance()->cloneOrCreateOptions();
         rwopts->setPluginData( FEATURE_SOURCE_OPTIONS_TAG, (void*)&options );
 
-        featureSource = dynamic_cast<FeatureSource*>( osgDB::readObjectFile( driverExt, rwopts.get() ) );
-        if ( featureSource )
+        osg::ref_ptr<osg::Object> object = osgDB::readRefObjectFile( driverExt, rwopts.get() );
+        source = dynamic_cast<FeatureSource*>( object.release() );
+        if ( source )
         {
             if ( options.name().isSet() )
-                featureSource->setName( *options.name() );
+                source->setName( *options.name() );
             else
-                featureSource->setName( options.getDriver() );
+                source->setName( options.getDriver() );
         }
         else
         {
@@ -215,7 +242,7 @@ FeatureSourceFactory::create( const FeatureSourceOptions& options )
         OE_WARN << LC << "ILLEGAL null feature driver name" << std::endl;
     }
 
-    return featureSource;
+    return source.release();
 }
 
 //------------------------------------------------------------------------
@@ -223,5 +250,7 @@ FeatureSourceFactory::create( const FeatureSourceOptions& options )
 const FeatureSourceOptions&
 FeatureSourceDriver::getFeatureSourceOptions( const osgDB::ReaderWriter::Options* rwopt ) const
 {
-    return *static_cast<const FeatureSourceOptions*>( rwopt->getPluginData( FEATURE_SOURCE_OPTIONS_TAG ) );
+    static FeatureSourceOptions s_default;
+    const void* data = rwopt->getPluginData(FEATURE_SOURCE_OPTIONS_TAG);
+    return data ? *static_cast<const FeatureSourceOptions*>(data) : s_default;
 }

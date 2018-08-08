@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -75,10 +75,7 @@ namespace osgEarth
         Config getConfig() const;
 
     protected:
-        void mergeConfig( const Config& conf ) {
-            ConfigOptions::mergeConfig( conf );
-            fromConfig( conf );
-        }
+        virtual void mergeConfig( const Config& conf );
 
     private:
         void fromConfig( const Config& conf );
@@ -138,6 +135,9 @@ namespace osgEarth
 
         static const Profile* create(
             const ProfileOptions& options );
+
+        static const Profile* createNamed(
+            const std::string& name);
 
         /**
          * Returns true if the profile is properly initialized.

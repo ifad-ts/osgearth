@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -59,7 +59,7 @@ namespace
         for(unsigned i=0; i<paddedSize/4; ++i, ++ptr)
             (*ptr) ^= prng.next(INT_MAX);
         data = std::string(buf, data.size());
-        delete buf;
+        delete [] buf;
     }
 
     void unblend(std::string& data, unsigned seed)
@@ -122,121 +122,127 @@ LevelDBCacheBin::binValidForWriting(bool silent)
     return ok;
 }
 
+std::string
+LevelDBCacheBin::getHashedKey(const std::string& key) const
+{
+    return dataKey(key);
+}
+
 #define SEP std::string("!")
 
 std::string
-LevelDBCacheBin::binPhrase()
+LevelDBCacheBin::binPhrase() const
 {
     return SEP + getID() + SEP;
 }
 
 std::string
-LevelDBCacheBin::binKey()
+LevelDBCacheBin::binKey() const
 {
     return "b" + SEP + getID();
 }
 
 std::string
-LevelDBCacheBin::dataKey(const std::string& key)
+LevelDBCacheBin::dataKey(const std::string& key) const
 {
     return "d" + SEP + binDataKeyTuple(key);
 }
 
 std::string
-LevelDBCacheBin::binDataKeyTuple(const std::string& key)
+LevelDBCacheBin::binDataKeyTuple(const std::string& key) const
 {
     return getID() + SEP + key;
 }
 
 std::string
-LevelDBCacheBin::dataKeyFromTuple(const std::string& tuple)
+LevelDBCacheBin::dataKeyFromTuple(const std::string& tuple) const
 {
     return "d" + SEP + tuple;
 }
 
 std::string
-LevelDBCacheBin::dataBegin()
+LevelDBCacheBin::dataBegin() const
 {
     return "d" + SEP + getID() + SEP;
 }
 
 std::string
-LevelDBCacheBin::dataEnd()
+LevelDBCacheBin::dataEnd() const
 {
     return "d" + SEP + getID() + SEP + "\xff";
 }
 
 std::string
-LevelDBCacheBin::metaKey(const std::string& key)
+LevelDBCacheBin::metaKey(const std::string& key) const
 {
     return "m" + SEP + binDataKeyTuple(key);
 }
 
 std::string
-LevelDBCacheBin::metaKeyFromTuple(const std::string& tuple)
+LevelDBCacheBin::metaKeyFromTuple(const std::string& tuple) const
 {
     return "m" + SEP + tuple;
 }
 
 std::string
-LevelDBCacheBin::metaBegin()
+LevelDBCacheBin::metaBegin() const
 {
     return "m" + SEP + getID() + SEP;
 }
 
 std::string
-LevelDBCacheBin::metaEnd()
+LevelDBCacheBin::metaEnd() const
 {
     return "m" + SEP + getID() + SEP + "\xff";
 }
 
 std::string
-LevelDBCacheBin::timeKey(const DateTime& t, const std::string& key)
+LevelDBCacheBin::timeKey(const DateTime& t, const std::string& key) const
 {
     return "t" + SEP + t.asCompactISO8601() + SEP + getID() + SEP + key;
 }
 
 std::string
-LevelDBCacheBin::timeBegin()
+LevelDBCacheBin::timeBegin() const
 {
     return "t" + SEP + getID() + SEP;
 }
 
 std::string
-LevelDBCacheBin::timeEnd()
+LevelDBCacheBin::timeEnd() const
 {
     return "t" + SEP + getID() + SEP + "\xff";
 }
 
 std::string
-LevelDBCacheBin::timeBeginGlobal()
+LevelDBCacheBin::timeBeginGlobal() const
 {
     return "t" + SEP;
 }
 
 std::string
-LevelDBCacheBin::timeEndGlobal()
+LevelDBCacheBin::timeEndGlobal() const
 {
     return "t" + SEP + "\xff";
 }
 
 ReadResult
-LevelDBCacheBin::readImage(const std::string& key)
+LevelDBCacheBin::readImage(const std::string& key, const osgDB::Options* readOptions)
 {
-    return read(key, ImageReader(_rw.get(), _rwOptions.get()));    
+    return read(key, ImageReader(_rw.get(), readOptions));
 }
 
 ReadResult
-LevelDBCacheBin::readObject(const std::string& key)
+LevelDBCacheBin::readObject(const std::string& key, const osgDB::Options* readOptions)
 {
     //OE_INFO << LC << "Read attempt: " << key << " from " << getID() << std::endl;
-    return read(key, ObjectReader(_rw.get(), _rwOptions.get()));
+    return read(key, ObjectReader(_rw.get(), readOptions));
 }
 
 ReadResult
-LevelDBCacheBin::readNode(const std::string& key)
+LevelDBCacheBin::readNode(const std::string& key, const osgDB::Options* readOptions)
 {
-    return read(key, NodeReader(_rw.get(), _rwOptions.get()));
+    return read(key, NodeReader(_rw.get(), readOptions));
 }
 
 ReadResult
@@ -254,7 +260,7 @@ LevelDBCacheBin::read(const std::string& key, const Reader& reader)
     // first read the metadata record.
     std::string metavalue;
     status = _db->Get( ro, metaKey(key), &metavalue );
-    TimeStamp lastModified;
+    TimeStamp lastModified = (TimeStamp)0;
     if ( status.ok() )
     {        
         decodeMeta(metavalue, metadata);
@@ -310,9 +316,9 @@ LevelDBCacheBin::read(const std::string& key, const Reader& reader)
 }
 
 ReadResult
-LevelDBCacheBin::readString(const std::string& key)
+LevelDBCacheBin::readString(const std::string& key, const osgDB::Options* readOptions)
 {
-    ReadResult r = readObject(key);
+    ReadResult r = readObject(key, readOptions);
     if ( r.succeeded() )
     {
         if ( r.get<StringObject>() )
@@ -327,7 +333,7 @@ LevelDBCacheBin::readString(const std::string& key)
 }
 
 bool
-LevelDBCacheBin::write(const std::string& key, const osg::Object* object, const Config& meta)
+LevelDBCacheBin::write(const std::string& key, const osg::Object* object, const Config& meta, const osgDB::Options* writeOptions)
 {
     if ( !binValidForWriting() || !object ) 
         return false;
@@ -345,7 +351,7 @@ LevelDBCacheBin::write(const std::string& key, const osg::Object* object, const 
             OE_WARN << LC << "Internal: tried to write image to " << _rw->className() << "\n";
             return false;
         }
-        r = _rw->writeImage( *static_cast<const osg::Image*>(object), datastream, _rwOptions.get() );
+        r = _rw->writeImage( *static_cast<const osg::Image*>(object), datastream, writeOptions );
         objWriteOK = r.success();
     }
     else if ( dynamic_cast<const osg::Node*>(object) )
@@ -355,7 +361,7 @@ LevelDBCacheBin::write(const std::string& key, const osg::Object* object, const 
             OE_WARN << LC << "Internal: tried to write node to " << _rw->className() << "\n";
             return false;
         }
-        r = _rw->writeNode( *static_cast<const osg::Node*>(object), datastream, _rwOptions.get() );
+        r = _rw->writeNode( *static_cast<const osg::Node*>(object), datastream, writeOptions );
         objWriteOK = r.success();
     }
     else
@@ -365,7 +371,7 @@ LevelDBCacheBin::write(const std::string& key, const osg::Object* object, const 
             OE_WARN << LC << "Internal: tried to write an object to " << _rw->className() << "\n";
             return false;
         }
-        r = _rw->writeObject( *object, datastream );
+        r = _rw->writeObject( *object, datastream, writeOptions );
         objWriteOK = r.success();
     }
 

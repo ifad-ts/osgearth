@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -26,7 +26,7 @@
 #include <osgEarth/Registry>
 #include <osgEarthSymbology/Color>
 
-namespace osgEarth { namespace Drivers { namespace SimpleOcean
+namespace osgEarth { namespace SimpleOcean
 {
     using namespace osgEarth;
     using namespace osgEarth::Util;
@@ -72,6 +72,11 @@ namespace osgEarth { namespace Drivers { namespace SimpleOcean
         optional<URI>& textureURI() { return _textureURI; }
         const optional<URI>& textureURI() const { return _textureURI; }
 
+        /** Render bin number to assign to the ocean (in DepthSortedBin) */
+        optional<int>& renderBinNumber() { return _renderBinNumber; }
+        const optional<int>& renderBinNumber() const { return _renderBinNumber; }
+
+
         /** Image layer configuration for an optional "ocean mask" layer.
          *  This is an image layer that encodes areas of land versus ocean in the
          *  alpha channel of the image. The mapping is: [0...1] => [land...ocean] */
@@ -86,8 +91,9 @@ namespace osgEarth { namespace Drivers { namespace SimpleOcean
               _highFeatherOffset( -10.0f ),
               _maxRange         ( 1000000.0f ),
               _fadeRange        ( 125000.0f ),
-              _maxLOD           ( 11 ),
-              _baseColor        ( osg::Vec4(0.2, 0.3, 0.5, 0.8) )
+              _maxLOD           ( 20 ),
+              _baseColor        ( Color("#1c6ba0ef") ),
+              _renderBinNumber  ( 12 )
         {
             mergeConfig( _conf );
         }
@@ -97,16 +103,17 @@ namespace osgEarth { namespace Drivers { namespace SimpleOcean
 
     public:
         Config getConfig() const {
-            Config conf = OceanOptions::newConfig();
-            conf.updateIfSet("sea_level",           _seaLevel );
-            conf.updateIfSet("high_feather_offset", _highFeatherOffset );
-            conf.updateIfSet("low_feather_offset",  _lowFeatherOffset );
-            conf.updateIfSet("max_range",           _maxRange );
-            conf.updateIfSet("fade_range",          _fadeRange );
-            conf.updateIfSet("max_lod",             _maxLOD );
-            conf.updateIfSet("base_color",          _baseColor );
-            conf.updateIfSet("texture_url",         _textureURI );
-            conf.updateObjIfSet("mask_layer",       _maskLayerOptions );
+            Config conf = OceanOptions::getConfig();
+            conf.set("sea_level",           _seaLevel );
+            conf.set("high_feather_offset", _highFeatherOffset );
+            conf.set("low_feather_offset",  _lowFeatherOffset );
+            conf.set("max_range",           _maxRange );
+            conf.set("fade_range",          _fadeRange );
+            conf.set("max_lod",             _maxLOD );
+            conf.set("base_color",          _baseColor );
+            conf.set("texture_url",         _textureURI );
+            conf.setObj("mask_layer",       _maskLayerOptions );
+            conf.set("render_bin_number",   _renderBinNumber);
             return conf;
         }
 
@@ -127,6 +134,7 @@ namespace osgEarth { namespace Drivers { namespace SimpleOcean
             conf.getIfSet("base_color",          _baseColor );
             conf.getIfSet("texture_url",         _textureURI );
             conf.getObjIfSet("mask_layer",       _maskLayerOptions );
+            conf.getIfSet("render_bin_number",   _renderBinNumber);
         }
 
     private:
@@ -139,8 +147,9 @@ namespace osgEarth { namespace Drivers { namespace SimpleOcean
         optional<Color>             _baseColor;
         optional<URI>               _textureURI;
         optional<ImageLayerOptions> _maskLayerOptions;
+        optional<int>               _renderBinNumber;
     };
 
-} } } // namespace osgEarth::Drivers::SimpleOcean
+} } // namespace osgEarth::SimpleOcean
 
 #endif // OSGEARTH_DRIVER_SIMPLE_OCEAN

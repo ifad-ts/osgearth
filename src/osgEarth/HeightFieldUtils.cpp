@@ -1,6 +1,7 @@
+
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -25,6 +26,36 @@
 #include <osg/Notify>
 
 using namespace osgEarth;
+
+
+bool
+HeightFieldUtils::validateSamples(float &a, float &b, float &c, float &d)
+{
+    // If ALL the sample points are NO_DATA_VALUE then we can't do anything.
+    if (a == NO_DATA_VALUE && b == NO_DATA_VALUE && c == NO_DATA_VALUE && d == NO_DATA_VALUE)
+    {
+        return false;
+    }
+
+    // If any of the samples are valid but some are NO_DATA_VALUE we can replace the nodata with valid values.
+    if (a == NO_DATA_VALUE ||
+        b == NO_DATA_VALUE || 
+        c == NO_DATA_VALUE ||
+        d == NO_DATA_VALUE)
+    {
+        float validValue = a;
+        if (validValue == NO_DATA_VALUE) validValue = b;
+        if (validValue == NO_DATA_VALUE) validValue = c;
+        if (validValue == NO_DATA_VALUE) validValue = d;
+
+        if (a == NO_DATA_VALUE) a = validValue;
+        if (b == NO_DATA_VALUE) b = validValue;
+        if (c == NO_DATA_VALUE) c = validValue;
+        if (d == NO_DATA_VALUE) d = validValue;
+    }
+
+    return true;
+}
 
 float
 HeightFieldUtils::getHeightAtPixel(const osg::HeightField* hf, double c, double r, ElevationInterpolation interpolation)
@@ -76,7 +107,7 @@ HeightFieldUtils::getHeightAtPixel(const osg::HeightField* hf, double c, double 
         float lrHeight = hf->getHeight(colMax, rowMin);
 
         //Make sure not to use NoData in the interpolation
-        if (urHeight == NO_DATA_VALUE || llHeight == NO_DATA_VALUE || ulHeight == NO_DATA_VALUE || lrHeight == NO_DATA_VALUE)
+        if (!validateSamples(urHeight, llHeight, ulHeight, lrHeight))
         {
             return NO_DATA_VALUE;
         }
@@ -129,7 +160,7 @@ HeightFieldUtils::getHeightAtPixel(const osg::HeightField* hf, double c, double 
         float lrHeight = hf->getHeight(colMax, rowMin);
 
         //Make sure not to use NoData in the interpolation
-        if (urHeight == NO_DATA_VALUE || llHeight == NO_DATA_VALUE || ulHeight == NO_DATA_VALUE || lrHeight == NO_DATA_VALUE)
+        if (!validateSamples(urHeight, llHeight, ulHeight, lrHeight))
         {
             return NO_DATA_VALUE;
         }
@@ -160,12 +191,9 @@ HeightFieldUtils::getHeightAtPixel(const osg::HeightField* hf, double c, double 
             {
                 //OE_NOTICE << "Bilinear" << std::endl;
                 //Bilinear interpolate
-                float r1 = ((double)colMax - c) * llHeight + (c - (double)colMin) * lrHeight;
-                float r2 = ((double)colMax - c) * ulHeight + (c - (double)colMin) * urHeight;
-
-                //OE_INFO << "r1, r2 = " << r1 << " , " << r2 << std::endl;
-
-                result = ((double)rowMax - r) * r1 + (r - (double)rowMin) * r2;
+                double r1 = ((double)colMax - c) * (double)llHeight + (c - (double)colMin) * (double)lrHeight;
+                double r2 = ((double)colMax - c) * (double)ulHeight + (c - (double)colMin) * (double)urHeight;
+                result = ((double)rowMax - r) * (double)r1 + (r - (double)rowMin) * (double)r2;
             }
         }
         else if (interpolation == INTERP_AVERAGE)
@@ -227,6 +255,87 @@ HeightFieldUtils::getHeightAtLocation(const osg::HeightField* hf, double x, doub
     return getHeightAtPixel(hf, px, py, interpolation);
 }
 
+osg::Vec3
+HeightFieldUtils::getNormalAtLocation(const HeightFieldNeighborhood& hood, double x, double y, double llx, double lly, double dx, double dy, ElevationInterpolation interp)
+{
+    const osg::HeightField* hf = hood._center.get();
+    if (!hf)
+        return osg::Vec3(0,0,1);
+
+    double xcells = (double)(hf->getNumColumns()-1);
+    double ycells = (double)(hf->getNumRows()-1);
+
+    double xres = 1.0/xcells;
+    double yres = 1.0/ycells;
+
+    double mPerDegAtEquator = 111000.0;
+    double tIntervalMeters = hf->getYInterval() * mPerDegAtEquator; // TODO: account for Geo vs Proj (see convertToNormalMap)
+    
+    double s = osg::clampBetween( (x - llx) / dx, 0.0, xcells );
+    double t = osg::clampBetween( (y - lly) / dy, 0.0, ycells );
+
+    double lat = hf->getOrigin().y() + hf->getYInterval()*t;
+    
+    double sIntervalMeters = hf->getXInterval() * mPerDegAtEquator*cos(osg::DegreesToRadians(lat));
+
+    float centerHeight = getHeightAtLocation(hf, x, y, llx, lly, dx, dy, interp);
+
+    double nx = xres * s;
+    double ny = yres * t;
+
+    osg::Vec3 west(-sIntervalMeters, 0.0f, centerHeight);
+    osg::Vec3 east( sIntervalMeters, 0.0f, centerHeight);
+    osg::Vec3 south(0, -tIntervalMeters, centerHeight);
+    osg::Vec3 north(0,  tIntervalMeters, centerHeight);
+
+    bool clamped = false;
+
+    if (!getHeightAtNormalizedLocation(hood, nx - xres, ny, west.z())) {
+        west.x() = 0.0, 
+        west.z() = centerHeight;
+        clamped = true;
+    }
+
+    if (!getHeightAtNormalizedLocation(hood, nx + xres, ny, east.z())) {
+        east.x() = 0.0, east.z() = centerHeight;
+        clamped = true;
+    }
+
+    if (!getHeightAtNormalizedLocation(hood, nx, ny - yres, south.z())) {
+        south.y() = 0.0, south.z() = centerHeight;
+        clamped = true;
+    }
+
+    if (!getHeightAtNormalizedLocation(hood, nx, ny + yres, north.z())) {
+        north.y() = 0.0, north.z() = centerHeight;
+        clamped = true;
+    }    
+
+    // account for degenerate vectors
+    if (east.x() == 0.0 && west.x() == 0.0)
+        east.x() = sIntervalMeters;
+
+    if (north.y() == 0.0 && south.y() == 0.0)
+        north.y() = tIntervalMeters;
+
+    osg::Vec3 n = (east - west) ^ (north-south);
+    n.normalize();
+
+    //if (clamped)
+    //    n = osg::Vec3(1,0,0);
+
+    //if (clamped && (n*osg::Vec3(0,0,1) < 0.1)) {
+    //    OE_WARN << "H, normal = " << n.x() << ", " << n.y() << ", " << n.z() << "\n";
+    //}
+
+    // curvature:
+    float D = (0.5*(west.z() + east.z()) - centerHeight) / (sIntervalMeters*sIntervalMeters);
+    float E = (0.5*(south.z() + north.z()) - centerHeight) / (tIntervalMeters*tIntervalMeters);
+    float curvature = osg::clampBetween(-2.0f*(D + E)*100.0f, -1.0f, 1.0f);
+    
+    return n; // TODO, include curv
+}
+
 float
 HeightFieldUtils::getHeightAtNormalizedLocation(const osg::HeightField* input,
                                                 double nx, double ny,
@@ -244,18 +353,18 @@ HeightFieldUtils::getHeightAtNormalizedLocation(const HeightFieldNeighborhood& h
                                                 ElevationInterpolation interp)
 {
     osg::HeightField* hf = 0L;
-    //osg::ref_ptr<osg::HeightField> hf;
     double nx2, ny2;
     if ( hood.getNeighborForNormalizedLocation(nx, ny, hf, nx2, ny2) )
     {
         double px = osg::clampBetween(nx2, 0.0, 1.0) * (double)(hf->getNumColumns() - 1);
         double py = osg::clampBetween(ny2, 0.0, 1.0) * (double)(hf->getNumRows() - 1);
         output = getHeightAtPixel( hf, px, py, interp );
-        return true;
+        return output != NO_DATA_VALUE;
     }
     return false;
 }
 
+#if 0
 bool
 HeightFieldUtils::getNormalAtNormalizedLocation(const osg::HeightField* input,
                                                 double nx, double ny,
@@ -285,6 +394,7 @@ HeightFieldUtils::getNormalAtNormalizedLocation(const osg::HeightField* input,
     output.normalize();
     return true;
 }
+#endif
 
 void
 HeightFieldUtils::scaleHeightFieldToDegrees( osg::HeightField* hf )
@@ -295,10 +405,9 @@ HeightFieldUtils::scaleHeightFieldToDegrees( osg::HeightField* hf )
         //TODO: adjust this calculation based on the actual EllipsoidModel.
         float scale = 1.0f/111319.0f;
 
-        for (unsigned int i = 0; i < hf->getHeightList().size(); ++i)
-        {
-            hf->getHeightList()[i] *= scale;
-        }
+        osg::HeightField::HeightList& heights = hf->getHeightList();
+        for(unsigned i=0; i<heights.size(); ++i)
+            heights[i] *= scale;
     }
     else
     {
@@ -399,13 +508,20 @@ osg::HeightField*
 HeightFieldUtils::createReferenceHeightField(const GeoExtent& ex,
                                              unsigned         numCols,
                                              unsigned         numRows,
+                                             unsigned         border,
                                              bool             expressAsHAE)
 {
     osg::HeightField* hf = new osg::HeightField();
-    hf->allocate( numCols, numRows );
-    hf->setOrigin( osg::Vec3d( ex.xMin(), ex.yMin(), 0.0 ) );
-    hf->setXInterval( (ex.xMax() - ex.xMin())/(double)(numCols-1) );
-    hf->setYInterval( (ex.yMax() - ex.yMin())/(double)(numRows-1) );
+
+    hf->allocate( numCols + 2*border, numRows + 2*border );
+
+    hf->setXInterval( ex.width() / (double)(numCols-1) );
+    hf->setYInterval( ex.height() / (double)(numRows-1) );
+
+    hf->setOrigin(osg::Vec3d(
+        ex.xMin() - hf->getXInterval()*(double)border,
+        ex.yMin() - hf->getYInterval()*(double)border,
+        0.0 ) );
 
     const VerticalDatum* vdatum = ex.isValid() ? ex.getSRS()->getVerticalDatum() : 0L;
 
@@ -418,12 +534,15 @@ HeightFieldUtils::createReferenceHeightField(const GeoExtent& ex,
         double lonInterval = geodeticExtent.width() / (double)(numCols-1);
         double latInterval = geodeticExtent.height() / (double)(numRows-1);
 
-        for( unsigned r=0; r<numRows; ++r )
+        double latStart = latMin - latInterval*(double)border;
+        double lonStart = lonMin - lonInterval*(double)border;
+
+        for( unsigned r=0; r<hf->getNumRows(); ++r )
         {            
-            double lat = latMin + latInterval*(double)r;
-            for( unsigned c=0; c<numCols; ++c )
+            double lat = latStart + latInterval*(double)r;
+            for( unsigned c=0; c<hf->getNumColumns(); ++c )
             {
-                double lon = lonMin + lonInterval*(double)c;
+                double lon = lonStart + lonInterval*(double)c;
                 double offset = vdatum->msl2hae(lat, lon, 0.0);
                 hf->setHeight( c, r, offset );
             }
@@ -431,14 +550,12 @@ HeightFieldUtils::createReferenceHeightField(const GeoExtent& ex,
     }
     else
     {
-        for(unsigned int i=0; i<hf->getHeightList().size(); i++ )
-        {
-            hf->getHeightList()[i] = 0.0;
-        }
+        hf->getFloatArray()->assign(hf->getNumColumns()*hf->getNumRows(), 0.0f);
     }
 
-    hf->setBorderWidth( 0 );
-    return hf;    
+    hf->setBorderWidth( border );
+
+    return hf;
 }
 
 void
@@ -473,18 +590,17 @@ HeightFieldUtils::resolveInvalidHeights(osg::HeightField* grid,
     }
     else
     {
-        for(unsigned int i=0; i<grid->getHeightList().size(); i++ )
+        osg::HeightField::HeightList& heights = grid->getHeightList();
+        for(unsigned i=0; i<heights.size(); ++i)
         {
-            if ( grid->getHeightList()[i] == invalidValue )
-            {
-                grid->getHeightList()[i] = 0.0;
-            }
+            if ( heights[i] == invalidValue )
+                heights[i] = 0.0f;
         }
     }
 }
 
 osg::NodeCallback*
-HeightFieldUtils::createClusterCullingCallback(osg::HeightField*          grid, 
+HeightFieldUtils::createClusterCullingCallback(const osg::HeightField*    grid, 
                                                const osg::EllipsoidModel* et, 
                                                float                      verticalScale )
 {
@@ -572,14 +688,15 @@ HeightFieldUtils::createClusterCullingCallback(osg::HeightField*          grid,
 }
 
 
-osg::Image*
+NormalMap*
 HeightFieldUtils::convertToNormalMap(const HeightFieldNeighborhood& hood,
                                      const SpatialReference*        hoodSRS)
 {
     const osg::HeightField* hf = hood._center.get();
+    if ( !hf )
+        return 0L;
     
-    osg::Image* image = new osg::Image();
-    image->allocateImage(hf->getNumColumns(), hf->getNumRows(), 1, GL_RGBA, GL_UNSIGNED_BYTE);
+    NormalMap* normalMap = new NormalMap(hf->getNumColumns(), hf->getNumRows());
 
     double xcells = (double)(hf->getNumColumns()-1);
     double ycells = (double)(hf->getNumRows()-1);
@@ -592,8 +709,6 @@ HeightFieldUtils::convertToNormalMap(const HeightFieldNeighborhood& hood,
         hoodSRS->isGeographic() ? hf->getYInterval() * mPerDegAtEquator :
         hf->getYInterval();
 
-    ImageUtils::PixelWriter write(image);
-    
     for(int t=0; t<(int)hf->getNumRows(); ++t)
     {
         // east-west interval in meters (changes for each row):
@@ -615,39 +730,109 @@ HeightFieldUtils::convertToNormalMap(const HeightFieldNeighborhood& hood,
             osg::Vec3f north( 0,  tIntervalMeters, centerHeight );
 
             if ( !HeightFieldUtils::getHeightAtNormalizedLocation(hood, nx-xres, ny, west.z()) )
-                west.x() = 0.0;
+                west.x() = 0.0, 
+                west.z() = centerHeight;
 
             if ( !HeightFieldUtils::getHeightAtNormalizedLocation(hood, nx+xres, ny, east.z()) )
-                east.x() = 0.0;
+                east.x() = 0.0, 
+                east.z() = centerHeight;
 
             if ( !HeightFieldUtils::getHeightAtNormalizedLocation(hood, nx, ny-yres, south.z()) )
-                south.y() = 0.0;
+                south.y() = 0.0, 
+                south.z() = centerHeight;
 
             if ( !HeightFieldUtils::getHeightAtNormalizedLocation(hood, nx, ny+yres, north.z()) )
-                north.y() = 0.0;
+                north.y() = 0.0, 
+                north.z() = centerHeight;
+
+            // account for degenerate vectors
+            if (east.x() == 0.0 && west.x() == 0.0)
+                east.x() = sIntervalMeters;
+
+            if (north.y() == 0.0 && south.y() == 0.0)
+                north.y() = tIntervalMeters;
+
+            osg::Vec3f n = (east - west) ^ (north - south);
+            n.normalize();
+
+            // calculate and encode curvature (2nd derivative of elevation)
+            //float L2inv = 1.0f/(sIntervalMeters*sIntervalMeters);
+            float D = (0.5*(west.z()+east.z()) - centerHeight) / (sIntervalMeters*sIntervalMeters); //* L2inv;
+            float E = (0.5*(south.z()+north.z()) - centerHeight) / (tIntervalMeters*tIntervalMeters); //* L2inv;
+            float curvature = osg::clampBetween(-2.0f*(D+E)*100.0f, -1.0f, 1.0f);
+
+            //// encode for RGBA [0..1]
+            //osg::Vec4f enc( n.x(), n.y(), n.z(), curvature );
+            //enc = (enc + osg::Vec4f(1.0,1.0,1.0,1.0))*0.5;
+
+            //write(enc, s, t);
+
+            normalMap->set(s, t, n, curvature);
+        }
+    }
+
+    return normalMap;
+}
+
+//TODO: get rid of this. -gw
+void
+HeightFieldUtils::createNormalMap(const osg::Image* elevation,
+                                  NormalMap* normalMap,
+                                  const GeoExtent& extent)
+{   
+    ImageUtils::PixelReader readElevation(elevation);
+    //ImageUtils::PixelWriter writeNormal(normalMap);
+
+    int sMax = (int)elevation->s()-1;
+    int tMax = (int)elevation->t()-1;
+        
+    // north-south interval in meters:
+    double xInterval = extent.width() / (double)(sMax);
+    double yInterval = extent.height() / (double)(tMax);
+
+    const SpatialReference* srs = extent.getSRS();
+    double mPerDegAtEquator = (srs->getEllipsoid()->getRadiusEquator() * 2.0 * osg::PI) / 360.0;
+    double dy = srs->isGeographic() ? yInterval * mPerDegAtEquator : yInterval;
+
+    for (int t = 0; t<(int)elevation->t(); ++t)
+    {
+        double lat = extent.yMin() + yInterval*(double)t;
+        double dx = srs->isGeographic() ? xInterval * mPerDegAtEquator * cos(osg::DegreesToRadians(lat)) : xInterval;
+
+        for(int s=0; s<(int)elevation->s(); ++s)
+        {
+            float h = readElevation(s, t).r();
+
+            osg::Vec3f west ( s > 0 ? -dx : 0, 0, h );
+            osg::Vec3f east ( s < sMax ?  dx : 0, 0, h );
+            osg::Vec3f south( 0, t > 0 ? -dy : 0, h );
+            osg::Vec3f north( 0, t < tMax ? dy : 0, h );
+
+            west.z() = readElevation(std::max(0, s - 1), t).r();
+            east.z() = readElevation(std::min(sMax, s + 1), t).r();
+            south.z() = readElevation(s, std::max(0, t - 1)).r();
+            north.z() = readElevation(s, std::min(tMax, t + 1)).r();
 
             osg::Vec3f n = (east-west) ^ (north-south);
             n.normalize();
 
             // calculate and encode curvature (2nd derivative of elevation)
-            float L2inv = 1.0f/(sIntervalMeters*sIntervalMeters);
-            float D = (0.5*(west.z()+east.z()) - centerHeight) * L2inv;
-            float E = (0.5*(south.z()+north.z()) - centerHeight) * L2inv;
+            float D = (0.5*(west.z()+east.z()) - h) / (dx*dx);
+            float E = (0.5*(south.z()+north.z()) - h) / (dy*dy);
             float curvature = osg::clampBetween(-2.0f*(D+E)*100.0f, -1.0f, 1.0f);
 
             // encode for RGBA [0..1]
-            osg::Vec4f enc( n.x(), n.y(), n.z(), curvature );
-            enc = (enc + osg::Vec4f(1.0,1.0,1.0,1.0))*0.5;
+            //osg::Vec4f NC( n.x(), n.y(), n.z(), curvature );
+            //NC = (NC + osg::Vec4f(1.0,1.0,1.0,1.0))*0.5;
 
-            write(enc, s, t);
+            normalMap->set(s, t, n, curvature);
+            //writeNormal(NC, s, t);
         }
     }
-
-    return image;
 }
 
 /******************************************************************************************/
-
+#if 0
 ReplaceInvalidDataOperator::ReplaceInvalidDataOperator():
 _replaceWith(0.0f)
 {
@@ -713,3 +898,4 @@ FillNoDataOperator::operator ()(osg::HeightField *heightField)
         }
     }
 }
+#endif

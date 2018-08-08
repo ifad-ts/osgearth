@@ -1,8 +1,9 @@
 #version $GLSL_VERSION_STR
 $GLSL_DEFAULT_PRECISION_FLOAT
 
-#pragma vp_entryPoint "atmos_vertex_main"
-#pragma vp_location   "vertex_view"
+#pragma vp_entryPoint atmos_vertex_main
+#pragma vp_location   vertex_view
+#pragma vp_order      0.5
 
 // Atmospheric Scattering and Sun Shaders
 // Adapted from code that is Copyright (c) 2004 Sean ONeil
@@ -24,9 +25,10 @@ uniform float atmos_fScaleOverScaleDepth;     // fScale / fScaleDepth
 uniform int atmos_nSamples; 	
 uniform float atmos_fSamples; 				
 
-varying vec3 atmos_v3Direction; 
-varying vec3 atmos_mieColor; 
-varying vec3 atmos_rayleighColor; 
+out vec3 atmos_v3Direction; 
+out vec3 atmos_mieColor; 
+out vec3 atmos_rayleighColor; 
+out float atmos_renderFromSpace;
 
 vec3 vVec; 
 float atmos_fCameraHeight;    // The camera's current height 		
@@ -137,8 +139,10 @@ void atmos_SkyFromAtmosphere(void)
     atmos_v3Direction = vVec - v3Pos; 				
 } 
 
+uniform float FFF;
+
 void atmos_vertex_main(inout vec4 VertexVIEW) 
-{ 
+{
     // Get camera position and height 
     vVec = osg_ViewMatrixInverse[3].xyz; 
     atmos_fCameraHeight = length(vVec); 
@@ -146,9 +150,16 @@ void atmos_vertex_main(inout vec4 VertexVIEW)
     if(atmos_fCameraHeight >= atmos_fOuterRadius)
     { 
         atmos_SkyFromSpace(); 
+        //atmos_renderFromSpace = 1.0;
     } 
     else
     { 
         atmos_SkyFromAtmosphere(); 
-    } 
+        //atmos_renderFromSpace = 0.0;
+    }
+
+    // Transition from space to atmosphere
+    atmos_renderFromSpace = 1.0 - clamp(
+        (atmos_fOuterRadius-atmos_fCameraHeight)/50000,
+        0.0, 1.0 );
 }

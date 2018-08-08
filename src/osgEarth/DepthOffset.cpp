@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -28,6 +28,7 @@
 
 #include <osg/Geode>
 #include <osg/Geometry>
+#include <osg/Depth>
 
 #define LC "[DepthOffset] "
 
@@ -167,8 +168,7 @@ DepthOffsetAdapter::setGraph(osg::Node* graph)
         (graphChanging || (_options.enabled() == false));
 
     bool install =
-        (graph && graphChanging ) || 
-        (graph && (_options.enabled() == true));
+        (graph && graphChanging && _options.enabled() == true);
 
     // shader package:
     Shaders shaders;
@@ -184,7 +184,9 @@ DepthOffsetAdapter::setGraph(osg::Node* graph)
         s->removeUniform( _minRangeUniform.get() );
         s->removeUniform( _maxRangeUniform.get() );
         
-        shaders.unloadFunction( VirtualProgram::get(s), shaders.DepthOffsetVertex );
+        shaders.unload( VirtualProgram::get(s), shaders.DepthOffsetVertex );
+
+        s->removeAttribute(osg::StateAttribute::DEPTH);
     }
 
     if ( install )
@@ -193,12 +195,19 @@ DepthOffsetAdapter::setGraph(osg::Node* graph)
 
         // install uniforms and shaders.
         osg::StateSet* s = graph->getOrCreateStateSet();
+
+        // so the stateset doesn't get merged by a state set optimizer
+        s->setDataVariance(s->DYNAMIC);
+
         s->addUniform( _minBiasUniform.get() );
         s->addUniform( _maxBiasUniform.get() );
         s->addUniform( _minRangeUniform.get() );
         s->addUniform( _maxRangeUniform.get() );
         
-        shaders.loadFunction(VirtualProgram::getOrCreate(s), shaders.DepthOffsetVertex);        
+        shaders.load(VirtualProgram::getOrCreate(s), shaders.DepthOffsetVertex);    
+
+        // disable depth writes
+        s->setAttributeAndModes(new osg::Depth(osg::Depth::LEQUAL, 0.0, 1.0, false), 1);
     }
 
     if ( graphChanging )
@@ -216,17 +225,10 @@ DepthOffsetAdapter::updateUniforms()
 {
     if ( !_supported ) return;
 
-    _minBiasUniform->set( *_options.minBias() );
-    _maxBiasUniform->set( *_options.maxBias() );
-    _minRangeUniform->set( *_options.minRange() );
-    _maxRangeUniform->set( *_options.maxRange() );
-
-    if ( _options.enabled() == true )
-    {
-        OE_TEST << LC 
-            << "bias=[" << *_options.minBias() << ", " << *_options.maxBias() << "] ... "
-            << "range=[" << *_options.minRange() << ", " << *_options.maxRange() << "]" << std::endl;
-    }
+    _minBiasUniform->set( (float)_options.minBias()->as(Units::METERS) );
+    _maxBiasUniform->set( (float)_options.maxBias()->as(Units::METERS) );
+    _minRangeUniform->set( (float)_options.minRange()->as(Units::METERS) );
+    _maxRangeUniform->set( (float)_options.maxRange()->as(Units::METERS) );
 }
 
 void 

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -19,11 +22,14 @@
 
 #include <osgEarthAnnotation/RectangleNode>
 #include <osgEarthAnnotation/AnnotationRegistry>
+#include <osgEarthAnnotation/AnnotationUtils>
 #include <osgEarthFeatures/GeometryCompiler>
+#include <osgEarthFeatures/FilterContext>
 #include <osgEarthSymbology/GeometryFactory>
 #include <osgEarthSymbology/ExtrusionSymbol>
 #include <osgEarth/MapNode>
 #include <osgEarth/DrapeableNode>
+#include <osgEarth/NodeUtils>
 #include <osg/MatrixTransform>
 
 using namespace osgEarth;
@@ -37,12 +43,11 @@ RectangleNode::RectangleNode(MapNode*          mapNode,
                              const Linear&     width,
                              const Linear&     height,
                              const Style&      style) :
-LocalizedNode( mapNode, position ),
+GeoPositionNode    ( mapNode, position ),
 _width       ( width ),
 _height      ( height ),
 _style       ( style )
 {
-    _xform = new osg::MatrixTransform();
     rebuild();
 }
 
@@ -331,13 +336,7 @@ RectangleNode::setCorner( Corner corner, const GeoPoint& location)
 void
 RectangleNode::rebuild()
 {    
-    std::string currentDecoration = getDecoration();
-    clearDecoration();
-
-    // Reset:
-    osgEarth::clearChildren( this );
-    osgEarth::clearChildren( _xform.get() );
-    this->addChild( _xform.get() );
+    osgEarth::clearChildren( getPositionAttitudeTransform() );
 
     // construct a local-origin circle.
     GeometryFactory factory;    
@@ -345,19 +344,16 @@ RectangleNode::rebuild()
     if ( geom )
     {
         GeometryCompiler compiler;
-        osg::ref_ptr<Feature> feature = new Feature(geom, 0L); //todo: consider the SRS
-        osg::Node* node = compiler.compile( feature.get(), _style, FilterContext(0L) );
+        osg::ref_ptr<osg::Node> node = compiler.compile( geom, _style, FilterContext() );
         if ( node )
         {
-            _xform->addChild( node );
-            replaceChild( _xform.get(), applyAltitudePolicy(_xform.get(), _style) );
+            node = AnnotationUtils::installOverlayParent( node.get(), _style );
+            getPositionAttitudeTransform()->addChild( node.get() );
         }
 
-        applyGeneralSymbology( _style );
+        applyRenderSymbology( _style );
         setLightingIfNotSet( false );
     }
-
-    setDecoration( currentDecoration );
 }
 
 
@@ -370,10 +366,8 @@ OSGEARTH_REGISTER_ANNOTATION( rectangle, osgEarth::Annotation::RectangleNode );
 RectangleNode::RectangleNode(MapNode*              mapNode,
                              const Config&         conf,
                              const osgDB::Options* dbOptions) :
-LocalizedNode( mapNode, conf )
+GeoPositionNode( mapNode, conf )
 {
-    _xform = new osg::MatrixTransform();
-
     conf.getObjIfSet( "width", _width );
     conf.getObjIfSet( "height", _height );
     conf.getObjIfSet( "style",  _style );
@@ -384,7 +378,7 @@ LocalizedNode( mapNode, conf )
 Config
 RectangleNode::getConfig() const
 {
-    Config conf = LocalizedNode::getConfig();
+    Config conf = GeoPositionNode::getConfig();
     conf.key() = "rectangle";
 
     conf.addObj( "width",  _width );

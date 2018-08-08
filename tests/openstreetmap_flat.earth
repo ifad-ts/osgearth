@@ -8,8 +8,7 @@ http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
 
     <options>
         <profile>spherical-mercator</profile>
-        <lighting>false</lighting>
-        <terrain engine="quadtree" range_mode="PIXEL_SIZE_ON_SCREEN" tile_pixel_size="256"/>
+        <terrain driver="rex" tile_size="2" morph_imagery="false"/>
     </options>
     
     <image name="osm_mapnik" driver="xyz">
@@ -18,4 +17,5 @@ http://wiki.openstreetmap.org/wiki/Slippy_map_tilenames
         <cache_policy usage="none"/>
     </image>
     
+    <xi:include href="viewpoints_flat.xml"/>
 </map>

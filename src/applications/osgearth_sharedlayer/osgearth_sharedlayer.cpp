@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -83,7 +86,7 @@ public:
         // Make a vertex shader that will access the texture coordinates
         // for our shared layer.
         std::string vs = Stringify()
-            << "varying vec4 mask_layer_texc; \n"
+            << "out vec4 mask_layer_texc; \n"
             << "void my_filter_vertex(inout vec4 VertexMODEL) \n"
             << "{ \n"
             << "    mask_layer_texc = gl_MultiTexCoord" << unit << "; \n"
@@ -94,10 +97,10 @@ public:
         // the shared "mask" layer exceed a certain alpha value.
         std::string fs =
             "uniform sampler2D mask_layer_tex; \n"
-            "varying vec4 mask_layer_texc; \n"
+            "in vec4 mask_layer_texc; \n"
             "void my_color_filter(inout vec4 color) \n"
             "{ \n"
-            "    vec4 mask_texel = texture2D(mask_layer_tex, mask_layer_texc.st); \n"
+            "    vec4 mask_texel = texture(mask_layer_tex, mask_layer_texc.st); \n"
             "    if ( mask_texel.a >= 0.5 ) \n"
             "    { \n"
             "        color.r = 1.0; \n"
@@ -152,8 +155,8 @@ int main(int argc, char** argv)
 
     // create a new map and add our two layers.
     MapNode* mapnode = new MapNode();
-    mapnode->getMap()->addImageLayer( imagery );
-    mapnode->getMap()->addImageLayer( sharedLayer );
+    mapnode->getMap()->addLayer( imagery );
+    mapnode->getMap()->addLayer( sharedLayer );
 
     // make a custom color-filter shader that will modulate the imagery
     // using the texture from the shared layer. (Using a ColorFilter 

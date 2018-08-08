@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -23,7 +23,7 @@
 #include <osgEarth/ImageLayer>
 #include <osgEarth/ThreadingUtils>
 
-namespace osgEarth { namespace Drivers { namespace SimpleOcean
+namespace osgEarth { namespace SimpleOcean
 {
     using namespace osgEarth;
 
@@ -47,9 +47,9 @@ namespace osgEarth { namespace Drivers { namespace SimpleOcean
 
     public: // ImageLayer
 
-        virtual void initTileSource();
+        virtual TileSource* createTileSource();
 
-        virtual bool isKeyInRange( const TileKey& key ) const;
+        virtual bool isKeyInLegalRange( const TileKey& key ) const;
 
         virtual bool isCached( const TileKey& key ) const;
 
@@ -60,6 +60,6 @@ namespace osgEarth { namespace Drivers { namespace SimpleOcean
         Threading::Mutex _mapfMutex;
     };
 
-} } } // namespace osgEarth::Drivers::SimpleOcean
+} } // namespace osgEarth::SimpleOcean
 
 #endif // OSGEARTH_DRIVER_SIMPLE_OCEAN_ELEV_PROXY_IMAGE_LAYER

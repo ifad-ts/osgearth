@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -23,6 +23,7 @@
 #include <osgEarth/Cube>
 #include <osgEarth/SpatialReference>
 #include <osgEarth/StringUtils>
+#include <osgEarth/Bounds>
 #include <osgDB/FileNameUtils>
 #include <algorithm>
 #include <sstream>
@@ -53,6 +54,12 @@ _numTilesWideAtLod0( 1 ),
 _numTilesHighAtLod0( 1 )
 {
     _namedProfile = namedProfile; // don't set above
+}
+
+ void
+ ProfileOptions::mergeConfig( const Config& conf ) {
+    ConfigOptions::mergeConfig( conf );
+    fromConfig( conf );
 }
 
 void
@@ -89,8 +96,8 @@ ProfileOptions::getConfig() const
     }
     else
     {
-        conf.updateIfSet( "srs", _srsInitString );
-        conf.updateIfSet( "vdatum", _vsrsInitString );
+        conf.set( "srs", _srsInitString );
+        conf.set( "vdatum", _vsrsInitString );
 
         if ( _bounds.isSet() )
         {
@@ -100,8 +107,8 @@ ProfileOptions::getConfig() const
             conf.update( "ymax", toString(_bounds->yMax()) );
         }
 
-        conf.updateIfSet( "num_tiles_wide_at_lod_0", _numTilesWideAtLod0 );
-        conf.updateIfSet( "num_tiles_high_at_lod_0", _numTilesHighAtLod0 );
+        conf.set( "num_tiles_wide_at_lod_0", _numTilesWideAtLod0 );
+        conf.set( "num_tiles_high_at_lod_0", _numTilesHighAtLod0 );
     }
     return conf;
 }
@@ -210,7 +217,30 @@ Profile::create(const std::string& srsInitString,
     }
     else if ( srs.valid() )
     {
-        OE_WARN << LC << "Failed to create profile; you must provide extents with a projected SRS." << std::endl;
+        OE_INFO << LC << "No extents given, making some up.\n";
+        Bounds bounds;
+        if (srs->guessBounds(bounds))
+        {
+            if (numTilesWideAtLod0 == 0 || numTilesHighAtLod0 == 0)
+            {
+                double ar = (bounds.width() / bounds.height());
+                if (ar >= 1.0) {
+                    int ari = (int)ar;
+                    numTilesHighAtLod0 = 1;
+                    numTilesWideAtLod0 = ari;
+                }
+                else {
+                    int ari = (int)(1.0/ar);
+                    numTilesWideAtLod0 = 1;
+                    numTilesHighAtLod0 = ari;
+                }
+            }            
+            return Profile::create(srs.get(), bounds.xMin(), bounds.yMin(), bounds.xMax(), bounds.yMax(), numTilesWideAtLod0, numTilesHighAtLod0);
+        }
+        else
+        {
+            OE_WARN << LC << "Failed to create profile; you must provide extents with a projected SRS." << std::endl;
+        }
     }
     else
     {
@@ -228,7 +258,7 @@ Profile::create( const ProfileOptions& options )
     // Check for a "well known named" profile:
     if ( options.namedProfile().isSet() )
     {
-        result = osgEarth::Registry::instance()->getNamedProfile( options.namedProfile().value() );
+        result = Profile::createNamed(options.namedProfile().get());
     }
 
     // Next check for a user-defined extents:
@@ -278,6 +308,28 @@ Profile::create( const ProfileOptions& options )
     }
 
     return result;
+}
+
+const Profile*
+Profile::createNamed(const std::string& name)
+{
+    // TODO: move the named profiles from Registry into here.
+    if ( ciEquals(name, "plate-carre") || ciEquals(name, "eqc-wgs84") )
+    {
+        // Yes I know this is not really Plate Carre but it will stand in for now.
+        return Profile::create(
+            "+proj=eqc +units=m +no_defs",
+            -20037508, -10001966,
+             20037508,  10001966,
+            "", // vdatum
+            2, 1 );
+
+    }
+
+    else
+    {
+        return osgEarth::Registry::instance()->getNamedProfile( name );
+    }
 }
 
 /****************************************************************************/
@@ -492,7 +544,7 @@ Profile::getNumTiles(unsigned int lod, unsigned int& out_tiles_wide, unsigned in
 unsigned int
 Profile::getLevelOfDetailForHorizResolution( double resolution, int tileSize ) const
 {
-    if ( tileSize <= 0 || resolution <= 0.0 ) return 0;
+    if ( tileSize <= 0 || resolution <= 0.0 ) return 23;
 
     double tileRes = (_extent.width() / (double)_numTilesWideAtLod0) / (double)tileSize;
     unsigned int level = 0;
@@ -509,14 +561,22 @@ Profile::createTileKey( double x, double y, unsigned int level ) const
 {
     if ( _extent.contains( x, y ) )
     {
-        unsigned int tilesX = (unsigned int)_numTilesWideAtLod0 * (1 << (unsigned int)level);
-        unsigned int tilesY = (unsigned int)_numTilesHighAtLod0 * (1 << (unsigned int)level);
+        unsigned tilesX = _numTilesWideAtLod0 * (1 << (unsigned)level);
+        unsigned tilesY = _numTilesHighAtLod0 * (1 << (unsigned)level);
 
-        if (((_numTilesWideAtLod0 != 0) && ((tilesX / _numTilesWideAtLod0) != (1 << (unsigned int) level))) ||
-            ((_numTilesHighAtLod0 != 0) && ((tilesY / _numTilesHighAtLod0) != (1 << (unsigned int) level))))
-        {	// check for overflow condition
-            return (TileKey::INVALID);
-        }
+        // overflow checks:
+
+        if (_numTilesWideAtLod0 == 0u || ((tilesX / _numTilesWideAtLod0) != (1 << (unsigned)level)))
+            return TileKey::INVALID;
+
+        if (_numTilesHighAtLod0 == 0u || ((tilesY / _numTilesHighAtLod0) != (1 << (unsigned)level)))
+            return TileKey::INVALID;
+
+        //if (((_numTilesWideAtLod0 != 0) && ((tilesX / _numTilesWideAtLod0) != (1 << (unsigned int) level))) ||
+        //    ((_numTilesHighAtLod0 != 0) && ((tilesY / _numTilesHighAtLod0) != (1 << (unsigned int) level))))
+        //{	// check for overflow condition
+        //    return (TileKey::INVALID);
+        //}
 
         double rx = (x - _extent.xMin()) / _extent.width();
         int tileX = osg::clampBelow( (unsigned int)(rx * (double)tilesX), tilesX-1 );
@@ -719,8 +779,8 @@ Profile::getEquivalentLOD( const Profile* rhsProfile, unsigned rhsLOD ) const
         return rhsLOD;
 
     // Special check for geodetic to mercator or vise versa, they should match up in LOD.
-    if (rhsProfile->isEquivalentTo(Registry::instance()->getSphericalMercatorProfile()) && isEquivalentTo(Registry::instance()->getGlobalGeodeticProfile()) ||
-        rhsProfile->isEquivalentTo(Registry::instance()->getGlobalGeodeticProfile()) && isEquivalentTo(Registry::instance()->getSphericalMercatorProfile()))
+    if ((rhsProfile->isEquivalentTo(Registry::instance()->getSphericalMercatorProfile()) && isEquivalentTo(Registry::instance()->getGlobalGeodeticProfile())) ||
+        (rhsProfile->isEquivalentTo(Registry::instance()->getGlobalGeodeticProfile()) && isEquivalentTo(Registry::instance()->getSphericalMercatorProfile())))
     {
         return rhsLOD;
     }
@@ -748,10 +808,10 @@ Profile::getEquivalentLOD( const Profile* rhsProfile, unsigned rhsLOD ) const
     while( true )
     {
         double prevDelta = delta;
-
-        currLOD++;
+        
         double w, h;
         getTileDimensions(currLOD, w, h);
+
         delta = osg::absolute( h - rhsTargetHeight );
         if (delta < prevDelta)
         {
@@ -763,7 +823,7 @@ Profile::getEquivalentLOD( const Profile* rhsProfile, unsigned rhsLOD ) const
             // We are further away from the previous lod so stop.
             break;
         }        
-        destLOD = currLOD;
+        currLOD++;
     }
     return destLOD;
 }

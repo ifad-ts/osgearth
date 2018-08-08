@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -102,7 +102,7 @@ VerticalDatum::transform(const VerticalDatum* from,
     }
 
     Units fromUnits = from ? from->getUnits() : Units::METERS;
-    Units toUnits = to ? to->getUnits() : fromUnits;
+    Units toUnits = to ? to->getUnits() : Units::METERS;
 
     in_out_z = fromUnits.convertTo(toUnits, in_out_z);
 
@@ -142,8 +142,8 @@ VerticalDatum::transform(const VerticalDatum* from,
     osg::Vec3d sw(extent.west(), extent.south(), 0.0);
     osg::Vec3d ne(extent.east(), extent.north(), 0.0);
     
-    double xstep = abs(extent.east() - extent.west()) / double(cols-1);
-    double ystep = abs(extent.north() - extent.south()) / double(rows-1);
+    double xstep = std::abs(extent.east() - extent.west()) / double(cols-1);
+    double ystep = std::abs(extent.north() - extent.south()) / double(rows-1);
 
     if ( !extent.getSRS()->isGeographic() )
     {
@@ -161,7 +161,10 @@ VerticalDatum::transform(const VerticalDatum* from,
         {
             double lat = sw.y() + ystep*double(r);
             float& h = hf->getHeight(c, r);
-            VerticalDatum::transform( from, to, lat, lon, h );
+            if (h != NO_DATA_VALUE)
+            {
+                VerticalDatum::transform( from, to, lat, lon, h );
+            }
         }
     }
 
@@ -215,14 +218,15 @@ VerticalDatum::isEquivalentTo( const VerticalDatum* rhs ) const
 VerticalDatum*
 VerticalDatumFactory::create( const std::string& init )
 {
-    VerticalDatum* result = 0L;
+    osg::ref_ptr<VerticalDatum> datum;
 
     std::string driverExt = Stringify() << ".osgearth_vdatum_" << init;
-    result = dynamic_cast<VerticalDatum*>( osgDB::readObjectFile(driverExt) );
-    if ( !result )
+    osg::ref_ptr<osg::Object> object = osgDB::readRefObjectFile( driverExt );
+    datum = dynamic_cast<VerticalDatum*>( object.release() );
+    if ( !datum )
     {
         OE_WARN << "WARNING: Failed to load Vertical Datum driver for \"" << init << "\"" << std::endl;
     }
 
-    return result;
+    return datum.release();
 }

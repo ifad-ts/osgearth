@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -52,10 +52,10 @@ namespace osgEarth { namespace Drivers
         optional<std::string>& version() { return _version; }
         const optional<std::string>& version() const { return _version; }
 
-		optional<unsigned int>& maxDataLevelOverride() { return _maxDataLevelOverride;}
+        optional<unsigned int>& maxDataLevelOverride() { return _maxDataLevelOverride;}
         const optional<unsigned int>& maxDataLevelOverride() const { return _maxDataLevelOverride;}
 
-		optional<double>& maxResolution() { return _maxResolution;}
+        optional<double>& maxResolution() { return _maxResolution;}
         const optional<double>& maxResolution() const { return _maxResolution;}
 
     public:
@@ -73,15 +73,15 @@ namespace osgEarth { namespace Drivers
     public:
         Config getConfig() const {
             Config conf = TileSourceOptions::getConfig();
-            conf.updateIfSet("url", _url);
-            conf.updateIfSet("identifier", _identifier);
-            conf.updateIfSet("format", _format);
-            conf.updateIfSet("elevation_unit", _elevationUnit);
-            conf.updateIfSet("srs", _srs);
-            conf.updateIfSet("range_subset", _rangeSubset);
+            conf.set("url", _url);
+            conf.set("identifier", _identifier);
+            conf.set("format", _format);
+            conf.set("elevation_unit", _elevationUnit);
+            conf.set("srs", _srs);
+            conf.set("range_subset", _rangeSubset);
             conf.updateIfSet("version", _version);
-			conf.updateIfSet( "max_data_level_override", _maxDataLevelOverride);
-			conf.updateIfSet( "max_resolution", _maxResolution);
+            conf.updateIfSet( "max_data_level_override", _maxDataLevelOverride);
+            conf.updateIfSet( "max_resolution", _maxResolution);
             return conf;
         }
 
@@ -100,14 +100,14 @@ namespace osgEarth { namespace Drivers
             conf.getIfSet("srs", _srs);
             conf.getIfSet("range_subset", _rangeSubset);
             conf.getIfSet("version", _version);
-			conf.getIfSet( "max_data_level_override", _maxDataLevelOverride);
-			conf.getIfSet( "max_resolution", _maxResolution);
+            conf.getIfSet( "max_data_level_override", _maxDataLevelOverride);
+            conf.getIfSet( "max_resolution", _maxResolution);
         }
 
         optional<URI>         _url;
         optional<std::string> _identifier, _format, _elevationUnit, _srs, _rangeSubset, _version;
-		optional<unsigned int> _maxDataLevelOverride;
-		optional<double> _maxResolution;
+        optional<unsigned int> _maxDataLevelOverride;
+        optional<double> _maxResolution;
     };
 
 } } // namespace osgEarth::Drivers

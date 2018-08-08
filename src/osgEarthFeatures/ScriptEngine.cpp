@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -107,9 +107,22 @@ ScriptEngineFactory::create( const Script& script, const std::string& engineName
 }
 
 ScriptEngine*
+ScriptEngineFactory::createWithProfile( const Script& script, const std::string& profile, const std::string& engineName, bool quiet)
+{
+  ScriptEngineOptions opts;
+  opts.setDriver(script.getLanguage() + (engineName.empty() ? "" : (std::string("_") + engineName)));
+  opts.script() = script;
+
+  ScriptEngine* e = create(opts, quiet);
+  if ( e )
+      e->setProfile( profile );
+  return e;
+}
+
+ScriptEngine*
 ScriptEngineFactory::create( const ScriptEngineOptions& options, bool quiet)
 {
-    ScriptEngine* scriptEngine = 0L;
+    osg::ref_ptr<ScriptEngine> scriptEngine;
 
     if ( !options.getDriver().empty() )
     {
@@ -120,7 +133,8 @@ ScriptEngineFactory::create( const ScriptEngineOptions& options, bool quiet)
             osg::ref_ptr<osgDB::Options> rwopts = Registry::instance()->cloneOrCreateOptions();
             rwopts->setPluginData( SCRIPT_ENGINE_OPTIONS_TAG, (void*)&options );
 
-            scriptEngine = dynamic_cast<ScriptEngine*>( osgDB::readObjectFile( driverExt, rwopts.get() ) );
+            osg::ref_ptr<osg::Object> object = osgDB::readRefObjectFile( driverExt, rwopts.get() );
+            scriptEngine = dynamic_cast<ScriptEngine*>( object.release() );
             if ( scriptEngine )
             {
                 OE_DEBUG << "Loaded ScriptEngine driver \"" << options.getDriver() << "\" OK" << std::endl;
@@ -144,7 +158,7 @@ ScriptEngineFactory::create( const ScriptEngineOptions& options, bool quiet)
             OE_WARN << LC << "FAIL, illegal null driver specification" << std::endl;
     }
 
-    return scriptEngine;
+    return scriptEngine.release();
 }
 
 //------------------------------------------------------------------------
@@ -152,5 +166,7 @@ ScriptEngineFactory::create( const ScriptEngineOptions& options, bool quiet)
 const ScriptEngineOptions&
 ScriptEngineDriver::getScriptEngineOptions( const osgDB::ReaderWriter::Options* options ) const
 {
-    return *static_cast<const ScriptEngineOptions*>( options->getPluginData( SCRIPT_ENGINE_OPTIONS_TAG ) );
+    static ScriptEngineOptions s_default;
+    const void* data = options->getPluginData(SCRIPT_ENGINE_OPTIONS_TAG);
+    return data ? *static_cast<const ScriptEngineOptions*>(data) : s_default;
 }

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -278,11 +281,12 @@ namespace
 //---------------------------------------------------------------------------
 
 OverlayDecorator::OverlayDecorator() :
-_useShaders          ( true ),
 _dumpRequested       ( false ),
 _rttTraversalMask    ( ~0 ),
 _maxHorizonDistance  ( DBL_MAX ),
-_totalOverlayChildren( 0 )
+_totalOverlayChildren( 0 ),
+_maxHeight           ( 500000.0 ),
+_isGeocentric(true)
 {
     //nop.
 }
@@ -353,7 +357,8 @@ OverlayDecorator::initializePerViewData( PerViewData& pvd, osg::Camera* cam )
         params._group = _overlayGroups[i].get();
         params._terrainStateSet = pvd._sharedTerrainStateSet.get(); // share it.
         params._horizonDistance = &pvd._sharedHorizonDistance;      // share it.
-        params._terrainParent = this;
+        if (_engine.valid())
+            params._terrainResources = _engine->getResources();
         params._mainCamera = cam;
     }
 }
@@ -365,63 +370,55 @@ OverlayDecorator::setOverlayGraphTraversalMask( unsigned mask )
     _rttTraversalMask = mask;
 }
 
-
 void
-OverlayDecorator::onInstall( TerrainEngineNode* engine )
+OverlayDecorator::setTerrainEngine(TerrainEngineNode* engine)
 {
-    _engine = engine;
-
-    // establish the earth's major axis:
-    MapInfo info(engine->getMap());
-    _isGeocentric = info.isGeocentric();
-    _srs = info.getProfile()->getSRS();
-    _ellipsoid = info.getProfile()->getSRS()->getEllipsoid();
-
-    for(Techniques::iterator t = _techniques.begin(); t != _techniques.end(); ++t )
+    if (engine)
     {
-        t->get()->onInstall( engine );
-    }
-}
+        _engine = engine;
 
+        // establish the earth's major axis:
+        MapInfo info(engine->getMap());
+        _isGeocentric = info.isGeocentric();
+        _srs = info.getProfile()->getSRS();
+        _ellipsoid = info.getProfile()->getSRS()->getEllipsoid();
 
-void
-OverlayDecorator::onUninstall( TerrainEngineNode* engine )
-{
-    for(Techniques::iterator t = _techniques.begin(); t != _techniques.end(); ++t )
-    {
-        t->get()->onUninstall( engine );
+        for(Techniques::iterator t = _techniques.begin(); t != _techniques.end(); ++t )
+        {
+            t->get()->onInstall( engine );
+        }
     }
 
-    _engine = 0L;
+    else
+    {
+        for (Techniques::iterator t = _techniques.begin(); t != _techniques.end(); ++t)
+        {
+            t->get()->onUninstall(engine);
+        }
+    }
 }
-
 
 void
 OverlayDecorator::cullTerrainAndCalculateRTTParams(osgUtil::CullVisitor* cv,
                                                    PerViewData&          pvd)
 {
-    static int s_frame = 1;
-
     osg::Vec3d eye = cv->getViewPoint();
 
     double eyeLen;
     osg::Vec3d worldUp;
 
     // Radius at eyepoint (geocentric)
-    double R;
+    double R = 0;
 
     // height above sea level
     double hasl;
-
-    // weight of the HASL value when calculating extent compensation
-    double haslWeight;
 
     // approximate distance to the visible horizon
     double horizonDistance;
 
     OE_TEST << LC << "------- OD CULL ------------------------" << std::endl;
 
-    if ( _isGeocentric )
+    if ( _isGeocentric && _engine.valid() )
     {
         eyeLen = eye.length();
 
@@ -434,7 +431,7 @@ OverlayDecorator::cullTerrainAndCalculateRTTParams(osgUtil::CullVisitor* cv,
         
         //Actually sample the terrain to get the height and adjust the eye position so it's a tighter fit to the real data.
         double height;
-        if (_engine->getTerrain()->getHeight(geoSRS, geodetic.x(), geodetic.y(), &height)) // SpatialReference::create("epsg:4326"), osg::RadiansToDegrees( lon ), osg::RadiansToDegrees( lat ), &height))
+        if (_engine->getTerrain()->getHeight(geoSRS, geodetic.x(), geodetic.y(), &height))
         {
             geodetic.z() -= height;
         }
@@ -463,14 +460,10 @@ OverlayDecorator::cullTerrainAndCalculateRTTParams(osgUtil::CullVisitor* cv,
     // update the shared horizon distance.
     pvd._sharedHorizonDistance = horizonDistance;
 
-    // create a "weighting" that weights HASL against the camera's pitch.
-    osg::Vec3d lookVector = cv->getLookVectorLocal();
-    haslWeight = osg::absolute(worldUp * lookVector);
-
     // unit look-vector of the eye:
     osg::Vec3d camEye, camTo, camUp;
     const osg::Matrix& mvMatrix = *cv->getModelViewMatrix();
-    mvMatrix.getLookAt( camEye, camTo, camUp, 1.0); //eyeLen);
+    mvMatrix.getLookAt( camEye, camTo, camUp, 1.0);
     osg::Vec3 camLook = camTo-camEye;
     camLook.normalize();
 
@@ -558,13 +551,16 @@ OverlayDecorator::cullTerrainAndCalculateRTTParams(osgUtil::CullVisitor* cv,
     // the Ortho Z as mush as possible in order to maintain depth precision. Perhaps
     // later we can split this out and have each technique calculation its own View and
     // Proj matrix.
-
-    // For now: our RTT camera z range will be based on this equation:
-    double zspan = std::max(50000.0, hasl+25000.0);
+    
     osg::Vec3d up = camLook;
+    osg::Vec3d rttEye;
+
     if ( _isGeocentric )
     {
-        osg::Vec3d rttEye = eye+worldUp*zspan;
+        osg::Vec3d center = eye;
+        center.normalize();
+        center *= R;
+        rttEye = center + worldUp*_maxHeight;
         //establish a valid up vector
         osg::Vec3d rttLook = -rttEye;
         rttLook.normalize();
@@ -572,15 +568,18 @@ OverlayDecorator::cullTerrainAndCalculateRTTParams(osgUtil::CullVisitor* cv,
             up.set( camUp );
 
         // do NOT look at (0,0,0); must look down the ellipsoid up vector.
-        rttViewMatrix.makeLookAt( rttEye, rttEye-worldUp*zspan, up );
+        rttViewMatrix.makeLookAt( rttEye, center, up );
     }
     else
     {
+        osg::Vec3d center( camEye.x(), camEye.y(), 0.0 );
+        rttEye = center + worldUp*_maxHeight;
+
         osg::Vec3d rttLook(0, 0, -1);
         if ( fabs(rttLook * camLook) > 0.9999 )
             up.set( camUp );
 
-        rttViewMatrix.makeLookAt( camEye + worldUp*zspan, camEye - worldUp*zspan, up );
+        rttViewMatrix.makeLookAt( rttEye, center, up );
     }
 
     // Build a polyhedron for the new frustum so we can slice it.
@@ -592,55 +591,62 @@ OverlayDecorator::cullTerrainAndCalculateRTTParams(osgUtil::CullVisitor* cv,
     // now copy the RTT matrixes over to the techniques.
     for( unsigned t=0; t<pvd._techParams.size(); ++t )
     {
+        OverlayTechnique* tech = _techniques[t].get();
         TechRTTParams& params = pvd._techParams[t];
 
         // skip empty techniques
-        if ( !_techniques[t]->hasData(params) )
+        if ( !tech->hasData(params) )
             continue;
 
         // slice it to fit the overlay geometry. (this says 'visible' but it's just everything..
         // perhaps we can truly make it visible)
         osgShadow::ConvexPolyhedron visiblePH( frustumPH );
 
-#if 0
-        osg::Polytope frustumPT;
-        frustumPH.getPolytope(frustumPT);
-        ComputeVisibleBounds cvb(frustumPT, MVP);
-        params._group->accept(cvb);
-        const osg::BoundingSphere& visibleOverlayBS = cvb._bs;
-        OE_WARN << "VBS radius = " << visibleOverlayBS.radius() << std::endl;
-#else
-        const osg::BoundingSphere& visibleOverlayBS = params._group->getBound();
-#endif
-        if ( visibleOverlayBS.valid() )
+        // if the technique wishes it, compute the bounds of the geometry and
+        // crop the frustum to fit those bounds. This will result in a tighter
+        // fit if the geometry bounds are smaller than the visible region of terrain.
+        if (tech->optimizeToVisibleBound())
         {
-            // form an axis-aligned polytope around the bounding sphere of the
-            // overlay geometry. Use that to cut the camera frustum polytope.
-            // This will minimize the coverage area and also ensure inclusion
-            // of geometry that falls outside the camera frustum but inside
-            // the overlay area.
-            osg::Polytope visibleOverlayPT;
+#if 0
+            osg::Polytope frustumPT;
+            frustumPH.getPolytope(frustumPT);
+            ComputeVisibleBounds cvb(frustumPT, MVP);
+            params._group->accept(cvb);
+            const osg::BoundingSphere& visibleOverlayBS = cvb._bs;
+            OE_WARN << "VBS radius = " << visibleOverlayBS.radius() << std::endl;
+#else
+            const osg::BoundingSphere& visibleOverlayBS = tech->getBound(params);
+#endif
+            if ( visibleOverlayBS.valid() )
+            {
+                // form an axis-aligned polytope around the bounding sphere of the
+                // overlay geometry. Use that to cut the camera frustum polytope.
+                // This will minimize the coverage area and also ensure inclusion
+                // of geometry that falls outside the camera frustum but inside
+                // the overlay area.
+                osg::Polytope visibleOverlayPT;
 
-            osg::Vec3d tangent(0,0,1);
-            if (fabs(worldUp*tangent) > 0.9999)
-                tangent.set(0,1,0);
+                osg::Vec3d tangent(0,0,1);
+                if (fabs(worldUp*tangent) > 0.9999)
+                    tangent.set(0,1,0);
 
-            osg::Vec3d westVec  = worldUp^tangent; westVec.normalize();
-            osg::Vec3d southVec = worldUp^westVec; southVec.normalize();
-            osg::Vec3d eastVec  = -westVec;
-            osg::Vec3d northVec = -southVec;
+                osg::Vec3d westVec  = worldUp^tangent; westVec.normalize();
+                osg::Vec3d southVec = worldUp^westVec; southVec.normalize();
+                osg::Vec3d eastVec  = -westVec;
+                osg::Vec3d northVec = -southVec;
 
-            osg::Vec3d westPt  = visibleOverlayBS.center() + westVec*visibleOverlayBS.radius();
-            osg::Vec3d eastPt  = visibleOverlayBS.center() + eastVec*visibleOverlayBS.radius();
-            osg::Vec3d northPt = visibleOverlayBS.center() + northVec*visibleOverlayBS.radius();
-            osg::Vec3d southPt = visibleOverlayBS.center() + southVec*visibleOverlayBS.radius();
+                osg::Vec3d westPt  = visibleOverlayBS.center() + westVec*visibleOverlayBS.radius();
+                osg::Vec3d eastPt  = visibleOverlayBS.center() + eastVec*visibleOverlayBS.radius();
+                osg::Vec3d northPt = visibleOverlayBS.center() + northVec*visibleOverlayBS.radius();
+                osg::Vec3d southPt = visibleOverlayBS.center() + southVec*visibleOverlayBS.radius();
 
-            visibleOverlayPT.add(osg::Plane(-westVec,  westPt));
-            visibleOverlayPT.add(osg::Plane(-eastVec,  eastPt));
-            visibleOverlayPT.add(osg::Plane(-southVec, southPt));
-            visibleOverlayPT.add(osg::Plane(-northVec, northPt));
+                visibleOverlayPT.add(osg::Plane(-westVec,  westPt));
+                visibleOverlayPT.add(osg::Plane(-eastVec,  eastPt));
+                visibleOverlayPT.add(osg::Plane(-southVec, southPt));
+                visibleOverlayPT.add(osg::Plane(-northVec, northPt));
 
-            visiblePH.cut( visibleOverlayPT );
+                visiblePH.cut( visibleOverlayPT );
+            }
         }
 
         // for dumping, we want the previous fram's projection matrix
@@ -655,32 +661,43 @@ OverlayDecorator::cullTerrainAndCalculateRTTParams(osgUtil::CullVisitor* cv,
         // TODO: when verts = 0 should we do something different? or use the previous
         // frame's view matrix?
         if ( verts.size() > 0 )
-        {
-            // calculate an orthographic RTT projection matrix based on the view-space
-            // bounds of the vertex list (i.e. the extents surrounding the RTT camera 
-            // that bounds all the polyherdron verts in its XY plane)
-            double xmin, ymin, xmax, ymax, maxDist;
-            getExtentInSilhouette(rttViewMatrix, eye, verts, xmin, ymin, xmax, ymax, maxDist);
+        {            
+            double xmin, ymin, xmax, ymax, orthoNear, orthoFar, maxDist;
 
-            // make sure the ortho camera penetrates the terrain. This is a must for depth buffer sampling
-            double dist = std::max(hasl*1.5, std::min(maxDist, eyeLen));
+#if 0
+            // testing "lock to ortho viewport".
+            bool lockToOrthoFrustum = false; // experimental
+            if ( lockToOrthoFrustum && osg::equivalent(projMatrix(3,3), 1.0) )
+            {
+                projMatrix.getOrtho(xmin, xmax, ymin, ymax, orthoNear, orthoFar);
+            }
 
-            // in ecef it can't go past the horizon though, or you get bleed thru
-            if ( _isGeocentric )
-                dist = std::min(dist, eyeLen);
-
-            // Even through using xmin and xmax directly results in a tighter fit, 
-            // it offsets the eyepoint from the center of the projection frustum.
-            // This causes problems for the draping projection matrix optimizer, so
-            // for now instead of re-doing that code we will just center the eyepoint
-            // here by using the larger of xmin and xmax. -gw.
-#if 1
-            double x = std::max( fabs(xmin), fabs(xmax) );
-            rttProjMatrix.makeOrtho(-x, x, ymin, ymax, 0.0, dist+zspan);
-#else
-            //Note: this was the original setup, which is technically optimal:
-            rttProjMatrix.makeOrtho(xmin, xmax, ymin, ymax, 0.0, dist+zspan);
+            else
 #endif
+            {
+                // calculate an orthographic RTT projection matrix based on the view-space
+                // bounds of the vertex list (i.e. the extents surrounding the RTT camera 
+                // that bounds all the polyherdron verts in its XY plane)
+                getExtentInSilhouette(rttViewMatrix, eye, verts, xmin, ymin, xmax, ymax, maxDist);
+
+                // Even through using xmin and xmax directly results in a tighter fit, 
+                // it offsets the eyepoint from the center of the projection frustum.
+                // This causes problems for the draping projection matrix optimizer, so
+                // for now instead of re-doing that code we will just center the eyepoint
+                // here by using the larger of xmin and xmax. -gw.                
+                double x = std::max( fabs(xmin), fabs(xmax) );
+                xmin = -x, xmax = x;
+            }
+
+            // extends the frustum as far as it will safely go.
+            // this may result in Z fighting. either ignore that, assuming that draped geometry
+            // should probaly not use depth testing anyway, or address it later
+            double rttLen = rttEye.length();
+            orthoNear = 0.0; // at the rtt camera
+            orthoFar  = _isGeocentric ? rttLen : (rttLen + _maxHeight);
+
+            rttProjMatrix.makeOrtho(xmin, xmax, ymin, ymax, orthoNear, orthoFar);
+
 
             // Clamp the view frustum's N/F to the visible geometry. This clamped
             // frustum is the one we'll send to the technique.
@@ -699,7 +716,7 @@ OverlayDecorator::cullTerrainAndCalculateRTTParams(osgUtil::CullVisitor* cv,
             params._rttViewMatrix.set( rttViewMatrix );
             params._rttProjMatrix.set( rttProjMatrix );
             params._eyeWorld = eye;
-            params._visibleFrustumPH = clampedFrustumPH; //frustumPH;
+            params._visibleFrustumPH = clampedFrustumPH;
         }
 
         // service a "dump" of the polyhedrons for dubugging purposes
@@ -712,17 +729,17 @@ OverlayDecorator::cullTerrainAndCalculateRTTParams(osgUtil::CullVisitor* cv,
             {
                 frustumPH.dumpGeometry(0,0,0,fn);
             }
-            osg::Node* camNode = osgDB::readNodeFile(fn);
+            osg::ref_ptr<osg::Node> camNode = osgDB::readRefNodeFile(fn);
             camNode->setName("camera");
 
             // visible overlay BEFORE cutting:
             //uncutVisiblePH.dumpGeometry(0,0,0,fn,osg::Vec4(0,1,1,1),osg::Vec4(0,1,1,.25));
-            //osg::Node* overlay = osgDB::readNodeFile(fn);
+            //osg::ref_ptr<osg::Node> overlay = osgDB::readRefNodeFile(fn);
             //overlay->setName("overlay");
 
             // visible overlay Polyherdron AFTER cuting:
             visiblePH.dumpGeometry(0,0,0,fn,osg::Vec4(1,.5,1,1),osg::Vec4(1,.5,0,.25));
-            osg::Node* intersection = osgDB::readNodeFile(fn);
+            osg::ref_ptr<osg::Node> intersection = osgDB::readRefNodeFile(fn);
             intersection->setName("intersection");
 
             // RTT frustum:
@@ -735,7 +752,7 @@ OverlayDecorator::cullTerrainAndCalculateRTTParams(osgUtil::CullVisitor* cv,
                 rttPH.transform( inverseMVP, MVP );
                 rttPH.dumpGeometry(0,0,0,fn,osg::Vec4(1,1,0,1),osg::Vec4(1,1,0,0.25));
             }
-            osg::Node* rttNode = osgDB::readNodeFile(fn);
+            osg::ref_ptr<osg::Node> rttNode = osgDB::readRefNodeFile(fn);
             rttNode->setName("rtt");
 
             // EyePoint
@@ -747,7 +764,7 @@ OverlayDecorator::cullTerrainAndCalculateRTTParams(osgUtil::CullVisitor* cv,
             dsgmt->addChild( dsg );
 
             osg::Group* g = new osg::Group();
-            g->getOrCreateStateSet()->setAttribute(new osg::Program(), 0);
+            //g->getOrCreateStateSet()->setAttribute(new osg::Program(), 0);
             g->addChild(camNode);
             //g->addChild(overlay);
             g->addChild(intersection);
@@ -803,7 +820,7 @@ OverlayDecorator::traverse( osg::NodeVisitor& nv )
     // cull visitor's current camera view and work with that:
     if ( nv.getVisitorType() == nv.CULL_VISITOR )
     {
-        osgUtil::CullVisitor* cv = Culling::asCullVisitor(nv);
+        osgUtil::CullVisitor* cv = static_cast<osgUtil::CullVisitor*>(&nv);
         osg::Camera* camera = cv->getCurrentCamera();
 
         if ( camera != 0L && (_rttTraversalMask & nv.getTraversalMask()) != 0 )

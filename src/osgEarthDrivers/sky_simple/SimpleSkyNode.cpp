@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -33,11 +36,13 @@
 #include <osgEarth/ShaderFactory>
 #include <osgEarth/ShaderGenerator>
 #include <osgEarth/Shaders>
+#include <osgEarth/Lighting>
 
 #include <osg/MatrixTransform>
 #include <osg/ShapeDrawable>
 #include <osg/PointSprite>
 #include <osg/PolygonMode>
+#include <osg/Texture2D>
 #include <osg/BlendFunc>
 #include <osg/FrontFace>
 #include <osg/CullFace>
@@ -55,7 +60,7 @@
 
 using namespace osgEarth;
 using namespace osgEarth::Util;
-using namespace osgEarth::Drivers::SimpleSky;
+using namespace osgEarth::SimpleSky;
 
 //---------------------------------------------------------------------------
 
@@ -178,8 +183,8 @@ namespace
 
             int i_plus_1 = i < segments-1? i+1 : 0;
             el->push_back( 0 );
-            el->push_back( 1 + i_plus_1 );
             el->push_back( 1 + i );
+            el->push_back( 1 + i_plus_1 );
         }
 
         return geom;
@@ -210,11 +215,18 @@ SimpleSkyNode::initialize(const SpatialReference* srs)
 
     osg::Vec3f lightPos(0.0f, 1.0f, 0.0f);
 
-    _light = new osg::Light( 0 );
-    _light->setPosition( osg::Vec4f(0.0f, 0.0f, 1.0, 0.0f) );
-    _light->setAmbient ( osg::Vec4f(0.03f, 0.03f, 0.03f, 1.0f) );
+    _light = new LightGL3( 0 );
+    _light->setPosition( osg::Vec4f(0.0f, 0.0f, 1.0f, 0.0f) );
+    _light->setAmbient ( osg::Vec4f(0.1f, 0.1f, 0.1f, 1.0f) );
     _light->setDiffuse ( osg::Vec4f(1.0f, 1.0f, 1.0f, 1.0f) );
     _light->setSpecular( osg::Vec4f(1.0f, 1.0f, 1.0f, 1.0f) );
+
+    // install the Sun as a lightsource.
+    osg::LightSource* lightSource = new osg::LightSource();
+    lightSource->setLight(_light.get());
+    lightSource->setCullingActive(false);
+    this->addChild( lightSource );
+    lightSource->addCullCallback(new LightSourceGL3UniformGenerator());
 
     if ( _options.ambient().isSet() )
     {
@@ -233,7 +245,7 @@ SimpleSkyNode::initialize(const SpatialReference* srs)
     _cullContainer = new osg::Group();
     
     // set up the astronomical parameters:
-    _ellipsoidModel = srs->getEllipsoid();
+    _ellipsoidModel = srs ? srs->getEllipsoid() : new osg::EllipsoidModel();
     _innerRadius = osg::minimum(
         _ellipsoidModel->getRadiusPolar(),
         _ellipsoidModel->getRadiusEquator() );
@@ -242,13 +254,17 @@ SimpleSkyNode::initialize(const SpatialReference* srs)
     
     if ( Registry::capabilities().supportsGLSL() )
     {
+        osg::StateSet* stateset = this->getOrCreateStateSet();
+
         _lightPosUniform = new osg::Uniform(osg::Uniform::FLOAT_VEC3, "atmos_v3LightDir");
         _lightPosUniform->set( lightPos / lightPos.length() );
-        this->getOrCreateStateSet()->addUniform( _lightPosUniform.get() );
+        stateset->addUniform( _lightPosUniform.get() );
 
         // default GL_LIGHTING uniform setting
-        this->getOrCreateStateSet()->addUniform(
-            Registry::shaderFactory()->createUniformForGLMode(GL_LIGHTING, 1) );
+        //stateset->addUniform(
+        //    Registry::shaderFactory()->createUniformForGLMode(GL_LIGHTING, 1) );
+
+        stateset->setDefine(OE_LIGHTING_DEFINE, osg::StateAttribute::ON);
 
         // make the uniforms and the terrain lighting shaders.
         makeSceneLighting();
@@ -274,7 +290,7 @@ SimpleSkyNode::computeBound() const
 }
 
 void 
-    SimpleSkyNode::traverse( osg::NodeVisitor& nv ) 
+SimpleSkyNode::traverse( osg::NodeVisitor& nv ) 
 { 
     if ( nv.getVisitorType() == nv.CULL_VISITOR && _cullContainer.valid() ) 
     { 
@@ -340,21 +356,22 @@ SimpleSkyNode::onSetDateTime()
 }
 
 void
-SimpleSkyNode::onSetMinimumAmbient()
-{
-    _light->setAmbient( getMinimumAmbient() );
-}
-
-void
 SimpleSkyNode::attach( osg::View* view, int lightNum )
 {
     if ( !view || !_light.valid() )
         return;
 
     _light->setLightNum( lightNum );
-    view->setLight( _light.get() );
-    view->setLightingMode( osg::View::SKY_LIGHT );
+
+    // black background
     view->getCamera()->setClearColor( osg::Vec4(0,0,0,1) );
+    
+    // install the light in the view (so other modules can access it, like shadowing)
+    view->setLight(_light.get());
+
+    // Tell the view not to automatically include a light.
+    view->setLightingMode( osg::View::NO_LIGHT );
+
 
     onSetDateTime();
 }
@@ -362,7 +379,11 @@ SimpleSkyNode::attach( osg::View* view, int lightNum )
 void
 SimpleSkyNode::setSunPosition(const osg::Vec3& pos)
 {
-    _light->setPosition( osg::Vec4(pos, 0.0f) );
+    osg::Vec3 npos = pos;
+    npos.normalize();
+    _light->setPosition( osg::Vec4(npos, 0.0f) ); // directional light
+
+    //OE_NOTICE << pos.x() << ", " << pos.y() << ", " << pos.z() << std::endl;
     
     if ( _lightPosUniform.valid() )
     {
@@ -407,6 +428,13 @@ SimpleSkyNode::onSetSunVisible()
 }
 
 void
+SimpleSkyNode::onSetAtmosphereVisible()
+{
+    if (_atmosphere.valid())
+        _atmosphere->setNodeMask( getAtmosphereVisible() ? ~0 : 0 );
+}
+
+void
 SimpleSkyNode::makeSceneLighting()
 {
     // installs the main uniforms and the shaders that will light the subgraph (terrain).
@@ -415,18 +443,20 @@ SimpleSkyNode::makeSceneLighting()
     VirtualProgram* vp = VirtualProgram::getOrCreate( stateset );
     vp->setName( "SimpleSky Scene Lighting" );
 
-    if (_options.atmosphericLighting() == true && !Registry::capabilities().isGLES() )
+    if (_options.atmosphericLighting() == true)// && !Registry::capabilities().isGLES() )
     {
         Shaders pkg;
-        pkg.loadFunction( vp, pkg.Ground_ONeil_Vert );
-        pkg.loadFunction( vp, pkg.Ground_ONeil_Frag );
+        pkg.load( vp, pkg.Ground_ONeil_Vert );
+        pkg.load( vp, pkg.Ground_ONeil_Frag );
+        OE_INFO << LC << "Using O'Neil atmospheric lighting\n";
     }
 
     else
     {
         _phong = new PhongLightingEffect();
-        _phong->setCreateLightingUniform( false );
+        //_phong->setCreateLightingUniform( false );
         _phong->attach( stateset );
+        OE_INFO << LC << "Using Phong lighting\n";
     }
 
     // calculate and apply the uniforms:
@@ -447,6 +477,7 @@ SimpleSkyNode::makeSceneLighting()
 
     float Scale = 1.0f / (_outerRadius - _innerRadius);
 
+    //TODO: make all these constants. -gw
     stateset->getOrCreateUniform( "atmos_v3InvWavelength", osg::Uniform::FLOAT_VEC3 )->set( RGB_wl );
     stateset->getOrCreateUniform( "atmos_fInnerRadius",    osg::Uniform::FLOAT )->set( _innerRadius );
     stateset->getOrCreateUniform( "atmos_fInnerRadius2",   osg::Uniform::FLOAT )->set( _innerRadius * _innerRadius );
@@ -464,7 +495,10 @@ SimpleSkyNode::makeSceneLighting()
     stateset->getOrCreateUniform( "atmos_nSamples",        osg::Uniform::INT )->set( Samples );
     stateset->getOrCreateUniform( "atmos_fSamples",        osg::Uniform::FLOAT )->set( (float)Samples );
     stateset->getOrCreateUniform( "atmos_fWeather",        osg::Uniform::FLOAT )->set( Weather );
-    stateset->getOrCreateUniform( "atmos_exposure",        osg::Uniform::FLOAT )->set( _options.exposure().value() );
+
+    // options:
+    stateset->getOrCreateUniform("oe_sky_exposure",           osg::Uniform::FLOAT )->set( _options.exposure().value() );
+    stateset->getOrCreateUniform("oe_sky_ambientBoostFactor", osg::Uniform::FLOAT)->set(_options.daytimeAmbientBoost().get());
 }
 
 void
@@ -500,8 +534,8 @@ SimpleSkyNode::makeAtmosphere(const osg::EllipsoidModel* em)
         vp->setInheritShaders( false );
 
         Shaders pkg;
-        pkg.loadFunction( vp, pkg.Atmosphere_Vert );
-        pkg.loadFunction( vp, pkg.Atmosphere_Frag );
+        pkg.load( vp, pkg.Atmosphere_Vert );
+        pkg.load( vp, pkg.Atmosphere_Frag );
     }
 
     // A nested camera isolates the projection matrix calculations so the node won't 
@@ -531,11 +565,7 @@ SimpleSkyNode::makeSun()
     osg::StateSet* set = sun->getOrCreateStateSet();
     set->setMode( GL_BLEND, 1 );
 
-    set->getOrCreateUniform( "atmos_sunAlpha", osg::Uniform::FLOAT )->set( 1.0f );
-
     // configure the stateset
-    set->setMode( GL_LIGHTING, osg::StateAttribute::OFF );
-    set->setMode( GL_CULL_FACE, osg::StateAttribute::OFF );
     set->setAttributeAndModes( new osg::Depth(osg::Depth::ALWAYS, 0, 1, false), osg::StateAttribute::ON );
 
     // create shaders
@@ -552,7 +582,7 @@ SimpleSkyNode::makeSun()
         ShaderLoader::load(pkg.Sun_Frag, pkg) );
     program->addShader( fs );
 
-    set->setAttributeAndModes( program, osg::StateAttribute::ON );
+    set->setAttributeAndModes( program, osg::StateAttribute::ON | osg::StateAttribute::PROTECTED );
 
     // A nested camera isolates the projection matrix calculations so the node won't 
     // affect the clip planes in the rest of the scene.
@@ -585,7 +615,7 @@ SimpleSkyNode::makeMoon()
     osg::Geometry* geom = s_makeEllipsoidGeometry( em.get(), em->getRadiusEquator(), true );    
     //TODO:  Embed this texture in code or provide a way to have a default resource directory for osgEarth.
     //       Right now just need to have this file somewhere in your OSG_FILE_PATH
-    osg::Image* image = osgDB::readImageFile( "moon_1024x512.jpg" );
+    osg::ref_ptr<osg::Image> image = osgDB::readRefImageFile( "moon_1024x512.jpg" );
     osg::Texture2D * texture = new osg::Texture2D( image );
     texture->setFilter(osg::Texture::MIN_FILTER,osg::Texture::LINEAR);
     texture->setFilter(osg::Texture::MAG_FILTER,osg::Texture::LINEAR);
@@ -606,7 +636,7 @@ SimpleSkyNode::makeMoon()
     set->setAttributeAndModes( new osg::Depth(osg::Depth::ALWAYS, 0, 1, false), osg::StateAttribute::ON );
     set->setAttributeAndModes( new osg::BlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA), osg::StateAttribute::ON );
     
-#ifdef OSG_GLES2_AVAILABLE
+#if 1 //defined(OSG_GLES2_AVAILABLE) || defined(OSG_GLES3_AVAILABLE)
 
     set->addUniform(new osg::Uniform("moonTex", 0));
 
@@ -651,7 +681,10 @@ SimpleSkyNode::makeMoon()
     }
 }
 
-SimpleSkyNode::StarData::StarData(std::stringstream &ss)
+SimpleSkyNode::StarData::StarData(std::stringstream &ss) :
+right_ascension(0.0),
+declination(0.0),
+magnitude(0.0)
 {
     std::getline( ss, name, ',' );
     std::string buff;
@@ -737,7 +770,10 @@ SimpleSkyNode::buildStarGeometry(const std::vector<StarData>& stars)
 
     osg::StateSet* sset = geometry->getOrCreateStateSet();
 
+#if !defined(OSG_GL3_AVAILABLE)
+    // In GL3, PointSprite is no longer available, and is always on.
     sset->setTextureAttributeAndModes( 0, new osg::PointSprite(), osg::StateAttribute::ON );
+#endif
     sset->setMode( GL_VERTEX_PROGRAM_POINT_SIZE, osg::StateAttribute::ON );
 
     Shaders pkg;

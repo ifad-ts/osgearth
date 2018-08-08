@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -26,58 +26,100 @@
 
 using namespace osgEarth;
 
-namespace
-{
-    // find the value of a quoted pragma, e.g.:
-    //   #pragma oe_key "value"
-    // returns the string "value" (without the quotes).
-    std::string getQuotedPragmaValue(const std::string& source,
-                                     const std::string& key)
-    {
-        std::string::size_type includePos = source.find("#pragma " + key);
-        if ( includePos == std::string::npos )
-            return "";
-
-        std::string::size_type openQuotePos = source.find('\"', includePos);
-        if ( openQuotePos == std::string::npos )
-            return "";
-
-        std::string::size_type closeQuotePos = source.find('\"', openQuotePos+1);
-        if ( closeQuotePos == std::string::npos )
-            return "";
-
-        std::string statement = source.substr( includePos, (closeQuotePos-includePos)+1 );
-
-        std::string value = source.substr( openQuotePos+1, (closeQuotePos-openQuotePos)-1 );
-
-        return value;
-    }
-}
 
 typedef std::map<std::string,std::string> StringMap;
 
+
+// find the value of a pragma, e.g.:
+//   #pragma oe_key value
+// returns the string "value" (without the quotes).
+std::string
+ShaderLoader::getPragmaValue(const std::string& source, const std::string& key)
+{
+    std::string token("#pragma " + key);
+    std::string::size_type statementPos = source.find(token);
+    if ( statementPos == std::string::npos )
+        return "";
+
+    // no quotes; parse to newline.
+    std::string::size_type startPos = source.find_first_not_of(" \t", statementPos+token.length());
+    if ( startPos == std::string::npos )
+        return ""; // no whitespace after the pragma key
+
+    std::string::size_type newlinePos = source.find('\n', startPos);
+    if ( newlinePos == std::string::npos )
+        return ""; // new newline found after pragma
+
+    return trim(source.substr(startPos, newlinePos-startPos));
+}
+
+void
+ShaderLoader::getAllPragmaValues(const std::string&     source,
+                                 const std::string&     key,
+                                 std::set<std::string>& output)
+{
+    std::string token("#pragma " + key);
+    std::string::size_type pragmaPos = 0;
+    while( pragmaPos != std::string::npos )
+    {
+        pragmaPos = source.find(token, pragmaPos);
+        if ( pragmaPos != std::string::npos )
+        {
+            std::string::size_type startPos = source.find_first_not_of(" \t", pragmaPos+token.length());
+            if ( startPos != std::string::npos )
+            {
+                std::string::size_type newlinePos = source.find('\n', startPos);
+                if ( newlinePos != std::string::npos )
+                {
+                    const size_t len = newlinePos - startPos;
+                    if ( len > 0 )
+                    {
+                        output.insert( trim(source.substr(startPos, len)) );
+                    }
+                    pragmaPos = newlinePos;
+                }
+                else
+                {
+                    break;
+                }
+            }
+            else
+            {
+                break;
+            }
+        }
+    }
+}
+
 std::string
 ShaderLoader::load(const std::string&    filename,
-                   const ShaderPackage&  sources,
+                   const ShaderPackage&  package,
                    const osgDB::Options* dbOptions)
 {
     std::string output;
     bool useInlineSource = false;
-    
+
+    URIContext context( dbOptions );
+    URI uri(filename, context);
+
     std::string inlineSource;
-    ShaderPackage::SourceMap::const_iterator source = sources.context().find(filename);
-    if ( source != sources.context().end() )
+    ShaderPackage::SourceMap::const_iterator source = package._sources.find(filename);
+    if ( source != package._sources.end() )
         inlineSource = source->second;
 
-    std::string path = osgDB::findDataFile(filename, dbOptions);
+    std::string path = osgDB::findDataFile(uri.full(), dbOptions);
     if ( path.empty() )
     {
         output = inlineSource;
         useInlineSource = true;
+        if ( inlineSource.empty() )
+        {
+            OE_WARN << LC << "Inline source for \"" << filename << "\" is empty, and no external file could be found.\n";
+        }
     }
     else
     {
-        std::string externalSource = URI(path).getString(dbOptions);
+        std::string externalSource = URI(path, context).getString(dbOptions);
         if (!externalSource.empty())
         {
             OE_DEBUG << LC << "Loaded external shader " << filename << " from " << path << "\n";
@@ -93,64 +135,110 @@ ShaderLoader::load(const std::string&    filename,
     // replace common tokens:
     osgEarth::replaceIn(output, "$GLSL_VERSION_STR", GLSL_VERSION_STR);
     osgEarth::replaceIn(output, "$GLSL_DEFAULT_PRECISION_FLOAT", GLSL_DEFAULT_PRECISION_FLOAT);
-    
+
     // If we're using inline source, we have to post-process the string.
     if ( useInlineSource )
     {
-        // reinstate preprocessor macros since GCC doesn't like them in the inlines shaders.
-        // The token was inserted in the CMakeModules/ConfigureShaders.cmake.in script.
-        osgEarth::replaceIn(output, "$__HASHTAG__", "#");
+        // Replace tokens inserted in the CMakeModules/ConfigureShaders.cmake.in script.
+        osgEarth::replaceIn(output, "%EOL%",   "\n");
+        osgEarth::replaceIn(output, "%QUOTE%", "\"");
     }
 
     // Process any "#pragma include" statements
     while(true)
     {
-        std::string::size_type includePos = output.find("#pragma include");
-        if ( includePos == std::string::npos )
+        const std::string token("#pragma include");
+        std::string::size_type statementPos = output.find(token);
+        if ( statementPos == std::string::npos )
             break;
 
-        std::string::size_type openQuotePos = output.find('\"', includePos);
-        if ( openQuotePos == std::string::npos )
+        std::string::size_type startPos = output.find_first_not_of(" \t", statementPos+token.length());
+        if ( startPos == std::string::npos )
             break;
 
-        std::string::size_type closeQuotePos = output.find('\"', openQuotePos+1);
-        if ( closeQuotePos == std::string::npos )
+        std::string::size_type endPos = output.find('\n', startPos);
+        if ( endPos == std::string::npos )
             break;
 
-        std::string includeStatement = output.substr( includePos, (closeQuotePos-includePos)+1 );
+        std::string statement( output.substr(statementPos, endPos-statementPos) );
+        std::string fileToInclude( trim(output.substr(startPos, endPos-startPos)) );
 
-        std::string fileToInclude = output.substr( openQuotePos+1, (closeQuotePos-openQuotePos)-1 );
-        
         // load the source of the included file, and append a newline so we
         // don't break the MULTILINE macro if the last line of the include
         // file is a comment.
         std::string fileSource = Stringify()
-            << load(fileToInclude, sources, dbOptions)
+            << load(fileToInclude, package, dbOptions)
             << "\n";
 
-        osgEarth::replaceIn(output, includeStatement, fileSource);
+        osgEarth::replaceIn(output, statement, fileSource);
     }
 
-    return output;
+// Process any "#pragma define" statements
+while (true)
+{
+    const std::string token("#pragma vp_define");
+    std::string::size_type statementPos = output.find(token);
+    if (statementPos == std::string::npos)
+        break;
+
+    std::string::size_type startPos = output.find_first_not_of(" \t", statementPos + token.length());
+    if (startPos == std::string::npos)
+        break;
+
+    std::string::size_type endPos = output.find('\n', startPos);
+    if (endPos == std::string::npos)
+        break;
+
+    std::string statement(output.substr(statementPos, endPos - statementPos));
+    std::string varName(trim(output.substr(startPos, endPos - startPos)));
+
+    ShaderPackage::DefineMap::const_iterator d = package._defines.find(varName);
+
+    bool defineIt =
+        d != package._defines.end() &&
+        d->second == true;
+
+    std::string newStatement = Stringify()
+        << (defineIt ? "#define " : "#undef ")
+        << varName;
+
+    osgEarth::replaceIn(output, statement, newStatement);
+}
+
+// Process any replacements.
+for (ShaderPackage::ReplaceMap::const_iterator i = package._replaces.begin();
+    i != package._replaces.end();
+    ++i)
+{
+    osgEarth::replaceIn(output, i->first, i->second);
+}
+
+// Lastly, remove any CRs
+osgEarth::replaceIn(output, "\r", "");
+
+return output;
 }
 
 std::string
 ShaderLoader::load(const std::string&    filename,
                    const std::string&    inlineSource,
-                   const osgDB::Options* dbOptions )
+                   const osgDB::Options* dbOptions)
 {
     std::string output;
     bool useInlineSource = false;
 
+    URIContext context(dbOptions);
+    URI uri(filename, context);
+
     std::string path = osgDB::findDataFile(filename, dbOptions);
-    if ( path.empty() )
+    if (path.empty())
     {
         output = inlineSource;
         useInlineSource = true;
     }
     else
     {
-        std::string externalSource = URI(path).getString(dbOptions);
+        std::string externalSource = URI(path, context).getString(dbOptions);
         if (!externalSource.empty())
         {
             OE_DEBUG << LC << "Loaded external shader " << filename << " from " << path << "\n";
@@ -166,23 +254,42 @@ ShaderLoader::load(const std::string&    filename,
     // replace common tokens:
     osgEarth::replaceIn(output, "$GLSL_VERSION_STR", GLSL_VERSION_STR);
     osgEarth::replaceIn(output, "$GLSL_DEFAULT_PRECISION_FLOAT", GLSL_DEFAULT_PRECISION_FLOAT);
-    
+
     // If we're using inline source, we have to post-process the string.
-    if ( useInlineSource )
+    if (useInlineSource)
     {
-        // reinstate preprocessor macros since GCC doesn't like them in the inlines shaders.
-        // The token was inserted in the CMakeModules/ConfigureShaders.cmake.in script.
-        osgEarth::replaceIn(output, "$__HASHTAG__", "#");
+        // Replace tokens inserted in the CMakeModules/ConfigureShaders.cmake.in script.
+        osgEarth::replaceIn(output, "%EOL%", "\n");
+        osgEarth::replaceIn(output, "%QUOTE%", "\"");
     }
+
+    // Lastly, remove any CRs
+    osgEarth::replaceIn(output, "\r", "");
 
     return output;
 }
 
+void
+ShaderLoader::split(const std::string& multisource,
+                    std::vector<std::string>& output)
+{
+#define SPLIT_DELIM "[break]"
+#define SPLIT_DELIM_LEN 7
+    std::string::size_type offset = 0, pos = 0;
+    while ((pos = multisource.find(SPLIT_DELIM, offset)) != std::string::npos)
+    {
+        std::string source = multisource.substr(offset, pos-offset);
+        output.push_back(source);
+        offset = pos + SPLIT_DELIM_LEN;
+    }
+    output.push_back(multisource.substr(offset));
+}
+
 bool
-ShaderLoader::loadFunction(VirtualProgram*       vp,
-                           const std::string&    filename,
-                           const ShaderPackage&  package,
-                           const osgDB::Options* dbOptions)
+ShaderLoader::load(VirtualProgram*       vp,
+                   const std::string&    filename,
+                   const ShaderPackage&  package,
+                   const osgDB::Options* dbOptions)
 {
     if ( !vp )
     {
@@ -190,109 +297,214 @@ ShaderLoader::loadFunction(VirtualProgram*       vp,
         return false;
     }
 
-    std::string source = load(filename, package, dbOptions);
-    if ( source.empty() )
+    // load the source string:
+    std::string multisource = load(filename, package, dbOptions);
+    if ( multisource.empty() )
     {
         OE_WARN << LC << "Failed to load shader source from \"" << filename << "\"\n";
         return false;
     }
 
-    std::string entryPoint = getQuotedPragmaValue(source, "vp_entryPoint");
-    if ( entryPoint.empty() )
+    // split the multisource string into one or more shader sources:
+    std::vector<std::string> sources;
+    split(multisource, sources);
+
+    for (unsigned i = 0; i < sources.size(); ++i)
     {
-        OE_WARN << LC << "Illegal: shader \"" << filename << "\" missing required #pragma vp_entryPoint\n";
-        return false;
+        std::string source = sources[i];
+
+        // Remove the quotation marks from the source since they are illegal in GLSL
+        replaceIn( source, "\"", " ");
+
+        std::string loc = getPragmaValue(source, "vp_location");
+        ShaderComp::FunctionLocation location;
+        bool locationSet = true;
+
+        if      ( ciEquals(loc, "vertex_model") )
+            location = ShaderComp::LOCATION_VERTEX_MODEL;
+        else if ( ciEquals(loc, "vertex_view") )
+            location = ShaderComp::LOCATION_VERTEX_VIEW;
+        else if ( ciEquals(loc, "vertex_clip") )
+            location = ShaderComp::LOCATION_VERTEX_CLIP;
+        else if ( ciEquals(loc, "tess_control") || ciEquals(loc, "tessellation_control") )
+            location = ShaderComp::LOCATION_TESS_CONTROL;
+        else if ( ciEquals(loc, "tess_eval") || ciEquals(loc, "tessellation_eval") || ciEquals(loc, "tessellation_evaluation") || ciEquals(loc, "tess_evaluation") )
+            location = ShaderComp::LOCATION_TESS_EVALUATION;
+        else if ( ciEquals(loc, "vertex_geometry") || ciEquals(loc, "geometry") )
+            location = ShaderComp::LOCATION_GEOMETRY;
+        else if ( ciEquals(loc, "fragment" ) )
+            location = ShaderComp::LOCATION_FRAGMENT_COLORING;
+        else if ( ciEquals(loc, "fragment_coloring") )
+            location = ShaderComp::LOCATION_FRAGMENT_COLORING;
+        else if ( ciEquals(loc, "fragment_lighting") )
+            location = ShaderComp::LOCATION_FRAGMENT_LIGHTING;
+        else if ( ciEquals(loc, "fragment_output") )
+            location = ShaderComp::LOCATION_FRAGMENT_OUTPUT;
+        else
+        {
+            locationSet = false;
+        }
+
+        // If entry point is set, this is a function; otherwise a simple library.
+        std::string entryPoint = getPragmaValue(source, "vp_entryPoint");
+
+        // order is optional.
+        std::string orderStr = getPragmaValue(source, "vp_order");
+
+        if ( !entryPoint.empty() )
+        {
+            if ( !locationSet )
+            {
+                OE_WARN << LC << "Illegal: shader \"" << filename << "\" has invalid #pragma vp_location when vp_entryPoint is set\n";
+                return false;
+            }
+
+            float order;
+            if ( ciEquals(orderStr, "FLT_MAX") || ciEquals(orderStr, "last") )
+                order = FLT_MAX;
+            else if ( ciEquals(orderStr, "-FLT_MAX") || ciEquals(orderStr, "first") )
+                order = -FLT_MAX;
+            else
+                order = as<float>(orderStr, 1.0f);
+
+            // set the function!
+            vp->setFunction( entryPoint, source, location, 0L, order );
+        }
+
+        else
+        {
+            // install as a simple shader.
+            if ( locationSet )
+            {
+                // If a location is set, install in that location only
+                osg::Shader::Type type =
+                    location == ShaderComp::LOCATION_VERTEX_MODEL || location == ShaderComp::LOCATION_VERTEX_VIEW || location == ShaderComp::LOCATION_VERTEX_CLIP ? osg::Shader::VERTEX :
+                    osg::Shader::FRAGMENT;
+
+                osg::Shader* shader = new osg::Shader(type, source);
+                shader->setName( filename );
+                vp->setShader( filename, shader );
+            }
+
+            else
+            {
+                // If no location was set, install in all stages.
+                osg::Shader::Type types[5] = { osg::Shader::VERTEX, osg::Shader::FRAGMENT, osg::Shader::GEOMETRY, osg::Shader::TESSCONTROL, osg::Shader::TESSEVALUATION };
+                for(int i=0; i<5; ++i)
+                {
+                    osg::Shader* shader = new osg::Shader(types[i], source);
+                    std::string name = Stringify() << filename + "_" + shader->getTypename();
+                    shader->setName( name );
+                    vp->setShader( name, shader );
+                }
+            }
+        }
     }
 
-    std::string loc = getQuotedPragmaValue(source, "vp_location");
-    if ( loc.empty() )
-    {
-        OE_WARN << LC << "Illegal: shader \"" << filename << "\" missing required #pragma vp_location\n";
-        return false;
-    }
-
-    ShaderComp::FunctionLocation location;
-    if      ( ciEquals(loc, "vertex_model") )
-        location = ShaderComp::LOCATION_VERTEX_MODEL;
-    else if ( ciEquals(loc, "vertex_view") )
-        location = ShaderComp::LOCATION_VERTEX_VIEW;
-    else if ( ciEquals(loc, "vertex_clip") )
-        location = ShaderComp::LOCATION_VERTEX_CLIP;
-    else if ( ciEquals(loc, "fragment" ) )
-        location = ShaderComp::LOCATION_FRAGMENT_COLORING;
-    else if ( ciEquals(loc, "fragment_coloring") )
-        location = ShaderComp::LOCATION_FRAGMENT_COLORING;
-    else if ( ciEquals(loc, "fragment_lighting") )
-        location = ShaderComp::LOCATION_FRAGMENT_LIGHTING;
-    else if ( ciEquals(loc, "fragment_output") )
-        location = ShaderComp::LOCATION_FRAGMENT_OUTPUT;
-    else 
-    {
-        OE_WARN << LC << "Illegal: shader \"" << filename << "\" has invalid #pragma vp_location \"" << loc << "\"\n";
-        return false;
-    }
-
-    // order is optional.
-    std::string orderStr = getQuotedPragmaValue(source, "vp_order");
-    float order;
-    if ( ciEquals(orderStr, "FLT_MAX") )
-        order = FLT_MAX;
-    else if ( ciEquals(orderStr, "-FLT_MAX") )
-        order = -FLT_MAX;
-    else
-        order = as<float>(orderStr, 1.0f);
-
-    // set the function!
-    vp->setFunction( entryPoint, source, location, 0L, order );
     return true;
 }
 
 bool
-ShaderLoader::unloadFunction(VirtualProgram*       vp,
-                             const std::string&    filename,
-                             const ShaderPackage&  package,
-                             const osgDB::Options* dbOptions)
+ShaderLoader::unload(VirtualProgram*       vp,
+                     const std::string&    filename,
+                     const ShaderPackage&  package,
+                     const osgDB::Options* dbOptions)
 {
     if ( !vp )
     {
         // fail quietly
         return false;
     }
-
-    std::string source = load(filename, package, dbOptions);
-    if ( source.empty() )
+    
+    // load the source string:
+    std::string multisource = load(filename, package, dbOptions);
+    if ( multisource.empty() )
     {
-        OE_WARN << LC << "Failed to unload shader source from \"" << filename << "\"\n";
+        OE_WARN << LC << "Failed to load shader source from \"" << filename << "\"\n";
         return false;
     }
 
-    std::string entryPoint = getQuotedPragmaValue(source, "vp_entryPoint");
-    if ( entryPoint.empty() )
+    // split the multisource string into one or more shader sources:
+    std::vector<std::string> sources;
+    split(multisource, sources);
+
+    for (unsigned i = 0; i < sources.size(); ++i)
     {
-        OE_WARN << LC << "Illegal: shader \"" << filename << "\" missing required #pragma vp_entryPoint\n";
-        return false;
+        const std::string& source = sources[i];
+
+        //std::string source = load(filename, package, dbOptions);
+        //if ( source.empty() )
+        //{
+        //    OE_WARN << LC << "Failed to unload shader source from \"" << filename << "\"\n";
+        //    return false;
+        //}
+
+        std::string entryPoint = getPragmaValue(source, "vp_entryPoint");
+        if ( !entryPoint.empty() )
+        {
+            vp->removeShader( entryPoint );
+        }
+        else
+        {
+            vp->removeShader( filename );
+        }
     }
 
-    vp->removeShader( entryPoint );
     return true;
 }
 
+//...................................................................
 
-
-
-
-bool
-ShaderPackage::loadFunction(VirtualProgram*       vp,
-                            const std::string&    filename,
-                            const osgDB::Options* dbOptions) const
+void
+ShaderPackage::define(const std::string& name,
+                      bool               defOrUndef)
 {
-    return ShaderLoader::loadFunction(vp, filename, *this, dbOptions);
+    _defines[name] = defOrUndef;
+}
+
+void
+ShaderPackage::replace(const std::string& pattern,
+                       const std::string& value)
+{
+    _replaces[pattern] = value;
 }
 
 bool
-ShaderPackage::unloadFunction(VirtualProgram*       vp,
-                              const std::string&    filename,
-                              const osgDB::Options* dbOptions) const
+ShaderPackage::load(VirtualProgram*       vp,
+                    const std::string&    filename,
+                    const osgDB::Options* dbOptions) const
 {
-    return ShaderLoader::unloadFunction(vp, filename, *this, dbOptions);
+    return ShaderLoader::load(vp, filename, *this, dbOptions);
+}
+
+bool
+ShaderPackage::unload(VirtualProgram*       vp,
+                      const std::string&    filename,
+                      const osgDB::Options* dbOptions) const
+{
+    return ShaderLoader::unload(vp, filename, *this, dbOptions);
+}
+
+bool
+ShaderPackage::loadAll(VirtualProgram*       vp,
+                       const osgDB::Options* dbOptions) const
+{
+    int oks = 0;
+    for(SourceMap::const_iterator i = _sources.begin(); i != _sources.end(); ++i)
+    {
+        oks += load( vp, i->first ) ? 1 : 0;
+    }
+    return oks == _sources.size();
+}
+
+bool
+ShaderPackage::unloadAll(VirtualProgram*       vp,
+                          const osgDB::Options* dbOptions) const
+{
+    int oks = 0;
+    for(SourceMap::const_iterator i = _sources.begin(); i != _sources.end(); ++i)
+    {
+        oks += unload( vp, i->first ) ? 1 : 0;
+    }
+    return oks == _sources.size();
 }

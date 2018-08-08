@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,17 +8,20 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 
 #include <osgEarth/MapNode>
-#include <osgEarth/Decluttering>
+#include <osgEarth/ScreenSpaceLayout>
 #include <osgEarth/ECEF>
 
 #include <osgEarthUtil/EarthManipulator>
@@ -91,10 +94,6 @@ main(int argc, char** argv)
     // Make a group for 2D items, and activate the decluttering engine. Decluttering
     // will migitate overlap between elements that occupy the same screen real estate.
     osg::Group* labelGroup = new osg::Group();
-    if (declutter)
-    {
-        Decluttering::setEnabled( labelGroup->getOrCreateStateSet(), true );
-    }
     root->addChild( labelGroup );
     
     // set up a style to use for placemarks:
@@ -108,7 +107,7 @@ main(int argc, char** argv)
 
     //Create a bunch of placemarks around Mt Rainer so we can actually get some elevation
     {
-        osg::Image* pin = osgDB::readImageFile( "../data/placemark32.png" );
+        osg::ref_ptr<osg::Image> pin = osgDB::readRefImageFile( "../data/placemark32.png" );
 
         double centerLat =  46.840866;
         double centerLon = -121.769846;
@@ -123,7 +122,7 @@ main(int argc, char** argv)
         {
             double lat = minLat + height * (rand() * 1.0)/(RAND_MAX-1);
             double lon = minLon + width * (rand() * 1.0)/(RAND_MAX-1);        
-            PlaceNode* place = new PlaceNode(mapNode, GeoPoint(geoSRS, lon, lat), pin, "Placemark", placeStyle);
+            PlaceNode* place = new PlaceNode(mapNode, GeoPoint(geoSRS, lon, lat), pin.get(), "Placemark", placeStyle);
             //Enable occlusion culling.  This will hide placemarks that are hidden behind terrain.
             //This makes use of the OcclusionCullingCallback in CullingUtils.
             place->setOcclusionCulling( true );

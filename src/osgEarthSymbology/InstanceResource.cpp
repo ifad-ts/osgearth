@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -51,7 +51,7 @@ InstanceResource::getConfig() const
     Config conf = Resource::getConfig();
     conf.key() = "instance";
 
-    conf.updateIfSet( "url", _uri );
+    conf.set( "url", _uri );
 
     return conf;
 }

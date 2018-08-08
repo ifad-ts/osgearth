@@ -1,35 +1,25 @@
 <!--
-osgEarth Sample - ReadyMap.ORG Server - http://readymap.org
+  osgEarth Sample - Detail Texturing
 
-ReadyMap.ORG provides free global base map data for osgEarth developers!
-This tiled, worldwide dataset of imagery, elevation, and street map data
-is a great base map that provides global context for your own local datasets.
-It works "out of the box" with osgEarth applications.
+  Run:
 
-**** NOTICE ****
-YOU ARE RESPONSIBLE for abiding by the TERMS AND CONDITIONS outlined at:
-http://readymap.org
-
+  osgearth_viewer detail_texture.earth --uniform oe_detail_lod 0 24 --uniform oe_detail_alpha 0.0 1.0 --uniform oe_detail_maxRange 500.0 10000.0 --uniform oe_detail_attenDist 0.0 5000.0
 -->
-<map name="readymap.org" type="geocentric" version="2">
-    
-    <options>
-        <elevation_tile_size>15</elevation_tile_size>
-        <terrain lighting="true" first_lod="1" min_lod="19"/>
-    </options>
-    
-    <image name="readymap_imagery" driver="tms" visible="true">
+
+<map name="detail texturing" type="geocentric">
+        
+    <image name="readymap_imagery" driver="tms">
         <url>http://readymap.org/readymap/tiles/1.0.0/7/</url>
     </image>
         
     <elevation name="readymap_elevation" driver="tms">
-        <url>http://readymap.org/readymap/tiles/1.0.0/9/</url>
+        <url>http://readymap.org/readymap/tiles/1.0.0/116/</url>
     </elevation>
-	
-	<external>
-	    <detail_texture>
-			<image>../data/noise3.png</image>
-		</detail_texture>
-	</external>
     
+    <detail>
+        <image>../data/noise3.png</image>
+        <lod>21</lod>
+        <max_range>6000</max_range>
+        <attenuation>2000</attenuation>
+    </detail>
 </map>

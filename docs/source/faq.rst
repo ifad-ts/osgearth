@@ -17,53 +17,33 @@ Common Usage
 How do I place a 3D model on the map?
 .....................................
 
-    The most basic approach is to make a ``osg::Matrix`` so you can position
-    a model using your own ``osg::MatrixTransform``. You can use the ``GeoPoint``
-    class like so::
-    
-        GeoPoint point(latLong, -121.0, 34.0, 1000.0, ALTMODE_ABSOLUTE);
-        osg::Matrix matrix;
-        point.createLocalToWorld( matrix );
-        myMatrixTransform->setMatrix( matrix );
-
-    Another option is the ``osgEarth::GeoTransform`` class. It inherits from
-    ``osg::Transform`` so you can add your own nodes as children. ``GeoTransform``
-    can automatically convert coordinates as well, as long as you tell it 
-    about your map's terrain::
+    The ``osgEarth::GeoTransform`` class inherits from ``osg::Transform``
+    and will convert map coordinates into OSG world coordinates for you::
 
         GeoTransform* xform = new GeoTransform();
         ...
         xform->setTerrain( mapNode->getTerrain() );
         ...
-        GeoPoint point(srs, -121.0, 34.0, 1000.0, ALTMODE_ABSOLUTE);
+        GeoPoint point(srs, -121.0, 34.0);
         xform->setPosition(point);
 
-    Finally, you can position a node by using the ``ModelNode`` from the
-    osgEarth::Annotation namespace. This is more complicated, but lets you
-    take advantage of symbology::
 
-        using namespace osgEarth;
-        using namespace osgEarth::Symbology;
-        ...
+I added a node, but it has no texture/lighting/etc. in osgEarth. Why?
+.....................................................................
 
-        // load your model:
-        osg::Node* myModel = osgDB::readNodeFile(...);
-        
-        // establish the coordinate system you wish to use:
-        const SpatialReference* latLong = SpatialReference::get("wgs84");
-        
-        // construct your symbology:
-        Style style;
-        style.getOrCreate<ModelSymbol>()->setModel( myModel );
-        
-        // make a ModelNode:
-        ModelNode* model = new ModelNode( mapNode, style );
-        
-        // Set its location.
-        model->setPosition( GeoPoint(latLong, -121.0, 34.0, 1000.0, ALTMODE_ABSOLUTE) );
+    Everything under an osgEarth scene graph is rendered with shaders.
+    So, when using your own models (or creating geometry by hand) you 
+    need to create shader components in order for them to render properly.
 
-    Look at the ``osgearth_annotation.cpp`` sample for more inspiration.
-    
+    osgEarth has a built-in shader generator for this purpose. Run the
+    shader generator on your node like so:
+
+        osgEarth::Registry::shaderGenerator().run( myNode );
+
+    After that, your node will contain shader snippets that allows osgEarth
+    to render it properly and for it to work with other osgEarth features
+    like sky lighting.
+
 
 How do make the terrain transparent?
 ....................................
@@ -89,30 +69,17 @@ How do I set the resolution of terrain tiles?
 .............................................
 
     Each tile is a grid of vertices. The number of vertices can vary depending on source data
-    and settings. By default (when you have no elevation data) it is an 15x15 grid, tessellated
+    and settings. By default (when you have no elevation data) it is an 17x17 grid, tessellated
     into triangles.
     
-    If you do have elevation data, osgEarth will use the tile size of the first elevation layer 
-    to decide on the overall tile size for the terrain.
-
-    You can control this in a couple ways. If you have elevation data, you can set the
-    ``tile_size`` property on the elevation layer. For example::
-    
-        <elevation name="srtm" driver="gdal">
-            <url>...</url>
-            <tile_size>31</tile_size>
-        </elevation>
-        
-    That will read data as a grid of 31x31 vertices. If this is your first elevation layer,
-    osgEarth will render tiles at a resolution of 31x31.
-
-    Or, you can expressly set the terrain's tile size overall by using the Map options.
+    You can expressly set the terrain's tile size by using the Map options.
     osgEarth will then resample all elevation data to the size you specify::
 
         <map>
             <options>
-                <elevation_tile_size>31</elevation_tile_size>
-                ...
+                <terrain>
+                    <tile_size>65</tile_size> 
+                    ...
 
 
 ----
@@ -139,7 +106,8 @@ Does osgEarth work with VirtualPlanetBuilder?
 	  plug-in framework.
 
 	osgEarth has a *VPB driver* for "scraping" elevation and imagery tiles from a VPB model.
-	See the ``vpb_earth_bayarea.earth`` example in the repo for usage.
+    Confiugration of this driver is quite tricky and requires you to understand the details
+    of how VPB models are organized. You're on your own.
 	
 	**Please Note** that this driver only exists as a **last resort** for people that have a VPB
 	model but no longer have access to the source data from which it was built. If at all
@@ -150,7 +118,7 @@ Does osgEarth work with VirtualPlanetBuilder?
 Can osgEarth load TerraPage or MetaFlight?
 ..........................................
 
-	osgEarth cannot natively load TerraPage (TXP) or MetaFlight. However, osgEarth does have a
+	osgEarth cannot load TerraPage (TXP) or MetaFlight. However, osgEarth does have a
 	"bring your own terrain" plugin that allows you to load an external model and use it as your
 	terrain. The caveat is that since osgEarth doesn't know anything about your terrain model, you
 	will not be able to use some of the features of osgEarth (like being able to add or remove layers).
@@ -165,8 +133,8 @@ Can osgEarth load TerraPage or MetaFlight?
 Community and Support
 ---------------------
 
-What is the "best practice" for using GitHub?
-.............................................
+What is the best practice for using GitHub?
+...........................................
 
 	The best way to work with the osgEarth repository is to make your own clone on GitHub
 	and to work from that clone. Why not work directly against the main repository? You
@@ -175,7 +143,7 @@ What is the "best practice" for using GitHub?
 	
 	1. Create your own GitHub account and log in.
 	2. Clone the osgEarth repo.
-	3. Work from your clone. Sync it to the main repository peridocially to get the
+	3. Work from your clone. Sync it to the main repository periodically to get the
 	   latest changes.
 
 
@@ -208,7 +176,11 @@ Can I hire someone to help me with osgEarth?
     services. The easiest way to get in touch with us is through our web site
     `contact form`_.
     
-.. _contact form:   http://pelicanmapping.com/?page_id=2
+    Pelican also offers a `Priority Support`_ package that is a good fit for 
+    companies that prefer to do most of their development in-house.
+    
+.. _contact form:     http://pelicanmapping.com/?page_id=2
+.. _Priority Support: http://web.pelicanmapping.com/priority-support/
 
 
 ----

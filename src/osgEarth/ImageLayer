@@ -1,5 +1,6 @@
+/* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -36,27 +37,24 @@ namespace osgEarth
     class OSGEARTH_EXPORT ImageLayerOptions : public TerrainLayerOptions
     {
     public:
-        /** Constructs new image layer options. */
-        ImageLayerOptions( const ConfigOptions& options =ConfigOptions() );
+        // Construct empty options
+        ImageLayerOptions();
 
-        /**
-         * Constructs new image layer options, giving a name to the layer and specifying
-         * driver options to use.
-         */         
-        ImageLayerOptions( const std::string& name, const TileSourceOptions& driverOpt =TileSourceOptions() );
+        // Deserialize options from a config structure
+        ImageLayerOptions(const ConfigOptions& options);
+
+        // Construct options with a default name
+        ImageLayerOptions(const std::string& name);
+
+        // Consruct options with a name and a driver configuration
+        ImageLayerOptions(const std::string& name, const TileSourceOptions& tileSourceOptions);
 
         /** dtor */
         virtual ~ImageLayerOptions() { }
 
 
     public: // properties
-
-        /**
-         * The initial opacity of this layer
-         */
-        optional<float>& opacity() { return _opacity; }
-        const optional<float>& opacity() const { return _opacity; }
-
+        
         /**
          * The initial minimum camera range at which this layer is visible.
          */
@@ -81,12 +79,6 @@ namespace osgEarth
         optional<osg::Vec4ub>& transparentColor() { return _transparentColor; }
         const optional<osg::Vec4ub>& transparentColor() const { return _transparentColor; }
         
-        /**
-         * Whether LOD blending is enabled for this layer
-         */
-        optional<bool>& lodBlending() { return _lodBlending; }
-        const optional<bool>& lodBlending() const { return _lodBlending; }
-
         /**
          * Filters attached to this layer.
          */
@@ -136,22 +128,28 @@ namespace osgEarth
         optional<osg::Texture::InternalFormatMode>& textureCompression() { return _texcomp; }
         const optional<osg::Texture::InternalFormatMode>& textureCompression() const { return _texcomp; }
 
+        /** For shared layer, name of hte texture sampler uniform. */
+        optional<std::string>& shareTexUniformName() { return _shareTexUniformName; }
+        const optional<std::string>& shareTexUniformName() const { return _shareTexUniformName; }
+
+        /** For shared layer, name of hte texture sampler matrix uniform. */
+        optional<std::string>& shareTexMatUniformName() { return _shareTexMatUniformName; }
+        const optional<std::string>& shareTexMatUniformName() const { return _shareTexMatUniformName; }
+
     public:
 
-        virtual Config getConfig() const { return getConfig(false); }
-        virtual Config getConfig( bool isolate ) const;
+        virtual Config getConfig() const;
         virtual void mergeConfig( const Config& conf );
         
     private:
         void fromConfig( const Config& conf );
         void setDefaults();
 
-        optional<float>       _opacity;
+        //optional<float>       _opacity;
         optional<float>       _minRange;
         optional<float>       _maxRange;
         optional<osg::Vec4ub> _transparentColor;
         optional<URI>         _noDataImageFilename;
-        optional<bool>        _lodBlending;
         ColorFilterChain      _colorFilters;
         optional<bool>        _shared;
         optional<bool>        _coverage;
@@ -159,24 +157,9 @@ namespace osgEarth
         optional<osg::Texture::FilterMode> _minFilter;
         optional<osg::Texture::FilterMode> _magFilter;
         optional<osg::Texture::InternalFormatMode> _texcomp;
+        optional<std::string> _shareTexUniformName;
+        optional<std::string> _shareTexMatUniformName;
     };
-
-    //--------------------------------------------------------------------
-
-    /**
-     * Callback for receiving notification of property changes on an ImageLayer.
-     */
-    struct ImageLayerCallback : public TerrainLayerCallback
-    {
-        virtual void onOpacityChanged( class ImageLayer* layer ) { }
-        virtual void onVisibleRangeChanged( class ImageLayer* layer ) {}
-        virtual void onColorFiltersChanged( class ImageLayer* layer ) { }
-        virtual ~ImageLayerCallback() { }
-    };
-
-    typedef void (ImageLayerCallback::*ImageLayerCallbackMethodPtr)(ImageLayer* layer);
-
-    typedef std::list< osg::ref_ptr<ImageLayerCallback> > ImageLayerCallbackList;
 
     //--------------------------------------------------------------------
 
@@ -203,7 +186,16 @@ namespace osgEarth
         bool                               _layerInTargetProfile;
     };
 
-    //--------------------------------------------------------------------
+
+    struct ImageLayerCallback : public TerrainLayerCallback
+    {
+        //virtual void onOpacityChanged(class ImageLayer* layer) { }
+        virtual void onVisibleRangeChanged(class ImageLayer* layer) { }
+        virtual void onColorFiltersChanged(class ImageLayer* layer) { }
+
+        typedef void (ImageLayerCallback::*MethodPtr)(class ImageLayer* layer);
+    };
+
 
     /**
      * A map terrain layer containing bitmap image data.
@@ -211,36 +203,34 @@ namespace osgEarth
     class OSGEARTH_EXPORT ImageLayer : public TerrainLayer
     {
     public:
+        META_Layer(osgEarth, ImageLayer, ImageLayerOptions);
+
+        /**
+         * Construct a new ImageLayer. Use the options() to configure it
+         * before adding it to a Map.
+         */
+        ImageLayer();
+
         /**
          * Constructs a new image layer.
          */
-        ImageLayer( const ImageLayerOptions& options );
+        ImageLayer(const ImageLayerOptions& options);
 
         /**
          * Constructs a new image layer with the given name and driver options.
          */
-        ImageLayer( const std::string& name, const TileSourceOptions& driverOptions );
+        ImageLayer(const std::string& name, const TileSourceOptions& tileSourceOptions);
 
         /**
          * Constructs a new image layer with a custom TileSource.
+         *
+         * Note: the ImageLayerOptions contains a driver() member for configuring a 
+         * TileSource. But in this constructor, you are passing in an existing TileSource,
+         * and thus the driver() member in ImageLayerOptions will not be used.
          */
-        ImageLayer( const ImageLayerOptions& options, TileSource* tileSource );
-
-        /** dtor */
-        virtual ~ImageLayer() { }
+        ImageLayer(const ImageLayerOptions& options, TileSource* tileSource);
 
     public:
-        /**
-         * Access to the initialization options used to create this image layer
-         */
-        const ImageLayerOptions& getImageLayerOptions() const { return _runtimeOptions; }
-        virtual const TerrainLayerOptions& getTerrainLayerRuntimeOptions() const { return _runtimeOptions; }
-
-        /** Adds a property notification callback to this layer */
-        void addCallback( ImageLayerCallback* cb );
-
-        /** Removes a property notification callback from this layer */
-        void removeCallback( ImageLayerCallback* cb );
 
         /** Override: see TerrainLayer */
         virtual void setTargetProfileHint( const Profile* profile );
@@ -260,36 +250,30 @@ namespace osgEarth
          */
         const ColorFilterChain& getColorFilters() const;
 
-
     public: // runtime properties
 
         /**
-         * Sets the opacity of this image layer.
-         * @param opacity Opacity [0..1] -> [transparent..opaque]
+         * Minimum camera range at which this image layer is visible 
          */
-        void setOpacity( float opacity );
-
-        float getOpacity() const { return *_runtimeOptions.opacity(); }
-
-        void disableLODBlending();
-        bool isLODBlendingEnabled() const { return *_runtimeOptions.lodBlending(); }
-
-        float getMinVisibleRange() const { return *_runtimeOptions.minVisibleRange();}
+        float getMinVisibleRange() const;
         void setMinVisibleRange( float minVisibleRange );
-
-        float getMaxVisibleRange() const { return *_runtimeOptions.maxVisibleRange();}
+        
+        /**
+         * Maximum camera range at which this image layer is visible 
+         */
+        float getMaxVisibleRange() const;
         void setMaxVisibleRange( float maxVisibleRange );
 
         /**
          * Whether this layer is marked for render sharing
          */
-        bool isShared() const { return *_runtimeOptions.shared() == true; }
+        bool isShared() const;
 
         /**
          * Whether this layer represents coverage data that should not be subject
          * to color-space filtering, interpolation, or compression.
          */
-        bool isCoverage() const { return *_runtimeOptions.coverage() == true; }
+        bool isCoverage() const;
 
         /**
          * When isShared() == true, the engine will call this function to bind the
@@ -300,20 +284,30 @@ namespace osgEarth
 
         /**
          * When isShared() == true, this will return the name of the uniform holding the
+         * image's texture. 
+         */
+        optional<std::string>& shareTexUniformName() { return _shareTexUniformName; }
+        const optional<std::string>& shareTexUniformName() const { return _shareTexUniformName; }
+
+        /**
+         * When isShared() == true, this will return the name of the uniform holding the
          * image's texture matrix. 
          */
         optional<std::string>& shareTexMatUniformName() { return _shareTexMatUniformName; }
         const optional<std::string>& shareTexMatUniformName() const { return _shareTexMatUniformName; }
-
+        
 
     public: // methods
+
+        virtual bool createTextureSupported() const { return false; }
+        virtual osg::Texture* createTexture(const TileKey& key, ProgressCallback* progress, osg::Matrixf& textureMatrix) { return 0L; }
 
         /**
          * Creates a GeoImage from this layer corresponding to the provided key. The
          * image is in the profile of the key and will be reprojected, mosaiced and
          * cropped automatically.
          */
-        virtual GeoImage createImage( const TileKey& key, ProgressCallback* progress = 0);
+        GeoImage createImage( const TileKey& key, ProgressCallback* progress = 0);
 
         /**
          * Creates an image that is in the image layer's native profile.
@@ -324,13 +318,30 @@ namespace osgEarth
          * Applies the texture compression options to a texture.
          */
         void applyTextureCompressionMode(osg::Texture* texture) const;
+       
+        typedef ImageLayerCallback Callback;
 
-    public: // TerrainLayer override
+    public: // Layer
+        
+        virtual const Status& open();
 
-        CacheBin* getCacheBin( const Profile* profile );
+        //! Subclass can override this when not using a TileSource
+        //! by calling setTileSourceExpected(false).
+        virtual GeoImage createImageImplementation(const TileKey&, ProgressCallback* progress);
 
+    protected: // Layer
+            
+        virtual void init();
 
     protected:
+
+        /** dtor */
+        virtual ~ImageLayer() { }
+
+        // Constructor for a subclass that owns the layer options structure
+        ImageLayer(ImageLayerOptions* optionsPtr);
+
+    private:
 
         // Creates an image that's in the same profile as the provided key.
         GeoImage createImageInKeyProfile(const TileKey& key, ProgressCallback* progress);
@@ -342,24 +353,18 @@ namespace osgEarth
         // Fetches multiple images from the TileSource; mosaics/reprojects/crops as necessary, and
         // returns a single tile. This is called by createImageFromTileSource() if the key profile
         // doesn't match the layer profile.
-        GeoImage assembleImageFromTileSource(const TileKey& key, ProgressCallback* progress);
+        GeoImage assembleImage(const TileKey& key, ProgressCallback* progress);
 
-
-        virtual void initTileSource();
-
-    protected:
-        ImageLayerOptions                        _runtimeOptions;
         osg::ref_ptr<TileSource::ImageOperation> _preCacheOp;
+        Threading::Mutex                         _mutex;
         osg::ref_ptr<osg::Image>                 _emptyImage;
-        ImageLayerCallbackList                   _callbacks;
         optional<int>                            _shareImageUnit;
+        optional<std::string>                    _shareTexUniformName;
         optional<std::string>                    _shareTexMatUniformName;
 
-        virtual void fireCallback( TerrainLayerCallbackMethodPtr method );
-        virtual void fireCallback( ImageLayerCallbackMethodPtr method );
+        virtual void fireCallback(ImageLayerCallback::MethodPtr method);
 
-        void init();
-        void initPreCacheOp();
+        TileSource::ImageOperation* getOrCreatePreCacheOp();
     };
 
     typedef std::vector< osg::ref_ptr<ImageLayer> > ImageLayerVector;

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -147,7 +147,7 @@ Bounds::radius2d() const {
 
 double
 Bounds::area2d() const {
-    return width() * height();
+    return isValid() ? width() * height() : -1.0;
 }
 
 std::string

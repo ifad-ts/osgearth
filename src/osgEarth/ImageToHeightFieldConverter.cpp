@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,32 +8,31 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 
 #include <osgEarth/ImageToHeightFieldConverter>
+#include <osgEarth/GeoCommon>
 #include <osg/Notify>
+#include <osg/Texture>
 #include <limits.h>
 #include <string.h>
 
 using namespace osgEarth;
 
 static bool
-isNoData( short s )
-{
-  return s == SHRT_MAX || s == SHRT_MIN;
-}
-
-static bool
 isNoData( float f )
 {
-  return f == FLT_MAX || f == FLT_MIN;
+  return f == FLT_MAX || f == -FLT_MAX;
 }
 
 
@@ -111,7 +110,14 @@ osg::HeightField* ImageToHeightFieldConverter::convert16(const osg::Image* image
   osg::FloatArray* floats = hf->getFloatArray();
 
   for( unsigned int i = 0; i < floats->size(); ++i ) {
-    floats->at( i ) = *(short*)image->data(i);
+      short v = *(short*)image->data(i);
+      float h = (float)v;
+      // Replace short nodata values with our float marker.
+      if (v == -SHRT_MAX || v == SHRT_MAX)
+      {
+          h = NO_DATA_VALUE;
+      }
+      floats->at( i ) = h;
   }
 
   return hf;
@@ -170,7 +176,39 @@ osg::Image* ImageToHeightFieldConverter::convert16(const osg::HeightField* hf ) 
   const osg::FloatArray* floats = hf->getFloatArray();
 
   for( unsigned int i = 0; i < floats->size(); ++i  ) {
-    *(short*)image->data(i) = (short)floats->at( i );
+      float h = floats->at( i );
+      // Set NO_DATA_VALUE to a valid short value.
+      if (h == NO_DATA_VALUE)
+      {        
+          h = -SHRT_MAX;
+      }
+      *(short*)image->data(i) = (short)h;
+  }
+
+  return image;
+}
+
+osg::Image* ImageToHeightFieldConverter::convertToR32F(const osg::HeightField* hf) const
+{
+    if ( !hf ) {
+    return NULL;
+  }
+
+  osg::Image* image = new osg::Image();
+  image->allocateImage(hf->getNumColumns(), hf->getNumRows(), 1, GL_RED, GL_FLOAT); //GL_LUMINANCE, GL_SHORT);
+  image->setInternalTextureFormat(GL_R32F);
+
+  const osg::FloatArray* floats = hf->getFloatArray();
+
+  for( unsigned int i = 0; i < floats->size(); ++i  ) {
+      float h = floats->at( i );
+      *(float*)image->data(i) = h;
+      // Set NO_DATA_VALUE to a valid short value.
+      //if (h == NO_DATA_VALUE)
+      //{        
+      //    h = -SHRT_MAX;
+      //}
+      //*(short*)image->data(i) = (short)h;
   }
 
   return image;

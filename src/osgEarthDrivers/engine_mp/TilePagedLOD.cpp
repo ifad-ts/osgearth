@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,16 +8,20 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 #include "TilePagedLOD"
 #include "TileNodeRegistry"
+#include "MPTerrainEngineNode"
 #include <osg/Version>
 #include <osgEarth/Registry>
 #include <osgEarth/CullingUtils>
@@ -31,6 +35,10 @@ using namespace osgEarth;
 //#define OE_TEST OE_INFO
 #define OE_TEST OE_NULL
 
+// whether a camera with an ABSOLUTE_RF_INHERIT_VIEWPOINT reference frame can trigger tile subdivision.
+// NOTE: this causes issues with some of the RTT cameras like GPU clamping and draping.
+//#define INHERIT_VIEWPOINT_CAMERAS_CANNOT_SUBDIVIDE 1
+
 namespace
 {
     // traverses a node graph and moves any TileNodes from the LIVE
@@ -38,11 +46,12 @@ namespace
     struct ExpirationCollector : public osg::NodeVisitor
     {
         TileNodeRegistry* _live;
-        TileNodeRegistry* _dead;
+        ResourceReleaser* _releaser;
         unsigned          _count;
+        ResourceReleaser::ObjectList _toRelease;
 
-        ExpirationCollector(TileNodeRegistry* live, TileNodeRegistry* dead)
-            : _live(live), _dead(dead), _count(0)
+        ExpirationCollector(TileNodeRegistry* live)
+            : _live(live), _count(0)
         {
             // set up to traverse the entire subgraph, ignoring node masks.
             setTraversalMode( TRAVERSE_ALL_CHILDREN );
@@ -54,7 +63,9 @@ namespace
             TileNode* tn = dynamic_cast<TileNode*>( &node );
             if ( tn && _live )
             {
-                _live->move( tn, _dead );
+                _toRelease.push_back( tn );
+                _live->remove( tn );
+                //_live->move( tn, _dead );
                 _count++;
                 //OE_NOTICE << "Expired " << tn->getKey().str() << std::endl;
             }
@@ -98,11 +109,12 @@ TilePagedLOD::MyProgressCallback::update(unsigned frame)
 
 TilePagedLOD::TilePagedLOD(const UID&        engineUID,
                            TileNodeRegistry* live,
-                           TileNodeRegistry* dead) :
+                           ResourceReleaser* releaser) :
 osg::PagedLOD(),
 _engineUID( engineUID ),
 _live     ( live ),
-_dead     ( dead )
+_releaser ( releaser ),
+_debug    ( false )
 {
     if ( live )
     {
@@ -120,8 +132,9 @@ TilePagedLOD::~TilePagedLOD()
     // need this here b/c it's possible for addChild() to get called from
     // a pager dispatch even after the PLOD in question has been "expired"
     // so we still need to process the live/dead list.
-    ExpirationCollector collector( _live.get(), _dead.get() );
+    ExpirationCollector collector( _live.get() );
     this->accept( collector );
+    _releaser->push( collector._toRelease );
 }
 
 osgDB::Options*
@@ -145,6 +158,12 @@ TilePagedLOD::setChildBoundingBoxAndMatrix(int                     childNum,
 
 TileNode*
 TilePagedLOD::getTileNode()
+{
+    return _children.size() > 0 ? static_cast<TileNode*>(_children[0].get()) : 0L;
+}
+
+const TileNode*
+TilePagedLOD::getTileNode() const
 {
     return _children.size() > 0 ? static_cast<TileNode*>(_children[0].get()) : 0L;
 }
@@ -178,20 +197,17 @@ TilePagedLOD::addChild(osg::Node* node)
             return true;
         }
 
+        bool value = osg::PagedLOD::addChild( node );
+
         // If it's a TileNode, this is the simple first addition of the 
         // static TileNode child (not from the pager).
         TileNode* tilenode = dynamic_cast<TileNode*>( node );
         if ( tilenode && _live.get() )
         {
             _live->add( tilenode );
-
-            // Listen for out east and south neighbors.
-            const TileKey& key = tilenode->getKey();
-            _live->listenFor( key.createNeighborKey(1, 0), tilenode );
-            _live->listenFor( key.createNeighborKey(0, 1), tilenode );
         }
 
-        return osg::PagedLOD::addChild( node );
+        return value;
     }
 
     return false;
@@ -228,25 +244,43 @@ TilePagedLOD::traverse(osg::NodeVisitor& nv)
             break;
         case(osg::NodeVisitor::TRAVERSE_ACTIVE_CHILDREN):
         {
-            float required_range = 0;
-            if (_rangeMode==DISTANCE_FROM_EYE_POINT)
+            osg::ref_ptr<MPTerrainEngineNode> engine;
+            MPTerrainEngineNode::getEngineByUID( _engineUID, engine );
+            if (!engine.valid())
+                return;
+
+            // Compute the required range.
+            float required_range = -1.0;
+            if (engine->getComputeRangeCallback())
+            {                
+                required_range = (*engine->getComputeRangeCallback())(this, nv);
+            }            
+
+            // If we don't have a callback or it return a negative number fallback on the original calculation.
+            if (required_range < 0.0)
             {
-                required_range = nv.getDistanceToViewPoint(getCenter(),true);
-            }
-            else
-            {
-                osg::CullStack* cullStack = dynamic_cast<osg::CullStack*>(&nv);
-                if (cullStack && cullStack->getLODScale()>0.0f)
+                if (_rangeMode==DISTANCE_FROM_EYE_POINT)
                 {
-                    required_range = cullStack->clampedPixelSize(getBound()) / cullStack->getLODScale();
+                    required_range = nv.getDistanceToViewPoint(getCenter(),true);
+
+                    if (_rangeFactor.isSet())
+                        required_range /= _rangeFactor.get();
                 }
                 else
                 {
-                    // fallback to selecting the highest res tile by
-                    // finding out the max range
-                    for(unsigned int i=0;i<_rangeList.size();++i)
+                    osg::CullStack* cullStack = dynamic_cast<osg::CullStack*>(&nv);
+                    if (cullStack && cullStack->getLODScale()>0.0f)
                     {
-                        required_range = osg::maximum(required_range,_rangeList[i].first);
+                        required_range = cullStack->clampedPixelSize(getBound()) / cullStack->getLODScale();
+                    }
+                    else
+                    {
+                        // fallback to selecting the highest res tile by
+                        // finding out the max range
+                        for(unsigned int i=0;i<_rangeList.size();++i)
+                        {
+                            required_range = osg::maximum(required_range,_rangeList[i].first);
+                        }
                     }
                 }
             }
@@ -274,6 +308,16 @@ TilePagedLOD::traverse(osg::NodeVisitor& nv)
                     }
                 }
             }
+
+#ifdef INHERIT_VIEWPOINT_CAMERAS_CANNOT_SUBDIVIDE
+            // Prevents an INHERIT_VIEWPOINT camera from invoking tile subdivision
+            if (needToLoadChild)
+            {
+                osgUtil::CullVisitor* cv = dynamic_cast<osgUtil::CullVisitor*>(&nv);
+                if ( cv && cv->getCurrentCamera() && cv->getCurrentCamera()->getReferenceFrame() == osg::Camera::ABSOLUTE_RF_INHERIT_VIEWPOINT )
+                    needToLoadChild = false;
+            }
+#endif
 
             if (needToLoadChild)
             {
@@ -378,13 +422,84 @@ TilePagedLOD::removeExpiredChildren(double         expiryTime,
             osg::Node* nodeToRemove = _children[cindex].get();
             removedChildren.push_back(nodeToRemove);
 
-            ExpirationCollector collector( _live.get(), _dead.get() );
+            ExpirationCollector collector( _live.get() );
             nodeToRemove->accept( collector );
+            _releaser->push( collector._toRelease );
 
-            OE_DEBUG << LC << "Expired " << collector._count << std::endl;
+            if ( _debug )
+            {
+                TileNode* tileNode = getTileNode();
+                std::string key = tileNode ? tileNode->getKey().str() : "unk";
+                OE_NOTICE 
+                    << LC << "Tile " << key << " : expiring " << collector._count << " children; "
+                    << "TS = " << _perRangeDataList[cindex]._timeStamp
+                    << ", MET = " << minExpiryTime
+                    << ", ET = " << expiryTime
+                    << "; FN = " << _perRangeDataList[cindex]._frameNumber
+                    << ", MEF = " << minExpiryFrames
+                    << ", EF = " << expiryFrame
+                    << "\n";
+            }
 
             return Group::removeChildren(cindex,1);
         }
     }
     return false;
 }
+
+const TileKey& TilePagedLOD::getKey() const
+{
+    if (!getTileNode())
+    {
+        return TileKey::INVALID;
+    }
+    return getTileNode()->getKey();
+}
+
+double TilePagedLOD::getMinimumExpirationTime() const
+{
+    return PagedLOD::getMinimumExpiryTime(1);    
+}
+
+void TilePagedLOD::setMinimumExpirationTime(double minExpiryTime)
+{
+    PagedLOD::setMinimumExpiryTime(1, minExpiryTime);
+}
+
+unsigned int TilePagedLOD::getMinimumExpirationFrames() const
+{
+    return PagedLOD::getMinimumExpiryFrames(1);    
+}
+
+void TilePagedLOD::setMinimumExpirationFrames(unsigned int minExpiryFrames)
+{
+    PagedLOD::setMinimumExpiryFrames(1, minExpiryFrames);
+}
+
+
+void TilePagedLOD::loadChildren()
+{
+    TileKey key = getKey();
+
+    // Load all filenames that aren't currently loaded in the PagedLOD
+
+    if (getNumChildren() < getNumFileNames())
+    {
+        for (unsigned int i = 0; i < getNumFileNames(); i++)
+        {
+            std::string filename = getFileName(i);    
+            if (!filename.empty() && i >= getNumChildren())
+            {
+                osg::ref_ptr< osg::Node > node = osgDB::readRefNodeFile(filename);
+                if (!node.valid())
+                {
+                    break;
+                }
+                addChild(node.get());
+            }
+        }
+    }
+}
+
+
+

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -73,14 +73,11 @@ KML_Geometry::buildChild( xml_node<>* node, KMLContext& cx, Style& style)
         KML_MultiGeometry g;
         g.parseCoords(node, cx);
         _geom = g._geom.get();
-        g.parseStyle(node, cx, style);
         
         for( xml_node<>* n = node->first_node(); n; n = n->next_sibling())
         {
-            Style subStyle = style;
             KML_Geometry subGeom;
-            subGeom.parseStyle( n, cx, subStyle );
-            subGeom.buildChild( n, cx, style );
+            subGeom.buildChild( n, cx, style ); //use single style for all subgeometries
             if ( subGeom._geom.valid() )
                 dynamic_cast<MultiGeometry*>(g._geom.get())->getComponents().push_back( subGeom._geom.get() );
         }
@@ -98,21 +95,24 @@ void
 KML_Geometry::parseCoords( xml_node<>* node, KMLContext& cx )
 {
     xml_node<>* coords = node->first_node("coordinates", 0, false);
-    StringVector tuples;
-    StringTokenizer( coords->value(), tuples, " \n", "", false, true );
-    for( StringVector::const_iterator s=tuples.begin(); s != tuples.end(); ++s )
+    if ( coords )
     {
-        StringVector parts;
-        StringTokenizer( *s, parts, ",", "", false, true );
-        if ( parts.size() >= 2 )
+        StringVector tuples;
+        StringTokenizer( coords->value(), tuples, " \n", "", false, true );
+        for( StringVector::const_iterator s=tuples.begin(); s != tuples.end(); ++s )
         {
-            osg::Vec3d point;
-            point.x() = as<double>( parts[0], 0.0 );
-            point.y() = as<double>( parts[1], 0.0 );
-            if ( parts.size() >= 3 ) {
-                point.z() = as<double>( parts[2], 0.0 );
+            StringVector parts;
+            StringTokenizer( *s, parts, ",", "", false, true );
+            if ( parts.size() >= 2 )
+            {
+                osg::Vec3d point;
+                point.x() = as<double>( parts[0], 0.0 );
+                point.y() = as<double>( parts[1], 0.0 );
+                if ( parts.size() >= 3 ) {
+                    point.z() = as<double>( parts[2], 0.0 );
+                }
+                _geom->push_back(point);
             }
-            _geom->push_back(point);
         }
     }
 }
@@ -127,7 +127,8 @@ KML_Geometry::parseStyle( xml_node<>* node, KMLContext& cx, Style& style )
     if ( am.empty() )
         am = "clampToGround"; // default.
 
-    bool isPoly = _geom->getComponentType() == Geometry::TYPE_POLYGON;
+    bool isPoly = _geom.valid() && _geom->getComponentType() == Geometry::TYPE_POLYGON;
+    bool isLine = _geom.valid() && _geom->getComponentType() == Geometry::TYPE_LINESTRING;
 
     // Resolve the correct altitude symbol. CLAMP_TO_TERRAIN is the default, but the
     // technique will depend on the geometry's type and setup.
@@ -144,7 +145,7 @@ KML_Geometry::parseStyle( xml_node<>* node, KMLContext& cx, Style& style )
 
     double maxElevation = -DBL_MAX;
 
-    if ( isPoly )
+    //if ( isPoly ) //compute maxElevation also for line strings for extrusion height
     {
         bool first = true;
         double e = 0.0;
@@ -185,6 +186,10 @@ KML_Geometry::parseStyle( xml_node<>* node, KMLContext& cx, Style& style )
         else if ( isPoly )
         {
             alt->technique() = alt->TECHNIQUE_DRAPE;
+        }
+        else if ( isLine)
+        {
+            alt->technique() = alt->TECHNIQUE_DRAPE; // or could be GPU.
         }
         else // line or point
         {

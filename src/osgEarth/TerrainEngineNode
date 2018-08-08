@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -23,29 +23,94 @@
 #include <osgEarth/MapFrame>
 #include <osgEarth/Terrain>
 #include <osgEarth/TerrainEffect>
+#include <osgEarth/TerrainTileModelFactory>
 #include <osgEarth/TerrainTileNode>
-#include <osgEarth/TextureCompositor>
+#include <osgEarth/TerrainEngineRequirements>
+#include <osgEarth/TerrainResources>
 #include <osgEarth/ShaderUtils>
+#include <osgEarth/Progress>
 #include <osg/CoordinateSystemNode>
 #include <osg/Geode>
 #include <osg/NodeCallback>
+#include <osgUtil/RenderBin>
+#include <set>
 
 #define OSGEARTH_ENV_TERRAIN_ENGINE_DRIVER "OSGEARTH_TERRAIN_ENGINE"
+
+
+namespace osgUtil {
+    class CullVisitor;
+}
 
 namespace osgEarth
 {
     class TerrainEffect;
+    class VirtualProgram;
 
     /**
-     * Interface for querying terrain engine feature requirements.
+     * Interface for and object that can create a new terrain tile models
      */
-    class TerrainEngineRequirements
+    class /*interface*/ TerrainEngine
     {
     public:
-        virtual bool elevationTexturesRequired() const =0;
-        virtual bool normalTexturesRequired() const =0;
-        virtual bool parentTexturesRequired() const =0;
+        /**
+         * Callback for new node creation.
+         */
+        class NodeCallback : public osg::Referenced
+        {
+        public:
+            virtual void operator()(const TileKey& key, osg::Node* node) =0;
+
+        protected:
+            NodeCallback() { }
+            virtual ~NodeCallback() { }
+        };
+
+    public:
+        /**
+         * Unique ID of this engine.
+         */
+        virtual UID getUID() const =0;
+
+        /**
+         * Creates a new data model for a terrain tile, calling any registered
+         * CreateTileModelCallbacks before returning the new object.
+         *
+         * @param frame  Map frame from which to create the new tile model
+         * @param key    Key for which to create the new tile model
+         * @param layers UIDs of layers to fetch data for; NULL => all layers
+         * @param progress Optional progress/stats tracking callback
+         */
+        virtual TerrainTileModel* createTileModel(
+            const MapFrame&              frame,
+            const TileKey&               key,
+            const CreateTileModelFilter& filter,
+            ProgressCallback*            progress ) =0;
+
+        
+        /**
+         * Notify the engine of a completed tile node creation, so it can 
+         * activate callbacks. (This might happen in a pager thread.)
+         *
+         * @param key  TileKey corresponding to the new Node
+         * @param node The new terrain node.
+         */
+        virtual void notifyOfTerrainTileNodeCreation(
+            const TileKey& key,
+            osg::Node*     node) =0;
     };
+
+
+
+    /**
+     * A callback that lets you customize the computed range for a terrain tile.
+     * Providing a custom range can let applications better control how paging behaves.
+     */
+    struct ComputeRangeCallback : public osg::Referenced
+    {
+        virtual float operator()(osg::Node* node, osg::NodeVisitor& nv) = 0;
+    };
+
 
     /**
      * TerrainEngineNode is the base class and interface for map engine implementations.
@@ -54,7 +119,7 @@ namespace osgEarth
      * actual geometry representing the Earth.
      */
     class OSGEARTH_EXPORT TerrainEngineNode : public osg::CoordinateSystemNode,
-                                              public TerrainTileNodeBroker,
+                                              public TerrainEngine,
                                               public TerrainEngineRequirements
     {
     public:
@@ -69,7 +134,7 @@ namespace osgEarth
         virtual const TerrainOptions& getTerrainOptions() const =0;
 
         /** Accesses the object that keeps track of GPU resources in use */
-        TextureCompositor* getResources() const;
+        TerrainResources* getResources() const;
 
         /** Adds a terrain effect */
         void addEffect( TerrainEffect* effect );
@@ -94,84 +159,101 @@ namespace osgEarth
         }
 
         /** Whether the implementation should generate normal map rasters. */
-        void requireNormalTextures() { _requireNormalTextures = true; }
+        void requireNormalTextures();
         
         /** Whether the implementation should generate elevation map rasters. */
-        void requireElevationTextures() { _requireElevationTextures = true; }
+        void requireElevationTextures();
 
         /** Whether the implementation should generate parent color textures. */
-        void requireParentTextures() { _requireParentTextures = true; }
+        void requireParentTextures();
 
         /** Access the stateset used to render the terrain. */
-        virtual osg::StateSet* getTerrainStateSet() { return getOrCreateStateSet(); }
+        virtual osg::StateSet* getSurfaceStateSet() { return getOrCreateStateSet(); }
 
-        /** Access the stateset used to render payload data. */
-        virtual osg::StateSet* getPayloadStateSet() { return getOrCreateStateSet(); }
+        /** Gets the ComputeRangeCallback for this TerrainEngineNode */
+        ComputeRangeCallback* getComputeRangeCallback() const;
+
+        /** Sets the ComputeRangeCallback for this TerrainEngineNode */
+        void setComputeRangeCallback(ComputeRangeCallback* computeRangeCallback);
+
+        // Request that the terrain tiles be rebuilt.
+        virtual void dirtyTerrain();
+
+
+
+    public: // TerrainEngine
+
+        TerrainTileModel* createTileModel(
+            const MapFrame&              frame,
+            const TileKey&               key,
+            const CreateTileModelFilter& filter,
+            ProgressCallback*            progress);
+
+        void notifyOfTerrainTileNodeCreation(
+            const TileKey& key, 
+            osg::Node*     node);
+
+    public:
+
+        /**
+         * Callback for customizing the TileModel.
+         */
+        class CreateTileModelCallback : public osg::Referenced
+        {
+        public:
+            virtual void onCreateTileModel(
+                TerrainEngineNode* engine,
+                TerrainTileModel*  model) = 0;
+        };
+
+        /**
+         * Adds a TileModel creation callback, so you can add custom data
+         * to the TileModel after it's created.
+         */
+        void addCreateTileModelCallback(CreateTileModelCallback* callback);
+        void removeCreateTileModelCallback(CreateTileModelCallback* callback);
+
 
     public: // TerrainEngineRequirements
 
         bool normalTexturesRequired() const { return _requireNormalTextures; }
         bool elevationTexturesRequired() const { return _requireElevationTextures; }
         bool parentTexturesRequired() const { return _requireParentTextures; }
-
-    public:
-        // adds a callback that will be fired while the terrain engine is building
-        // a tile node in a background thread.
-        void addTileNodeCallback(TerrainTileNodeCallback* cb);
-        void removeTileNodeCallback(TerrainTileNodeCallback* cb);
-            
-
-    public: // Runtime properties
-
-        /** Sets the scale factor to apply to elevation height values. Default is 1.0
-          * @deprecated */
-        void setVerticalScale( float value );
-
-        /** Gets the scale factor to apply to elevation height values.
-          * #deprecated */
-        float getVerticalScale() const { return _verticalScale; }
-
-    public: // deprecated
-        
-        /** @derepcated Use getResources() instead. */
-        TextureCompositor* getTextureCompositor() const { return getResources(); }
+        bool elevationBorderRequired() const { return _requireElevationBorder; }
+        bool fullDataAtFirstLodRequired() const { return _requireFullDataAtFirstLOD; }
 
     protected:
         TerrainEngineNode();
-
-        //TerrainEngineNode( const TerrainEngineNode& rhs, const osg::CopyOp& op =osg::CopyOp::DEEP_COPY_ALL );
-
         virtual ~TerrainEngineNode();
 
     public: // osg::Node overrides
         virtual osg::BoundingSphere computeBound() const;
         virtual void traverse( osg::NodeVisitor& );
 
-    protected: // implementation events
-        virtual void onVerticalScaleChanged() { }
-        virtual void onElevationSamplingRatioChanged() { }
-
     protected:
         friend class MapNode;
         friend class TerrainEngineNodeFactory;
 
-        /** Attaches a map to the terrain engine and initialized it.*/
-        virtual void preInitialize( const Map* map, const TerrainOptions& options );
-        virtual void postInitialize( const Map* map, const TerrainOptions& options );
+        virtual void setMap(const Map* map, const TerrainOptions& options);
 
         // signals that a redraw is needed because something changed.
-        virtual void dirty();
+        virtual void requestRedraw();
 
-        // allow subclasses direct access for convenience.
-        osg::ref_ptr<TextureCompositor> _texCompositor;
+        // Request the state setup be refreshed because something has changed that requires new
+        // shaders, state, etc.
+        virtual void dirtyState() { }
+
+        osg::ref_ptr<TerrainResources> _textureResourceTracker;
 
         bool _requireElevationTextures;
         bool _requireNormalTextures;
         bool _requireParentTextures;
+        bool _requireElevationBorder;
+        bool _requireFullDataAtFirstLOD;
 
-    public: // TerrainTileNodeBroker
-
-        void notifyOfTerrainTileNodeCreation(const TileKey& key, osg::Node* node);
+        // called by addTileNodeCallback to notify any already-existing nodes
+        // of the new callback.
+        virtual void notifyExistingNodes(TerrainEngine::NodeCallback* cb) { }
 
     public: // utility
 
@@ -179,8 +261,33 @@ namespace osgEarth
          * Utility function that will return an osg::Node representing the geometry
          * for a tile key. The node is standalone; it has no ability to load children
          * or receive updates.
+         *
+         * TODO: deprecate in favor of a separate utility for creating simple
+         * geometry out of a TerrainTileModel. -gw
          */
-        virtual osg::Node* createTile( const TileKey& key ) =0;
+        virtual osg::Node* createTile(const TileKey& key) =0;
+
+        //! Flags that affect the createTile behavior.
+        enum CreateTileFlags
+        {
+            CREATE_TILE_INCLUDE_TILES_WITH_MASKS     = 1,
+            CREATE_TILE_INCLUDE_TILES_WITHOUT_MASKS  = 2,
+            CREATE_TILE_DEFAULT_FLAGS                = ~0 /* all */
+        };
+
+        /**
+         * Utility for creating standalone tile geometry from a tile model.
+         * Note: experimental.
+         * @param model Tile model for which to build a tile
+         * @param flags OR of the CreateTileFlags enums
+         * @param referenceLOD If non-zero, adjust the vertex dimensions of the returned tile
+         *        to match this LOD. Example: ask for a tile at tileKey.lod=15, tile is 17x17.
+         *        Specific a referenceLOD=16, tile will be 33x33.
+         */
+        virtual osg::Node* createTile(
+            const TerrainTileModel* model,
+            int createTileFlags =CREATE_TILE_DEFAULT_FLAGS,
+            unsigned referenceLOD =0u) { return 0L; }
 
     private:
         friend struct TerrainEngineNodeCallbackProxy;
@@ -196,11 +303,7 @@ namespace osgEarth
         struct ImageLayerController : public ImageLayerCallback
         {
             ImageLayerController( const Map* map, TerrainEngineNode* engine );
-
-            void onVisibleChanged( TerrainLayer* layer );
-            void onOpacityChanged( ImageLayer* layer );
-            void onColorFiltersChanged( ImageLayer* layer );      
-            void onVisibleRangeChanged( ImageLayer* layer );
+            void onColorFiltersChanged( ImageLayer* layer ); 
 
         private:
             MapFrame           _mapf;
@@ -214,6 +317,7 @@ namespace osgEarth
         float                              _verticalScale;
         osg::ref_ptr<Terrain>              _terrainInterface;
         unsigned                           _dirtyCount;
+        bool                               _updateScheduled;
         
         enum InitStage {
             INIT_NONE,
@@ -225,9 +329,18 @@ namespace osgEarth
         typedef std::vector<osg::ref_ptr<TerrainEffect> > TerrainEffectVector;
         TerrainEffectVector effects_;
 
-        typedef std::vector<osg::ref_ptr<TerrainTileNodeCallback> > TerrainTileNodeCallbackVector;
-        TerrainTileNodeCallbackVector _tileNodeCallbacks;
+        typedef std::vector<osg::ref_ptr<TerrainEngine::NodeCallback> > NodeCallbackVector;
+        NodeCallbackVector _tileNodeCallbacks;
         mutable Threading::Mutex _tileNodeCallbacksMutex;
+        
+        typedef std::vector<osg::ref_ptr<CreateTileModelCallback> > CreateTileModelCallbacks;
+        CreateTileModelCallbacks _createTileModelCallbacks;
+        mutable Threading::ReadWriteMutex _createTileModelCallbacksMutex;
+
+        osg::ref_ptr<TerrainTileModelFactory> _tileModelFactory;
+
+        osg::ref_ptr<ComputeRangeCallback> _computeRangeCallback;
+
 
     public:
 
@@ -248,20 +361,7 @@ namespace osgEarth
     class TerrainEngineNodeFactory
     {
     public:
-        static TerrainEngineNode* create( Map* map, const TerrainOptions& options );
-    };
-
-    /**
-     * Base class for a node that "decorates" the terrain engine node within a map node.
-     */
-    class TerrainDecorator : public osg::Group
-    {
-    public:
-        virtual void onInstall( TerrainEngineNode* engine );
-        virtual void onUninstall( TerrainEngineNode* engine );
-
-    protected:
-        virtual ~TerrainDecorator();
+        static TerrainEngineNode* create(const TerrainOptions& options );
     };
 
 } // namespace osgEarth

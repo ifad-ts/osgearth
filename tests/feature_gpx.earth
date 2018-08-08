@@ -26,7 +26,8 @@ Note:  You must have GDAL built with Expat support to read GPX files
         <styles>
             <style type="text/css">
                 routes {
-                   stroke: #ffff00;                   
+                   stroke: #ffff00; 
+                   render-depth-offset: true;
                 }                    
             </style>
         </styles>
@@ -35,8 +36,8 @@ Note:  You must have GDAL built with Expat support to read GPX files
         
     </model>
 	
-	<external>
+    <viewpoints>
         <viewpoint name="Fells Loop" heading="0" height="0" lat="42.43095" long="-71.1076" pitch="-90" range="5000"/>
-    </external>
+    </viewpoints>
   
 </map>

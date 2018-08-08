@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -70,7 +70,8 @@ AtlasBuilder::AtlasBuilder(const osgDB::Options* options) :
 _options( options ),
 _width  ( 1024 ),
 _height ( 1024 ),
-_debug  ( false )
+_debug  ( false ),
+_rgb    ( false )
 {
     //nop
     if (::getenv("OSGEARTH_ATLAS_DEBUG"))
@@ -117,7 +118,7 @@ AtlasBuilder::build(const ResourceLibrary* inputLib,
     // clone the Resource library so we can re-write the URIs and add 
     // texture matrix information.
     out._lib = new ResourceLibrary( inputLib->getConfig() );
-    out._lib->initialize( _options );
+    out._lib->initialize( _options.get() );
     out._lib->uri().unset();
 
     // store a mapping from atlasbuilder source to skin.
@@ -131,13 +132,13 @@ AtlasBuilder::build(const ResourceLibrary* inputLib,
     {
         SkinResource* skin = i->get();
 
-        // skip tiled skins for now.
-        if ( skin->isTiled() == true )
+        // skip skins that say "no atlas please"
+        if ( skin->atlasHint() == false )
         {
             continue;
         }
 
-        osg::ref_ptr<osg::Image> image = skin->createImage( _options );
+        osg::ref_ptr<osg::Image> image = skin->createImage( _options.get() );
         if ( image.valid() )
         {
             OE_INFO << LC << "Loaded skin file: " << skin->imageURI()->full() << std::endl;
@@ -152,9 +153,9 @@ AtlasBuilder::build(const ResourceLibrary* inputLib,
             }
 
             // normalize to RGBA8
-            image = ImageUtils::convertToRGBA8(image);
+            image = ImageUtils::convertToRGBA8(image.get());
 
-            maintab->addSource( image );
+            maintab->addSource( image.get() );
 
             // for each aux pattern, either load and resize the aux image or create
             // an empty placeholder.
@@ -170,21 +171,20 @@ AtlasBuilder::build(const ResourceLibrary* inputLib,
                 std::string auxFile = base + "_" + pattern + "." + ext;
 
                 // read in the auxiliary image:
-                osg::ref_ptr<osg::Image> auxImage;
-                auxImage = osgDB::readImageFile( auxFile, _options.get() );
+                osg::ref_ptr<osg::Image> auxImage = osgDB::readRefImageFile( auxFile, _options.get() );
 
                 // if that didn't work, try alternate extensions:
                 const char* alternateExtensions[3] = {"png", "jpg", "osgb"};
                 for(int b = 0; b < 3 && !auxImage.valid(); ++b)
                 {
                     auxFile = base + "_" + pattern + "." + alternateExtensions[b];
-                    auxImage = osgDB::readImageFile( auxFile, _options.get() );
+                    auxImage = osgDB::readRefImageFile( auxFile, _options.get() );
                 }
 
                 if ( auxImage.valid() )
                 {
                     OE_INFO << LC << "  Found aux file: " << auxFile << std::endl;
-                    auxImage = ImageUtils::convertToRGBA8(auxImage);
+                    auxImage = ImageUtils::convertToRGBA8(auxImage.get());
                 }
                 else
                 {
@@ -204,7 +204,7 @@ AtlasBuilder::build(const ResourceLibrary* inputLib,
                     OE_INFO << "  ...resized " << auxFile << " to match atlas size" << std::endl;
                 }
 
-                if ( !ImageUtils::sameFormat(image, auxImage.get()) ) 
+                if ( !ImageUtils::sameFormat(image.get(), auxImage.get()) ) 
                 {
                     auxImage = ImageUtils::convertToRGBA8(auxImage.get());
                 }
@@ -255,6 +255,10 @@ AtlasBuilder::build(const ResourceLibrary* inputLib,
             maxT = t;
     }
 
+    // protecte against a div0
+    maxS = std::max(maxS, 1u);
+    maxT = std::max(maxT, 1u);
+
     OE_INFO << LC <<
         "Final atlas size will be (" << maxS << ", " << maxT << ")" << std::endl;
 
@@ -270,7 +274,7 @@ AtlasBuilder::build(const ResourceLibrary* inputLib,
             maxS,
             maxT,
             atlasList.size(),
-            GL_RGBA,
+            _rgb ? GL_RGB : GL_RGBA,
             GL_UNSIGNED_BYTE);
 
         // initialize to all zeros
@@ -302,6 +306,9 @@ AtlasBuilder::build(const ResourceLibrary* inputLib,
     
     // for each source in this atlas layer, apply its texture matrix info
     // to the new catalog.
+    maxS = std::max(maxS, 1u);
+    maxT = std::max(maxT, 1u);
+
     for(int r=0; r<(int)mainAtlasList.size(); ++r)
     {
         for(int k=0; k<mainAtlasList[r]->_sourceList.size(); ++k)

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,16 +8,23 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 #include <osgEarthAnnotation/AnnotationRegistry>
-#include <osgEarth/Decluttering>
+#include <osgEarth/ScreenSpaceLayout>
+#include <osgEarth/Registry>
+#include <osgEarth/ObjectIndex>
+
+#define LC "[AnnotationRegistry] "
 
 using namespace osgEarth;
 using namespace osgEarth::Annotation;
@@ -31,7 +38,6 @@ namespace
         CollectAnnotationNodes() : osg::NodeVisitor(osg::NodeVisitor::TRAVERSE_ALL_CHILDREN)
         {
             _group.key() = "annotations";
-            _declutter   = false;
         }
 
         void apply(osg::Node& node)
@@ -43,19 +49,10 @@ namespace
                 _group.add( conf );
             }
 
-            if (!_declutter &&
-                node.getStateSet() &&
-                node.getStateSet()->getRenderBinMode() != osg::StateSet::INHERIT_RENDERBIN_DETAILS &&
-                node.getStateSet()->getBinName() == OSGEARTH_DECLUTTER_BIN )
-            {
-                _declutter = true;
-            }
-
             traverse(node);
         }
 
         Config _group;
-        bool   _declutter;
     };
 }
 
@@ -97,10 +94,8 @@ AnnotationRegistry::create(MapNode*              mapNode,
 {
     bool createdAtLeastOne = false;
 
-    bool declutter = conf.value<bool>("declutter",false) == true;
-
     // first try to parse the top-level config as an annotation:
-    AnnotationNode* top = createOne(mapNode, conf, options, declutter);
+    AnnotationNode* top = createOne(mapNode, conf, options);
     if ( top )
     {
         if ( results == 0L )
@@ -114,7 +109,7 @@ AnnotationRegistry::create(MapNode*              mapNode,
     {
         for( ConfigSet::const_iterator i = conf.children().begin(); i != conf.children().end(); ++i )
         {
-            AnnotationNode* anno = createOne( mapNode, *i, options, declutter );
+            AnnotationNode* anno = createOne( mapNode, *i, options );
             if ( anno )
             {
                 if ( results == 0L )
@@ -132,8 +127,7 @@ AnnotationRegistry::create(MapNode*              mapNode,
 AnnotationNode*
 AnnotationRegistry::createOne(MapNode*              mapNode, 
                               const Config&         conf, 
-                              const osgDB::Options* options, 
-                              bool                  declutterOrthos ) const
+                              const osgDB::Options* options) const
 {
     FactoryMap::const_iterator f = _factories.find( conf.key() );
     if ( f != _factories.end() && f->second != 0L )
@@ -141,11 +135,7 @@ AnnotationRegistry::createOne(MapNode*              mapNode,
         AnnotationNode* anno = f->second->create(mapNode, conf, options);
         if ( anno )
         {
-            if ( declutterOrthos && dynamic_cast<SupportsDecluttering*>(anno) )
-            {
-                Decluttering::setEnabled( anno->getOrCreateStateSet(), true );
-            }
-
+            Registry::objectIndex()->tagNode( anno, anno );
             return anno;
         }
     }
@@ -160,8 +150,6 @@ AnnotationRegistry::getConfig( osg::Node* graph ) const
     {
         CollectAnnotationNodes visitor;
         graph->accept( visitor );
-        if ( visitor._declutter )
-            visitor._group.set( "declutter", "true" );
         return visitor._group;
     }
     return Config();

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -23,7 +26,7 @@
 #include <osgEarth/GeoMath>
 #include <osgEarth/Units>
 #include <osgEarth/StringUtils>
-#include <osgEarth/Decluttering>
+#include <osgEarth/ScreenSpaceLayout>
 #include <osgEarthUtil/ExampleResources>
 #include <osgEarthUtil/EarthManipulator>
 #include <osgEarthUtil/MGRSFormatter>
@@ -63,11 +66,10 @@ using namespace osgEarth::Symbology;
 static MGRSFormatter s_format(MGRSFormatter::PRECISION_10000M);
 
 // globals for this demo
-osg::StateSet*      g_declutterStateSet = 0L;
 bool                g_showCoords        = true;
 optional<float>     g_duration          = 60.0;
 unsigned            g_numTracks         = 500;
-DeclutteringOptions g_dcOptions;
+ScreenSpaceLayoutOptions g_dcOptions;
 
 
 /** Prints an error message */
@@ -167,7 +169,7 @@ void
 createTrackNodes( MapNode* mapNode, osg::Group* parent, const TrackNodeFieldSchema& schema, TrackSims& sims )
 {
     // load an icon to use:
-    osg::ref_ptr<osg::Image> srcImage = osgDB::readImageFile( ICON_URL );
+    osg::ref_ptr<osg::Image> srcImage = osgDB::readRefImageFile( ICON_URL );
     osg::ref_ptr<osg::Image> image;
     ImageUtils::resizeImage( srcImage.get(), ICON_SIZE, ICON_SIZE, image );
 
@@ -182,16 +184,14 @@ createTrackNodes( MapNode* mapNode, osg::Group* parent, const TrackNodeFieldSche
 
         GeoPoint pos(geoSRS, lon0, lat0);
 
-        TrackNode* track = new TrackNode(mapNode, pos, image, schema);
+        TrackNode* track = new TrackNode(mapNode, pos, image.get(), schema);
 
         track->setFieldValue( FIELD_NAME,     Stringify() << "Track:" << i );
         track->setFieldValue( FIELD_POSITION, Stringify() << s_format(pos) );
         track->setFieldValue( FIELD_NUMBER,   Stringify() << (1 + prng.next(9)) );
 
         // add a priority
-        AnnotationData* data = new AnnotationData();
-        data->setPriority( float(i) );
-        track->setAnnotationData( data );
+        track->setPriority( float(i) );
 
         parent->addChild( track );
 
@@ -208,20 +208,20 @@ createTrackNodes( MapNode* mapNode, osg::Group* parent, const TrackNodeFieldSche
 
 
 /** creates some UI controls for adjusting the decluttering parameters. */
-void
+Container*
 createControls( osgViewer::View* view )
 {
-    ControlCanvas* canvas = ControlCanvas::getOrCreate(view);
+    //ControlCanvas* canvas = ControlCanvas::getOrCreate(view);
     
     // title bar
-    VBox* vbox = canvas->addControl(new VBox(Control::ALIGN_NONE, Control::ALIGN_BOTTOM, 2, 1 ));
+    VBox* vbox = new VBox(Control::ALIGN_NONE, Control::ALIGN_BOTTOM, 2, 1 );
     vbox->setBackColor( Color(Color::Black, 0.5) );
     vbox->addControl( new LabelControl("osgEarth Tracks Demo", Color::Yellow) );
     
     // checkbox that toggles decluttering of tracks
     struct ToggleDecluttering : public ControlEventHandler {
         void onValueChanged( Control* c, bool on ) {
-            Decluttering::setEnabled( g_declutterStateSet, on );
+            ScreenSpaceLayout::setDeclutteringEnabled( on );
         }
     };
     HBox* dcToggle = vbox->addControl( new HBox() );
@@ -254,7 +254,7 @@ createControls( osgViewer::View* view )
         void onValueChanged( Control* c, float value ) {
             _param = value;
             _label->setText( Stringify() << std::fixed << std::setprecision(1) << value );
-            Decluttering::setOptions( g_dcOptions );
+            ScreenSpaceLayout::setOptions( g_dcOptions );
         }
     };
 
@@ -283,6 +283,8 @@ createControls( osgViewer::View* view )
     LabelControl* deactLabel = grid->setControl( 2, r, new LabelControl(Stringify() << std::fixed << std::setprecision(1) << *g_dcOptions.outAnimationTime()) );
     grid->setControl( 1, r, new HSliderControl( 
         0.0, 2.0, *g_dcOptions.outAnimationTime(), new ChangeFloatOption(g_dcOptions.outAnimationTime(), deactLabel) ) );
+
+    return vbox;
 }
 
 
@@ -300,7 +302,8 @@ main(int argc, char** argv)
     viewer.setCameraManipulator( new EarthManipulator );
 
     // load a map from an earth file.
-    osg::Node* earth = MapNodeHelper().load(arguments, &viewer);
+    osg::Node* earth = MapNodeHelper().load(arguments, &viewer, createControls(&viewer));
+
     MapNode* mapNode = MapNode::findMapNode(earth);
     if ( !mapNode )
         return usage("Missing required .earth file" );
@@ -319,7 +322,6 @@ main(int argc, char** argv)
     // create some track nodes.
     TrackSims trackSims;
     osg::Group* tracks = new osg::Group();
-    //HTMGroup* tracks = new HTMGroup();
     createTrackNodes( mapNode, tracks, schema, trackSims );
     root->addChild( tracks );
 
@@ -328,20 +330,16 @@ main(int argc, char** argv)
     // sorting, which looks at the AnnotationData::priority field for each drawable.
     // (By default, objects are sorted by disatnce-to-camera.) Finally, we customize 
     // a couple of the decluttering options to get the animation effects we want.
-    g_declutterStateSet = tracks->getOrCreateStateSet();
-    Decluttering::setEnabled( g_declutterStateSet, true );
-    g_dcOptions = Decluttering::getOptions();
+    g_dcOptions = ScreenSpaceLayout::getOptions();
     g_dcOptions.inAnimationTime()  = 1.0f;
     g_dcOptions.outAnimationTime() = 1.0f;
     g_dcOptions.sortByPriority()   = true;
-    Decluttering::setOptions( g_dcOptions );
+    ScreenSpaceLayout::setOptions( g_dcOptions );
 
     // attach the simulator to the viewer.
     viewer.addUpdateOperation( new TrackSimUpdate(trackSims) );
     viewer.setRunFrameScheme( viewer.CONTINUOUS );
-
-    // configure a UI for controlling the demo
-    createControls( &viewer );
-
+    
+    viewer.getCamera()->setSmallFeatureCullingPixelSize(-1.0f);
     viewer.run();
 }

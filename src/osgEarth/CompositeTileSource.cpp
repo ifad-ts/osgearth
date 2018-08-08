@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -56,12 +56,14 @@ CompositeTileSourceOptions::add( const ElevationLayerOptions& options )
 Config 
 CompositeTileSourceOptions::getConfig() const
 {    
-    Config conf = TileSourceOptions::newConfig();
+    Config conf = TileSourceOptions::getConfig();
 
     for( ComponentVector::const_iterator i = _components.begin(); i != _components.end(); ++i )
     {
         if ( i->_imageLayerOptions.isSet() )
             conf.add( "image", i->_imageLayerOptions->getConfig() );
+        else if ( i->_elevationLayerOptions.isSet() )
+            conf.add( "elevation", i->_elevationLayerOptions->getConfig() );
     }
 
     return conf;
@@ -77,19 +79,19 @@ CompositeTileSourceOptions::mergeConfig( const Config& conf )
 void 
 CompositeTileSourceOptions::fromConfig( const Config& conf )
 {    
-    const ConfigSet& images = conf.children("image");
+    const ConfigSet& images = conf.hasChild("images") ? conf.child("images").children() : conf.children("image");
     for( ConfigSet::const_iterator i = images.begin(); i != images.end(); ++i )
     {
         add( ImageLayerOptions( *i ) );
     }
 
-    const ConfigSet& elevations = conf.children("elevation");
+    const ConfigSet& elevations = conf.hasChild("elevations") ? conf.child("elevations").children() : conf.children("elevation");
     for( ConfigSet::const_iterator i = elevations.begin(); i != elevations.end(); ++i )
     {
         add( ElevationLayerOptions( *i ) );
     }
-
-    const ConfigSet& heightfields = conf.children("heightfield");
+    
+    const ConfigSet& heightfields = conf.hasChild("heightfields") ? conf.child("heightfields").children() : conf.children("heightfield");
     for( ConfigSet::const_iterator i = heightfields.begin(); i != heightfields.end(); ++i )
     {
         add( ElevationLayerOptions( *i ) );
@@ -153,7 +155,7 @@ CompositeTileSource::createImage(const TileKey&    key,
     {
         ImageLayer* layer = itr->get();
         ImageInfo imageInfo;
-        imageInfo.dataInExtents = layer->getTileSource()->hasDataInExtent( key.getExtent() );
+        imageInfo.dataInExtents = layer->mayHaveDataInExtent(key.getExtent());
         imageInfo.opacity = layer->getOpacity();
 
         if (imageInfo.dataInExtents)
@@ -162,6 +164,13 @@ CompositeTileSource::createImage(const TileKey&    key,
             if (image.valid())
             {
                 imageInfo.image = image.getImage();
+            }
+
+            // If the progress got cancelled or it needs a retry then return NULL to prevent this tile from being built and cached with incomplete or partial data.
+            if (progress && (progress->isCanceled() || progress->needsRetry()))
+            {
+                OE_DEBUG << LC << " createImage was cancelled or needs retry for " << key.str() << std::endl;
+                return 0L;
             }
         }
 
@@ -203,6 +212,14 @@ CompositeTileSource::createImage(const TileKey&    key,
                     {
                         break;
                     }
+
+                    // If the progress got cancelled or it needs a retry then return NULL to prevent this tile from being built and cached with incomplete or partial data.
+                    if (progress && (progress->isCanceled() || progress->needsRetry()))
+                    {
+                        OE_DEBUG << LC << " createImage was cancelled or needs retry for " << key.str() << std::endl;
+                        return 0L;
+                    }
+
                     parentKey = parentKey.createParentKey();
                 }
 
@@ -277,8 +294,7 @@ osg::HeightField* CompositeTileSource::createHeightField(
             const TileKey&        key,
             ProgressCallback*     progress )
 {    
-    unsigned int size = *getOptions().tileSize();    
-    bool hae = false;
+    unsigned size = getPixelsPerTile(); //int size = *getOptions().tileSize();    
     osg::ref_ptr< osg::HeightField > heightField = new osg::HeightField();
     heightField->allocate(size, size);
 
@@ -289,7 +305,7 @@ osg::HeightField* CompositeTileSource::createHeightField(
     }  
 
     // Populate the heightfield and return it if it's valid
-    if (_elevationLayers.populateHeightField(heightField.get(), key, 0, INTERP_AVERAGE, progress))
+    if (_elevationLayers.populateHeightFieldAndNormalMap(heightField.get(), 0L, key, 0, INTERP_BILINEAR, progress))
     {                
         return heightField.release();
     }
@@ -317,7 +333,7 @@ CompositeTileSource::add( ImageLayer* layer )
     _imageLayers.push_back( layer );
     CompositeTileSourceOptions::Component comp;
     comp._layer = layer;
-    comp._imageLayerOptions = layer->getImageLayerOptions();
+    comp._imageLayerOptions = layer->options();
     _options._components.push_back( comp );    
 
     return true;
@@ -341,53 +357,67 @@ CompositeTileSource::add( ElevationLayer* layer )
     _elevationLayers.push_back( layer );
     CompositeTileSourceOptions::Component comp;
     comp._layer = layer;
-    comp._elevationLayerOptions = layer->getElevationLayerOptions();
+    comp._elevationLayerOptions = layer->options();
     _options._components.push_back( comp );    
 
     return true;
 }
 
 
-TileSource::Status
+Status
 CompositeTileSource::initialize(const osgDB::Options* dbOptions)
 {
     _dbOptions = Registry::instance()->cloneOrCreateOptions(dbOptions);
 
-    osg::ref_ptr<const Profile> profile = getProfile();    
+    osg::ref_ptr<const Profile> profile = getProfile();
+
+    bool dataExtentsValid = true;
 
     for(CompositeTileSourceOptions::ComponentVector::iterator i = _options._components.begin();
         i != _options._components.end(); )
     {        
-        if ( i->_imageLayerOptions.isSet() )
+        if ( i->_imageLayerOptions.isSet() && !i->_layer.valid() )
         {
+            // Disable the l2 cache for composite layers so that we don't get run out of memory on very large datasets.
+            i->_imageLayerOptions->driver()->L2CacheSize() = 0;
+
             osg::ref_ptr< ImageLayer > layer = new ImageLayer(*i->_imageLayerOptions);
-            if (!layer->getTileSource())
+            layer->setReadOptions(_dbOptions.get());
+            Status status = layer->open();
+            if (status.isOK())
             {
-                OE_WARN << LC << "Could not find a TileSource for driver [" << i->_imageLayerOptions->driver()->getDriver() << "]" << std::endl;
+                i->_layer = layer.get();
+                _imageLayers.push_back( layer.get() );
+                OE_INFO << LC << "Added image layer " << layer->getName() << " (" << i->_imageLayerOptions->driver()->getDriver() << ")\n";
             }
             else
             {
-                i->_layer = layer;
-                _imageLayers.push_back( layer );
+                OE_DEBUG << LC << "Could not open image layer (" << layer->getName() << ") ... " << status.message() << std::endl;
             }            
         }
-        else if (i->_elevationLayerOptions.isSet())
+        else if (i->_elevationLayerOptions.isSet() && !i->_layer.valid())
         {
-            osg::ref_ptr< ElevationLayer > layer = new ElevationLayer(*i->_elevationLayerOptions);            
-            if (!layer->getTileSource())
+            // Disable the l2 cache for composite layers so that we don't get run out of memory on very large datasets.
+            i->_elevationLayerOptions->driver()->L2CacheSize() = 0;
+
+            osg::ref_ptr< ElevationLayer > layer = new ElevationLayer(*i->_elevationLayerOptions);   
+            layer->setReadOptions(_dbOptions.get());
+            Status status = layer->open();
+            if (status.isOK())
             {
-                   OE_WARN << LC << "Could not find a TileSource for driver [" << i->_elevationLayerOptions->driver()->getDriver() << "]" << std::endl;
+                i->_layer = layer;
+                _elevationLayers.push_back( layer.get() );   
+                OE_INFO << LC << "Added elevation layer " << layer->getName() << " (" << i->_elevationLayerOptions->driver()->getDriver() << ")\n";             
             }
             else
             {
-                i->_layer = layer;
-                _elevationLayers.push_back( layer.get() );                
+                OE_WARN << LC << "Could not open elevation layer (" << layer->getName() << ") ... " << status.message() << std::endl;
             }
         }
 
         if ( !i->_layer.valid() )
         {
-            OE_WARN << LC << "A component has no valid TerrainLayer ... removing." << std::endl;
+            OE_DEBUG << LC << "A component has no valid TerrainLayer ... removing." << std::endl;            
             i = _options._components.erase( i );
         }
         else
@@ -403,23 +433,42 @@ CompositeTileSource::initialize(const osgDB::Options* dbOptions)
             _dynamic = _dynamic || source->isDynamic();
             
             // gather extents                        
-            const DataExtentList& extents = source->getDataExtents();            
-            for( DataExtentList::const_iterator j = extents.begin(); j != extents.end(); ++j )
-            {                
-                // Convert the data extent to the profile that is actually used by this TileSource
-                DataExtent dataExtent = *j;                
-                GeoExtent ext = dataExtent.transform(profile->getSRS());
-                unsigned int minLevel = 0;
-                unsigned int maxLevel = profile->getEquivalentLOD( source->getProfile(), *dataExtent.maxLevel() );                                        
-                dataExtent = DataExtent(ext, minLevel, maxLevel);                                
-                getDataExtents().push_back( dataExtent );
-            }          
+            const DataExtentList& extents = source->getDataExtents();  
+
+            // If even one of the layers' data extents is unknown, the entire composite
+            // must have unknown data extents:
+            if (extents.empty())
+            {
+                dataExtentsValid = false;
+                getDataExtents().clear();
+            }
+
+            if (dataExtentsValid)
+            {
+                for( DataExtentList::const_iterator j = extents.begin(); j != extents.end(); ++j )
+                {                
+                    // Convert the data extent to the profile that is actually used by this TileSource
+                    DataExtent dataExtent = *j;                
+                    GeoExtent ext = dataExtent.transform(profile->getSRS());
+                    unsigned int minLevel = 0;
+                    unsigned int maxLevel = profile->getEquivalentLOD( source->getProfile(), *dataExtent.maxLevel() );                                        
+                    dataExtent = DataExtent(ext, minLevel, maxLevel);                                
+                    getDataExtents().push_back( dataExtent );
+                }
+            }            
         }
 
         ++i;
     }
 
-    // set the new profile that was derived from the components
+    // If there is no profile set by the user or by a component, fall back
+    // on a default profile. This will allow the Layer to continue to operate
+    // off the cache even if all components fail to initialize for some reason.
+    if (profile.valid() == false)
+    {
+        profile = Profile::create("global-geodetic");
+    }
+
     setProfile( profile.get() );
 
     _initialized = true;
@@ -437,7 +486,7 @@ namespace
             supportsExtension( "osgearth_composite", "Composite tile source driver" );
         }
 
-        virtual const char* className()
+        const char* className() const //override
         {
             return "CompositeTileSourceDriver";
         }

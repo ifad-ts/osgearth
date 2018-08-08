@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -22,11 +22,20 @@
 
 #include <osgEarth/Common>
 #include <osgEarth/Containers>
-#include <osgEarth/Map>
 #include <osgEarth/MapInfo>
+#include <osgEarth/Revisioning>
+#include <osgEarth/Layer>
+#include <osgEarth/ElevationLayer>
 
 namespace osgEarth
 {
+    class Profile;
+    class Map;
+    class MapOptions;
+    class TileKey;
+    class ElevationPool;
+    class ProgressCallback;
+
     /**
      * A "snapshot in time" of a Map model revision. Use this class to get a safe "copy" of
      * the map model lists that you can use without worrying about the model changing underneath
@@ -36,26 +45,26 @@ namespace osgEarth
     {
     public:
         /**
-         * Constructs a new map frame.
+         * Constructs a new empty map frame that's not connected to any map.
          */
-        MapFrame(
-            const Map*         map, 
-            Map::ModelParts    parts =Map::TERRAIN_LAYERS,
-            const std::string& name  ="" );
+        MapFrame();
 
-        /**
-         * A copy constructor with a new name (no sync happens)
-         */
-        MapFrame(
-            const MapFrame& frame, 
-            const std::string& name ="" );
+        MapFrame(const MapFrame& rhs);
+
+        MapFrame(const Map* map);
+
+        bool isValid() const;
 
         /** dtor */
         virtual ~MapFrame() { }
 
         /**
-         * Synchronizes this frame with the source map model (only if necessary). Returns
-         * true is new data was synced; false if nothing changed.
+         * Sets the map to which this frame is connected.
+         */
+        void setMap(const Map* map);
+
+        /**
+         * Synchronizes this frame to the last-synced map. Returns true if changes occurred.
          */
         bool sync();
 
@@ -63,6 +72,9 @@ namespace osgEarth
          * True is a sync() would acquire new data.
          */
         bool needsSync() const;
+
+        /** Releases any references held by this frame. Call sync() to restablish */
+        void release();
 
         /** The source map's UID */
         UID getUID() const;
@@ -72,31 +84,41 @@ namespace osgEarth
 
         /** Convenience method to access the map's profile */
         const Profile* getProfile() const { return _mapInfo.getProfile(); }
-        
 
-        /** The image layer stack snapshot */
-        const ImageLayerVector& imageLayers() const { return _imageLayers; }
-        ImageLayer* getImageLayerAt( int index ) const { return _imageLayers[index].get(); }
-        ImageLayer* getImageLayerByUID( UID uid ) const;
-        ImageLayer* getImageLayerByName( const std::string& name ) const;
+        const LayerVector& layers() const { return _layers; }
+        
+        template<typename T>
+        unsigned getLayers(std::vector<osg::ref_ptr<T> >& output) const {
+            for (LayerVector::const_iterator i = _layers.begin(); i != _layers.end(); ++i) {
+                T* t = dynamic_cast<T*>(i->get());
+                if (t) output.push_back(t);
+            }
+            return output.size();
+        }
+
+        template<typename T>
+        unsigned getLayers(osg::MixinVector< osg::ref_ptr<T> >& output) const {
+            for (LayerVector::const_iterator i = _layers.begin(); i != _layers.end(); ++i) {
+                T* obj = dynamic_cast<T*>(i->get());
+                if (obj) output.push_back(obj);
+            }
+            return output.size();
+        }
+
+        /** Whether the frame contains a layer with the matching UID */
+        bool containsLayer(UID uid) const;
+
+        template<typename T>
+        T* getLayerByName(const std::string& name) {
+            for (LayerVector::const_iterator i = _layers.begin(); i != _layers.end(); ++i) {
+                if (i->get()->getName() == name)
+                    return dynamic_cast<T*>(i->get());
+            }
+            return 0L;
+        }
 
         /** The elevation layer stack snapshot */
         const ElevationLayerVector& elevationLayers() const { return _elevationLayers; }
-        ElevationLayer* getElevationLayerAt( int index ) const { return _elevationLayers[index].get(); }
-        ElevationLayer* getElevationLayerByUID( UID uid ) const;
-        ElevationLayer* getElevationLayerByName( const std::string& name ) const;
-
-        /** The model layer set snapshot */
-        const ModelLayerVector& modelLayers() const { return _modelLayers; }
-        ModelLayer* getModelLayerAt(int index) const { return _modelLayers[index].get(); }
-
-        /** The mask layer set snapshot */
-        const MaskLayerVector& terrainMaskLayers() const { return _maskLayers; }
-
-        /** Gets the index of the layer in the layer stack snapshot. */
-        int indexOf( ImageLayer* layer ) const;
-        int indexOf( ElevationLayer* layer ) const;
-        int indexOf( ModelLayer* layer ) const;
 
         /** Gets the map data model revision with which this frame is currently sync'd */
         Revision getRevision() const { return _mapDataModelRevision; }
@@ -117,22 +139,32 @@ namespace osgEarth
         bool populateHeightField(
             osg::ref_ptr<osg::HeightField>& hf,
             const TileKey&                  key,
-            bool                            expressHeightsAsHAE =true,
-            ElevationSamplePolicy           samplePolicy        =SAMPLE_FIRST_VALID,
-            ProgressCallback*               progress            =0L) const;
+            bool                            expressHeightsAsHAE,
+            ProgressCallback*               progress) const;
+
+        bool populateHeightFieldAndNormalMap(
+            osg::ref_ptr<osg::HeightField>& hf,
+            osg::ref_ptr<NormalMap>&        normalMap,
+            const TileKey&                  key,
+            bool                            expressHeightsAsHAE,
+            ProgressCallback*               progress) const;
+
+        /**
+         * Gets the map's elevation pool.
+         * This returns a ref_ptr because the Map itself is held with an observer_ptr.
+         */
+        ElevationPool* getElevationPool() const;
 
     private:
         bool _initialized;
         osg::observer_ptr<const Map> _map;
         std::string _name;
         MapInfo _mapInfo;
-        Map::ModelParts _parts;
         Revision _mapDataModelRevision;
-        ImageLayerVector _imageLayers;
+        LayerVector _layers;
         ElevationLayerVector _elevationLayers;
-        ModelLayerVector _modelLayers;
-        MaskLayerVector _maskLayers;
         unsigned _highestMinLevel;
+        osg::ref_ptr<osg::Referenced> _pool;
 
         friend class Map;
 

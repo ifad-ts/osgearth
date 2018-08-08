@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -28,7 +31,7 @@ using namespace osgEarth::Symbology;
 class DraggerCallback : public Dragger::PositionChangedCallback
 {
 public:
-    DraggerCallback(LocalizedNode* node, LocalizedNodeEditor* editor):
+    DraggerCallback(GeoPositionNode* node, GeoPositionNodeEditor* editor):
       _node(node),
       _editor( editor )
       {          
@@ -40,8 +43,8 @@ public:
           _editor->updateDraggers();
       }
 
-      LocalizedNode* _node;
-      LocalizedNodeEditor* _editor;
+      GeoPositionNode* _node;
+      GeoPositionNodeEditor* _editor;
 };
 
 /**********************************************************************/
@@ -55,28 +58,28 @@ osg::Group()
 }
 
 /**********************************************************************/
-LocalizedNodeEditor::LocalizedNodeEditor(LocalizedNode* node):
+GeoPositionNodeEditor::GeoPositionNodeEditor(GeoPositionNode* node):
 _node( node )
 {
     _dragger  = new SphereDragger( _node->getMapNode());  
-    _dragger->addPositionChangedCallback(new DraggerCallback(_node, this) );        
+    _dragger->addPositionChangedCallback(new DraggerCallback(_node.get(), this) );        
     addChild(_dragger);
     updateDraggers();
 }
 
-LocalizedNodeEditor::~LocalizedNodeEditor()
+GeoPositionNodeEditor::~GeoPositionNodeEditor()
 {    
 }
 
 void
-LocalizedNodeEditor::updateDraggers()
+GeoPositionNodeEditor::updateDraggers()
 {
     GeoPoint pos = _node->getPosition();    
     _dragger->setPosition( pos, false );
 }
 
 void
-LocalizedNodeEditor::setPosition(const GeoPoint& pos)
+GeoPositionNodeEditor::setPosition(const GeoPoint& pos)
 {
     _node->setPosition( pos );
     updateDraggers();
@@ -120,7 +123,7 @@ public:
 
 
 CircleNodeEditor::CircleNodeEditor( CircleNode* node ):
-LocalizedNodeEditor( node ),
+GeoPositionNodeEditor( node ),
 _radiusDragger( 0 ),
 _bearing( osg::DegreesToRadians( 90.0 ) )
 {
@@ -147,16 +150,18 @@ void
 CircleNodeEditor::computeBearing()
 {
     _bearing = osg::DegreesToRadians( 90.0 );
+
     //Get the radius dragger's position
-    if (!_radiusDragger->getMatrix().isIdentity())
+    if ( _radiusDragger->getPosition().isValid() )
     {
         // Get the current location of the center of the circle (in lat/long)
         GeoPoint location = _node->getPosition();
         location.makeGeographic();
 
         // location of the radius dragger (in lat/long)
-        GeoPoint radiusLocation;
-        radiusLocation.fromWorld( location.getSRS(), _radiusDragger->getMatrix().getTrans() );
+        GeoPoint radiusLocation = _radiusDragger->getPosition();
+        if ( !radiusLocation.getSRS()->isGeographic() )
+            radiusLocation = radiusLocation.transform( location.getSRS() );
 
         // calculate the bearing b/w the 
         _bearing = GeoMath::bearing(
@@ -168,7 +173,7 @@ CircleNodeEditor::computeBearing()
 void
 CircleNodeEditor::updateDraggers()
 {
-    LocalizedNodeEditor::updateDraggers();
+    GeoPositionNodeEditor::updateDraggers();
     if (_radiusDragger)
     {
         const osg::EllipsoidModel* em = _node->getMapNode()->getMapSRS()->getEllipsoid();
@@ -176,7 +181,6 @@ CircleNodeEditor::updateDraggers()
         // Get the current location of the center of the circle (in lat/long, absolute Z)
         GeoPoint location = _node->getPosition();   
         location.makeGeographic();
-        //location.makeAbsolute( _node->getMapNode()->getTerrain() );
         
         //Get the radius of the circle in meters
         double r = static_cast<CircleNode*>(_node.get())->getRadius().as(Units::METERS);
@@ -253,7 +257,7 @@ public:
 
 
 EllipseNodeEditor::EllipseNodeEditor( EllipseNode* node ):
-LocalizedNodeEditor( node ),
+GeoPositionNodeEditor( node ),
 _minorDragger( 0 ),
 _majorDragger( 0 )
 {
@@ -277,7 +281,7 @@ EllipseNodeEditor::~EllipseNodeEditor()
 void
 EllipseNodeEditor::updateDraggers()
 {
-    LocalizedNodeEditor::updateDraggers();
+    GeoPositionNodeEditor::updateDraggers();
     if (_majorDragger && _minorDragger)
     {
         const osg::EllipsoidModel* em = _node->getMapNode()->getMap()->getProfile()->getSRS()->getEllipsoid();
@@ -349,7 +353,7 @@ public:
 
 
 RectangleNodeEditor::RectangleNodeEditor( RectangleNode* node ):
-LocalizedNodeEditor( node ),
+GeoPositionNodeEditor( node ),
 _llDragger( 0 ),
 _lrDragger( 0 ),
 _urDragger( 0 ),
@@ -389,7 +393,7 @@ RectangleNodeEditor::~RectangleNodeEditor()
 void
 RectangleNodeEditor::updateDraggers()
 {
-    LocalizedNodeEditor::updateDraggers();    
+    GeoPositionNodeEditor::updateDraggers();    
 
     RectangleNode* rect = static_cast<RectangleNode*>(_node.get());
     

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -18,36 +18,105 @@
  */
 
 #include <osgEarth/DrapeableNode>
-#include <osgEarth/OverlayDecorator>
-#include <osgEarth/DrapingTechnique>
+#include <osgEarth/DrapingCullSet>
+#include <osgEarth/Registry>
+#include <osgEarth/CullingUtils>
 #include <osgEarth/MapNode>
+#include <osgEarth/NodeUtils>
+#include <osgEarth/TerrainEngineNode>
 
 #define LC "[DrapeableNode] "
 
 using namespace osgEarth;
 
-//------------------------------------------------------------------------
 
-namespace
+DrapeableNode::DrapeableNode() :
+_drapingEnabled( true ),
+_updateRequested( true )
 {
-    static osg::Group* getTechniqueGroup(MapNode* m)
-    {
-        return m ? m->getOverlayDecorator()->getGroup<DrapingTechnique>() : 0L;
-    }
+    // Unfortunetly, there's no way to return a correct bounding sphere for
+    // the node since the draping will move it to the ground. The bounds
+    // check has to be done by the Draping Camera at cull time. Therefore we
+    // have to ensure that this node makes it into the draping cull set so it
+    // can be frustum-culled at the proper time.
+    setCullingActive( !_drapingEnabled );
+
+    // activate an update traversal to find the MapNode
+    ADJUST_UPDATE_TRAV_COUNT(this, +1);
 }
 
-//------------------------------------------------------------------------
-
-DrapeableNode::DrapeableNode( MapNode* mapNode, bool draped ) :
-OverlayNode( mapNode, draped, &getTechniqueGroup )
+DrapeableNode::DrapeableNode(const DrapeableNode& rhs, const osg::CopyOp& copy) :
+osg::Group(rhs, copy)
 {
-    //nop
+    _drapingEnabled = rhs._drapingEnabled;
 }
 
 void
-DrapeableNode::setRenderOrder(int order)
+DrapeableNode::setDrapingEnabled(bool value)
 {
-    _renderOrder = order;
-    osg::StateSet* s = _overlayProxyContainer->getOrCreateStateSet();
-    s->setRenderBinDetails(order, "RenderBin");
+    if ( value != _drapingEnabled )
+    {
+        _drapingEnabled = value;
+        setCullingActive( !_drapingEnabled );
+    }
+}
+
+void
+DrapeableNode::traverse(osg::NodeVisitor& nv)
+{
+    if ( _drapingEnabled && nv.getVisitorType() == nv.CULL_VISITOR )
+    {
+        // find the cull set for this camera:
+        osg::ref_ptr<MapNode> mapNode;
+        if (_mapNode.lock(mapNode))
+        {
+            osgUtil::CullVisitor* cv = Culling::asCullVisitor(nv);
+            DrapingCullSet& cullSet = mapNode->getDrapingManager()->get( cv->getCurrentCamera() );
+            cullSet.push( this, cv->getNodePath(), nv.getFrameStamp() );
+        }
+    }
+
+    else if (_drapingEnabled && nv.getVisitorType() == nv.UPDATE_VISITOR)
+    {        
+        if (_updateRequested)
+        {
+            if (_mapNode.valid() == false)
+            {
+                _mapNode = osgEarth::findInNodePath<MapNode>(nv);
+            }
+
+            if (_mapNode.valid())
+            {
+                _updateRequested = false;
+                ADJUST_UPDATE_TRAV_COUNT(this, -1);
+            }
+        }
+
+        osg::Group::traverse(nv);
+    }
+    else
+    {
+        osg::Group::traverse(nv);
+    }
+}
+
+//...........................................................................
+
+#undef  LC
+#define LC "[DrapeableNode Serializer] "
+
+#include <osgDB/ObjectWrapper>
+#include <osgDB/InputStream>
+#include <osgDB/OutputStream>
+
+namespace
+{
+    REGISTER_OBJECT_WRAPPER(
+        DrapeableNode,
+        new osgEarth::DrapeableNode,
+        osgEarth::DrapeableNode,
+        "osg::Object osg::Node osg::Group osgEarth::DrapeableNode")
+    {
+        ADD_BOOL_SERIALIZER(DrapingEnabled, true);
+    }
 }

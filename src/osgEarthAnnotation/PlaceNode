@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -19,8 +22,9 @@
 #ifndef OSGEARTH_ANNOTATION_PLACE_NODE_H
 #define OSGEARTH_ANNOTATION_PLACE_NODE_H 1
 
-#include <osgEarthAnnotation/OrthoNode>
+#include <osgEarthAnnotation/GeoPositionNode>
 #include <osgEarthSymbology/Style>
+#include <osgEarth/ScreenSpaceLayout>
 
 namespace osgEarth { namespace Annotation
 {
@@ -31,7 +35,7 @@ namespace osgEarth { namespace Annotation
      * A PlaceNode combines an 2D icon, a label, support for mouse interaction
      * and a popup control (eventually)
      */
-    class OSGEARTHANNO_EXPORT PlaceNode : public OrthoNode
+    class OSGEARTHANNO_EXPORT PlaceNode : public GeoPositionNode
     {
     public:
         META_AnnotationNode(osgEarthAnnotation, PlaceNode);
@@ -107,31 +111,48 @@ namespace osgEarth { namespace Annotation
         void setStyle( const Style& style );
         const Style& getStyle() const { return _style; }
 
+    public: // GeoPositionNode override
 
-    public: // OrthoNode override
-
-        virtual void setAnnotationData( AnnotationData* data );
-
+        virtual void setPriority( float value );
         virtual void setDynamic( bool value );
 
         virtual Config getConfig() const;
 
+        virtual void dirty();
+
+    protected: // AnnotationNode override
+        
+        virtual bool supportsRenderBinDetails() const { return false; }
+
     protected:
 
         virtual ~PlaceNode() { }
-        
-    private:
+
         osg::ref_ptr<osg::Image>           _image;
         std::string                        _text;
         Style                              _style;
         class osg::Geode*                  _geode;
         osg::ref_ptr<const osgDB::Options> _dbOptions;
+        osg::ref_ptr<ScreenSpaceLayoutData> _dataLayout;
+
+        /** rotation of the label **/
+        float                    _labelRotationRad;
+        bool                     _followFixedCourse;
+        GeoPoint                 _geoPointLoc;
+        GeoPoint                 _geoPointProj;
 
         void init();
+        void updateLayoutData();
 
+    public:
         // required by META_Node, but this object is not cloneable
-        PlaceNode() { }
-        PlaceNode(const PlaceNode& rhs, const osg::CopyOp& op =osg::CopyOp::DEEP_COPY_ALL) : OrthoNode(rhs, op) { }
+        PlaceNode();
+
+        void setConfig(const Config& conf);
+
+    private:
+        PlaceNode(const PlaceNode& rhs, const osg::CopyOp& op =osg::CopyOp::DEEP_COPY_ALL) : GeoPositionNode(rhs, op) { }
+
     };
 
 } } // namespace osgEarth::Annotation

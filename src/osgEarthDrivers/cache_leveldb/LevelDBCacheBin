@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -43,15 +43,15 @@ namespace osgEarth { namespace Drivers { namespace LevelDBCache
 
     public: // CacheBin interface
 
-        ReadResult readObject(const std::string& key);
+        ReadResult readObject(const std::string& key, const osgDB::Options*);
 
-        ReadResult readImage(const std::string& key);
+        ReadResult readImage(const std::string& key, const osgDB::Options*);
 
-        ReadResult readNode(const std::string& key);
+        ReadResult readNode(const std::string& key, const osgDB::Options*);
 
-        ReadResult readString(const std::string& key);
+        ReadResult readString(const std::string& key, const osgDB::Options*);
 
-        bool write(const std::string& key, const osg::Object* object, const Config& meta);
+        bool write(const std::string& key, const osg::Object* object, const Config& meta, const osgDB::Options*);
 
         bool remove(const std::string& key);
 
@@ -68,6 +68,8 @@ namespace osgEarth { namespace Drivers { namespace LevelDBCache
         Config readMetadata();
 
         bool writeMetadata( const Config& meta );
+
+        std::string getHashedKey(const std::string& key) const;
 
         bool purgeOldest(unsigned maxnum);
         
@@ -90,25 +92,25 @@ namespace osgEarth { namespace Drivers { namespace LevelDBCache
         
         // adapter base for all the osg read functions...
         struct Reader {
-            osgDB::ReaderWriter* _rw;
-            osgDB::Options*      _op;
-            Reader(osgDB::ReaderWriter* rw, osgDB::Options* op) : _rw(rw), _op(op) { }
+            osgDB::ReaderWriter*   _rw;
+            const osgDB::Options*  _op;
+            Reader(osgDB::ReaderWriter* rw, const osgDB::Options* op) : _rw(rw), _op(op) { }
             virtual osgDB::ReaderWriter::ReadResult read(std::istream& in) const = 0;
             virtual std::string name() const = 0;
         };
 
         struct ImageReader : public Reader {
-            ImageReader(osgDB::ReaderWriter* rw, osgDB::Options* op) : Reader(rw, op) { }
+            ImageReader(osgDB::ReaderWriter* rw, const osgDB::Options* op) : Reader(rw, op) { }
             osgDB::ReaderWriter::ReadResult read(std::istream& in) const { return _rw->readImage(in, _op); }
             std::string name() const { return "ImageReader"; }
         };
         struct NodeReader : public Reader {
-            NodeReader(osgDB::ReaderWriter* rw, osgDB::Options* op) : Reader(rw, op) { }
+            NodeReader(osgDB::ReaderWriter* rw, const osgDB::Options* op) : Reader(rw, op) { }
             osgDB::ReaderWriter::ReadResult read(std::istream& in) const { return _rw->readNode(in, _op); }
             std::string name() const { return "NodeReader"; }
         };
         struct ObjectReader : public Reader {
-            ObjectReader(osgDB::ReaderWriter* rw, osgDB::Options* op) : Reader(rw, op) { }
+            ObjectReader(osgDB::ReaderWriter* rw, const osgDB::Options* op) : Reader(rw, op) { }
             osgDB::ReaderWriter::ReadResult read(std::istream& in) const { return _rw->readObject(in, _op); }
             std::string name() const { return "ObjectReader"; }
         };
@@ -118,22 +120,22 @@ namespace osgEarth { namespace Drivers { namespace LevelDBCache
         void postWrite();
 
         // key generators
-        std::string binDataKeyTuple(const std::string& key);
-        std::string binPhrase();
-        std::string dataKey(const std::string& key);
-        std::string dataKeyFromTuple(const std::string& tuple);
-        std::string dataBegin();
-        std::string dataEnd();
-        std::string metaKey(const std::string& key);
-        std::string metaKeyFromTuple(const std::string& tuple);
-        std::string metaBegin();
-        std::string metaEnd();
-        std::string timeKey(const DateTime& t, const std::string& key);
-        std::string timeBegin();
-        std::string timeEnd();
-        std::string binKey();
-        std::string timeBeginGlobal();
-        std::string timeEndGlobal();
+        std::string binDataKeyTuple(const std::string& key) const;
+        std::string binPhrase() const;
+        std::string dataKey(const std::string& key) const;
+        std::string dataKeyFromTuple(const std::string& tuple) const;
+        std::string dataBegin() const;
+        std::string dataEnd() const;
+        std::string metaKey(const std::string& key) const;
+        std::string metaKeyFromTuple(const std::string& tuple) const;
+        std::string metaBegin() const;
+        std::string metaEnd() const;
+        std::string timeKey(const DateTime& t, const std::string& key) const;
+        std::string timeBegin() const;
+        std::string timeEnd() const;
+        std::string binKey() const;
+        std::string timeBeginGlobal() const;
+        std::string timeEndGlobal() const;
     };
 
 

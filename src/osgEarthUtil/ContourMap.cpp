@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -22,6 +25,7 @@
 #include <osgEarth/Capabilities>
 #include <osgEarth/VirtualProgram>
 #include <osgEarth/TerrainEngineNode>
+#include <osgEarth/MapNode>
 
 #define LC "[ContourMap] "
 
@@ -35,13 +39,12 @@ TerrainEffect()
     init();
 }
 
-ContourMap::ContourMap(const Config& conf) :
-TerrainEffect()
+ContourMap::ContourMap(const ConfigOptions& co) :
+TerrainEffect(),
+ContourMapOptions(co)
 {
-    mergeConfig(conf);
     init();
 }
-
 
 void
 ContourMap::init()
@@ -52,40 +55,96 @@ ContourMap::init()
     // uniforms we'll need:
     _xferMin     = new osg::Uniform(osg::Uniform::FLOAT,      "oe_contour_min" );
     _xferRange   = new osg::Uniform(osg::Uniform::FLOAT,      "oe_contour_range" );
+#if defined(OSG_GLES2_AVAILABLE) || defined(OSG_GLES3_AVAILABLE)
+    _xferSampler = new osg::Uniform(osg::Uniform::SAMPLER_2D, "oe_contour_xfer" );
+#else
     _xferSampler = new osg::Uniform(osg::Uniform::SAMPLER_1D, "oe_contour_xfer" );
+#endif
     _opacityUniform = new osg::Uniform(osg::Uniform::FLOAT,   "oe_contour_opacity" );
-    _opacityUniform->set( _opacity.getOrUse(1.0f) );
 
     // Create a 1D texture from the transfer function's image.
-    _xferTexture = new osg::Texture1D();
+    _xferTexture = new TextureType();
     _xferTexture->setResizeNonPowerOfTwoHint( false );
+    _xferTexture->setUseHardwareMipMapGeneration( false );
     _xferTexture->setFilter( osg::Texture::MIN_FILTER, osg::Texture::LINEAR );
     _xferTexture->setFilter( osg::Texture::MAG_FILTER, osg::Texture::LINEAR );
     _xferTexture->setWrap( osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE );
 
+#if 0
     // build a default transfer function.
     // TODO: think about scale/bias controls.
     osg::TransferFunction1D* xfer = new osg::TransferFunction1D();
     float s = 2500.0f;
-    xfer->setColor( -1.0000 * s, osg::Vec4f(0, 0, 0.5, 1), false);
-    xfer->setColor( -0.2500 * s, osg::Vec4f(0, 0, 1, 1), false);
-    xfer->setColor(  0.0000 * s, osg::Vec4f(0, .5, 1, 1), false);
-    xfer->setColor(  0.0062 * s, osg::Vec4f(.84,.84,.25,1), false);
-    //xfer->setColor(  0.0625 * s, osg::Vec4f(.94,.94,.25,1), false);
-    xfer->setColor(  0.1250 * s, osg::Vec4f(.125,.62,0,1), false);
-    xfer->setColor(  0.3250 * s, osg::Vec4f(.80,.70,.47,1), false);
-    xfer->setColor(  0.7500 * s, osg::Vec4f(.5,.5,.5,1), false);
-    xfer->setColor(  1.0000 * s, osg::Vec4f(1,1,1,1), false);
+
+    if ( grayscale() == true )
+    {
+        xfer->setColor( -1.0000 * s, osg::Vec4f(.125,.125,.125, 1), false);
+        xfer->setColor( -0.2500 * s, osg::Vec4f(.25,.25,.25, 1), false);
+        xfer->setColor(  0.0000 * s, osg::Vec4f(.375,.375,.375, 1), false);
+        xfer->setColor(  0.0062 * s, osg::Vec4f(.5,.5,.5,1), false);
+        xfer->setColor(  0.1250 * s, osg::Vec4f(.625,.625,.625,1), false);
+        xfer->setColor(  0.3250 * s, osg::Vec4f(.75,.75,.75,1), false);
+        xfer->setColor(  0.7500 * s, osg::Vec4f(.875,.875,.875,1), false);
+        xfer->setColor(  1.0000 * s, osg::Vec4f(1,1,1,1), false);
+    }
+    else
+    {
+        xfer->setColor( -1.0000 * s, osg::Vec4f(0, 0, 0.5, 1), false);
+        xfer->setColor( -0.2500 * s, osg::Vec4f(0, 0, 1, 1), false);
+        xfer->setColor(  0.0000 * s, osg::Vec4f(0, .5, 1, 1), false);
+        xfer->setColor(  0.0062 * s, osg::Vec4f(.84,.84,.25,1), false);
+        xfer->setColor(  0.1250 * s, osg::Vec4f(.125,.62,0,1), false);
+        xfer->setColor(  0.3250 * s, osg::Vec4f(.80,.70,.47,1), false);
+        xfer->setColor(  0.7500 * s, osg::Vec4f(.5,.5,.5,1), false);
+        xfer->setColor(  1.0000 * s, osg::Vec4f(1,1,1,1), false);
+    }
+    xfer->updateImage();
+    this->setTransferFunction( xfer );
+    _opacityUniform->set( opacity().getOrUse(1.0f) );
+#endif
+
+    dirty();
+}
+
+void
+ContourMap::dirty()
+{
+    _opacityUniform->set(opacity().getOrUse(1.0f));
+    
+    // build a transfer function.
+    osg::TransferFunction1D* xfer = new osg::TransferFunction1D();
+    float s = 2500.0f;
+
+    if ( grayscale() == true )
+    {
+        xfer->setColor( -1.0000 * s, osg::Vec4f(.125,.125,.125, 1), false);
+        xfer->setColor( -0.2500 * s, osg::Vec4f(.25,.25,.25, 1), false);
+        xfer->setColor(  0.0000 * s, osg::Vec4f(.375,.375,.375, 1), false);
+        xfer->setColor(  0.0062 * s, osg::Vec4f(.5,.5,.5,1), false);
+        xfer->setColor(  0.1250 * s, osg::Vec4f(.625,.625,.625,1), false);
+        xfer->setColor(  0.3250 * s, osg::Vec4f(.75,.75,.75,1), false);
+        xfer->setColor(  0.7500 * s, osg::Vec4f(.875,.875,.875,1), false);
+        xfer->setColor(  1.0000 * s, osg::Vec4f(1,1,1,1), false);
+    }
+    else
+    {
+        xfer->setColor( -1.0000 * s, osg::Vec4f(0, 0, 0.5, 1), false);
+        xfer->setColor( -0.2500 * s, osg::Vec4f(0, 0, 1, 1), false);
+        xfer->setColor(  0.0000 * s, osg::Vec4f(0, .5, 1, 1), false);
+        xfer->setColor(  0.0062 * s, osg::Vec4f(.84,.84,.25,1), false);
+        xfer->setColor(  0.1250 * s, osg::Vec4f(.125,.62,0,1), false);
+        xfer->setColor(  0.3250 * s, osg::Vec4f(.80,.70,.47,1), false);
+        xfer->setColor(  0.7500 * s, osg::Vec4f(.5,.5,.5,1), false);
+        xfer->setColor(  1.0000 * s, osg::Vec4f(1,1,1,1), false);
+    }
     xfer->updateImage();
     this->setTransferFunction( xfer );
 }
-
 
 ContourMap::~ContourMap()
 {
     //nop
 }
-
 
 void
 ContourMap::setTransferFunction(osg::TransferFunction1D* xfer)
@@ -97,21 +156,12 @@ ContourMap::setTransferFunction(osg::TransferFunction1D* xfer)
     _xferRange->set( _xfer->getMaximum() - _xfer->getMinimum() );
 }
 
-
-void
-ContourMap::setOpacity(float opacity)
-{
-    _opacity = osg::clampBetween(opacity, 0.0f, 1.0f);
-    _opacityUniform->set( _opacity.get() );
-}
-
-
 void
 ContourMap::onInstall(TerrainEngineNode* engine)
 {
     if ( engine )
     {
-        if ( !engine->getResources()->reserveTextureImageUnit(_unit) )
+        if ( !engine->getResources()->reserveTextureImageUnit(_unit, "ContourMap") )
         {
             OE_WARN << LC << "Failed to reserve a texture image unit; disabled." << std::endl;
             return;
@@ -130,8 +180,8 @@ ContourMap::onInstall(TerrainEngineNode* engine)
         VirtualProgram* vp = VirtualProgram::getOrCreate(stateset);
 
         Shaders pkg;
-        pkg.loadFunction(vp, pkg.ContourMap_Vertex);
-        pkg.loadFunction(vp, pkg.ContourMap_Fragment);
+        //pkg.load(vp, pkg.ContourMap_Vertex);
+        pkg.load(vp, pkg.ContourMap_Fragment);
 
         // Install some uniforms that tell the shader the height range of the color map.
         stateset->addUniform( _xferMin.get() );
@@ -164,8 +214,8 @@ ContourMap::onUninstall(TerrainEngineNode* engine)
             if ( vp )
             {
                 Shaders pkg;
-                pkg.unloadFunction(vp, pkg.ContourMap_Vertex);
-                pkg.unloadFunction(vp, pkg.ContourMap_Fragment);
+                pkg.unload(vp, pkg.ContourMap_Vertex);
+                pkg.unload(vp, pkg.ContourMap_Fragment);
             }
         }
 
@@ -177,19 +227,25 @@ ContourMap::onUninstall(TerrainEngineNode* engine)
     }
 }
 
-
 //-------------------------------------------------------------
 
-void
-ContourMap::mergeConfig(const Config& conf)
+REGISTER_OSGEARTH_EXTENSION(osgearth_contourmap,  ContourMapExtension);
+REGISTER_OSGEARTH_EXTENSION(osgearth_contour_map, ContourMapExtension);
+
+bool
+ContourMapExtension::connect(MapNode* mapNode)
 {
-    conf.getIfSet("opacity", _opacity);
+    if ( !_effect.valid() )
+        _effect = new ContourMap(*this);
+
+    mapNode->getTerrainEngine()->addEffect( _effect.get() );
+    return true;
 }
 
-Config
-ContourMap::getConfig() const
+bool
+ContourMapExtension::disconnect(MapNode* mapNode)
 {
-    Config conf("contour_map");
-    conf.addIfSet("opacity", _opacity);
-    return conf;
+    if ( mapNode )
+        mapNode->getTerrainEngine()->removeEffect( _effect.get() );
+    return true;
 }

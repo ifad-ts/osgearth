@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -97,7 +97,6 @@ namespace osgEarth { namespace Util
         void split();
         void merge();
         void adjustCount( int delta );
-        bool intersects( const class osg::Polytope& tope ) const;
         void generateBoundaries();
         void generateBoundaryGeometry();
 

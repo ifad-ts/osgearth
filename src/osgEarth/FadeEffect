@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -22,7 +22,7 @@
 
 #include <osgEarth/Common>
 #include <osgEarth/Config>
-#include <osgEarth/ThreadingUtils>
+#include <osgEarth/Containers>
 #include <osg/Group>
 #include <osg/Uniform>
 
@@ -46,7 +46,7 @@ namespace osgEarth
         const optional<float>& maxRange() const { return _maxRange; }
 
         /** Distance over which to fade out geometry (from max range) */
-        optional<float>& attentuationDistance() { return _attenDist; }
+        optional<float>& attenuationDistance() { return _attenDist; }
         const optional<float>& attenuationDistance() const { return _attenDist; }
 
     public:
@@ -125,7 +125,7 @@ namespace osgEarth
             osg::ref_ptr<osg::StateSet> _stateSet;
             osg::ref_ptr<osg::Uniform>  _opacity;
         };
-        Threading::PerObjectMap<osg::NodeVisitor*, PerViewData> _perViewData;
+        PerObjectMap<osg::NodeVisitor*, PerViewData> _perViewData;
 
         float _minPixelExtent;
         float _maxPixelExtent;

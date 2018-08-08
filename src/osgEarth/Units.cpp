@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -41,7 +41,19 @@ namespace
 
         std::string valueStr, unitsStr;
 
-        std::string::const_iterator i = std::find_if( input.begin(), input.end(), ::isalpha );
+        std::string::const_iterator start = input.begin();
+        
+        // deal with scientific notation by moving the units search point
+        // past the "e+/-" if it exists:
+        std::string::size_type pos = input.find_first_of("eE");
+        if (pos != std::string::npos && 
+            input.length() > (pos+2) &&
+            (input[pos+1] == '-' || input[pos+1] == '+'))
+        {
+            start = input.begin() + pos + 2;
+        }
+
+        std::string::const_iterator i = std::find_if( start, input.end(), ::isalpha );
         if ( i == input.end() )
         {
             // to units found; use default
@@ -84,7 +96,9 @@ Units::Units( const std::string& name, const std::string& abbr, const Units::Typ
 _name  ( name ),
 _abbr  ( abbr ),
 _type  ( type ),
-_toBase( toBase )
+_toBase( toBase ),
+_distance(0L),
+_time(0L)
 {
     //nop
 }
@@ -93,6 +107,7 @@ Units::Units( const std::string& name, const std::string& abbr, const Units& dis
 _name    ( name ),
 _abbr    ( abbr ),
 _type    ( TYPE_SPEED ),
+_toBase  ( 1.0 ),
 _distance( &distance ),
 _time    ( &time )
 {
@@ -214,3 +229,50 @@ const Units Units::DATA_MILES_PER_HOUR  ( "data miles per hour",     "dm/h", Uni
 const Units Units::KNOTS                ( "nautical miles per hour", "kts",  Units::NAUTICAL_MILES, Units::HOURS );
 
 const Units Units::PIXELS               ( "pixels", "px", Units::TYPE_SCREEN_SIZE, 1.0 );
+
+
+
+int
+Units::unitTest()
+{
+    double value;
+    Units  units;
+
+    // test parsing scientific notation
+    {
+        Units::parse( "123e-003m", value, units, Units::MILES);
+        if ( value != 123e-003 || units != Units::METERS )
+            return 101;
+
+        Units::parse( "123e+003m", value, units, Units::MILES );
+        if ( value != 123e+003 || units != Units::METERS )
+            return 102;
+
+        Units::parse( "123E-003m", value, units, Units::MILES );
+        if ( value != 123E-003 || units != Units::METERS )
+            return 103;
+
+        Units::parse( "123E+003m", value, units, Units::MILES );
+        if ( value != 123E+003 || units != Units::METERS )
+            return 104;
+    }
+
+    // normal parsing
+    {
+        Units::parse( "123m", value, units, Units::MILES );
+        if ( value != 123 || units != Units::METERS )
+            return 201;
+        
+        Units::parse( "123km", value, units, Units::MILES );
+        if ( value != 123 || units != Units::KILOMETERS )
+            return 202;
+        
+        Units::parse( "1.2rad", value, units, Units::DEGREES );
+        if ( value != 1.2 || units != Units::RADIANS )
+            return 203;
+    }
+
+    // add tests as needed
+
+    return 0;
+}

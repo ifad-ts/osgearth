@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -28,6 +31,7 @@
 #include <osgEarthUtil/EarthManipulator>
 #include <osgEarthQt/ViewWidget>
 #include <osgEarth/Random>
+#include <osgEarth/FileUtils>
 #include <QApplication>
 #include <QDialog>
 #include <QMainWindow>
@@ -70,6 +74,8 @@ struct MyMainWindow : public QMainWindow, public ViewController
     MyMainWindow(osg::ArgumentParser& args, osg::Node* scene) 
         : _viewer(args), _scene(scene)
     {
+        _viewer.setThreadingModel(_viewer.SingleThreaded);
+
         // we have to add a starting view, otherwise the CV will automatically
         // mark itself as done :/
         addView();
@@ -142,8 +148,8 @@ main(int argc, char** argv)
         return usage("Help", args);
 
     // load something
-    osg::Node* node = osgDB::readNodeFiles( args );
-    if ( !node )
+    osg::ref_ptr<osg::Node> node = osgDB::readNodeFiles( args );
+    if (!node.valid())
         return usage("Can't load a scene!", args);
 
 
@@ -156,7 +162,7 @@ main(int argc, char** argv)
     QApplication q(argc, argv);
 
     // fire up our controller:
-    MyMainWindow win( args, node );
+    MyMainWindow win( args, node.get() );
 
     // A button for adding new views:
     QPushButton* addButton = new AddButton( &win, "Add a view" );

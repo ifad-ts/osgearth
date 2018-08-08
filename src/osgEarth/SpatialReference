@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -60,14 +60,11 @@ namespace osgEarth
         static SpatialReference* create( osg::CoordinateSystemNode* csn );
 
         /**
-         * Creates an SRS around a pre-existing OGR spatial reference handle. The new
-         * SpatialReference object takes ownership of the handle.
-         *
-         * @param xferOwnership
-         *      If true, the SpatialReference object is responsible for releasing the handle
-         *      upon destruction.
+         * Creates an SRS by cloning a pre-existing OGR spatial reference handle.
+         * The new SRS owns the cloned handle, and the caller retains responsibility
+         * for managing the original handle.
          */
-        static SpatialReference* createFromHandle( void* ogrHandle, bool xferOwnership =false );
+        static SpatialReference* createFromHandle(void* ogrHandle);
 
 
     public: // Basic transformations.
@@ -112,6 +109,11 @@ namespace osgEarth
             double                  distance,
             const SpatialReference* outputSRS,
             double                  latitude =0.0) const;
+
+        static double transformUnits(
+            const Distance&         distance,
+            const SpatialReference* outputSRS,
+            double                  latitude =0.0);
 
 
     public: // World transformations.
@@ -295,7 +297,12 @@ namespace osgEarth
         /** Creates a copy of this SRS, but flags the new SRS so that it will operate in
             Plate Carre mode for the purposes of world coordinate conversion. The SRS is
             otherwise mathematically equivalent to its vanilla counterpart. */
-        const SpatialReference* createPlateCarreGeographicSRS() const;
+        //const SpatialReference* createPlateCarreGeographicSRS() const;
+
+        /** Create an equirectangular projected SRS corresponding to the geographic SRS
+            contained in this spatial reference. This is an approximation of a Plate Carre
+            SRS but using equatorial meters. */
+        const SpatialReference* createEquirectangularSRS() const;
 
         /** Creates a new CSN based on this spatial reference. */
         osg::CoordinateSystemNode* createCoordinateSystemNode() const;
@@ -323,6 +330,10 @@ namespace osgEarth
 		 */
 		void* getHandle() const { return _handle;}
 
+        /**
+         * Guess at an appropriate bounding box for this SRS.
+         */
+        bool guessBounds(Bounds& output) const;
 
 
     protected:
@@ -384,13 +395,12 @@ namespace osgEarth
             const SpatialReference*  outputSRS,
             bool                     pointsAreGeodetic) const;
 
-        typedef std::map<Key, osg::ref_ptr<SpatialReference> > SRSCache;
-        static SRSCache& getSRSCache();
-
 
     private:
 
-        static SpatialReference* create( const Key& key, bool useCache );
+        static SpatialReference* create(const Key& key);
+
+        static SpatialReference* create(const Key& key, bool useCache);
 
         static SpatialReference* createFromWKT(
             const std::string& wkt,
@@ -400,10 +410,16 @@ namespace osgEarth
             const std::string& proj4,
             const std::string& name = "" );
 
+		static SpatialReference* createFromUserInput(
+		    const std::string& input,
+            const std::string& name = "" );
+
         static SpatialReference* createCube();
 
 
         SpatialReference* fixWKT();
+
+        friend class Registry;
     };
 }
 

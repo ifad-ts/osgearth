@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -25,72 +25,71 @@
 #include <osgEarth/ThreadingUtils>
 #include <osgEarthUtil/Ocean>
 
-#include "TritonNode"
+#include <osgEarthTriton/TritonOptions>
+#include <osgEarthTriton/TritonNode>
 
 #undef  LC
 #define LC "[TritonDriver] "
 
-using namespace osgEarth;
-using namespace osgEarth::Util;
-
 //---------------------------------------------------------------------------
 
-namespace osgEarth { namespace Drivers { namespace Triton
+namespace osgEarth { namespace Triton
 {
-    class TritonDriver : public OceanDriver
+    using namespace osgEarth;
+    using namespace osgEarth::Util;
+
+    /**
+     * Extension that lets you load a SimpleOcean from an earth file.
+     */
+    class TritonExtension : public Extension,
+                            public ExtensionInterface<MapNode>,
+                            public TritonOptions,
+                            public OceanNodeFactory
     {
     public:
-        TritonDriver()
+        META_Object(osgearth_ocean_triton, TritonExtension);
+
+        TritonExtension() { }
+
+        TritonExtension(const ConfigOptions& options) :
+            TritonOptions(options) { }
+
+    public: // Extension
+
+        const ConfigOptions& getConfigOptions() const { return *this; }
+
+    public: // ExtensionInterface<MapNode>
+
+        bool connect(MapNode* mapNode)
         {
-            supportsExtension(
-                "osgearth_ocean_triton",
-                "osgEarth Triton Ocean plugin" );
+            _oceanNode = createOceanNode(mapNode);
+            mapNode->addChild(_oceanNode.get());
+            return true;
         }
 
-        const char* className()
+        bool disconnect(MapNode* mapNode)
         {
-            return "osgEarth Triton Ocean plugin";
+            if (mapNode && _oceanNode.valid())
+                mapNode->removeChild(_oceanNode.get());
+            return true;
         }
 
-        ReadResult readNode(const std::string& file_name, const Options* options) const
-        {
-            if ( !acceptsExtension(osgDB::getLowerCaseFileExtension( file_name )))
-                return ReadResult::FILE_NOT_HANDLED;
+    public: // OceanNodeFactory
 
-            TritonOptions tritonOptions = getOceanOptions(options);
-
-            // if the Resource Path isn't set, attempt to set it from 
-            // the SL environment variable.
-            if ( !tritonOptions.resourcePath().isSet() )
-            {
-                const char* ev = ::getenv("TRITON_PATH");
-                if ( ev )
-                {
-                    tritonOptions.resourcePath() = osgDB::concatPaths(
-                        std::string(ev),
-                        "Resources" );
-
-                    OE_INFO << LC 
-                        << "Setting resource path to << " << tritonOptions.resourcePath().get()
-                        << std::endl;
-                }
-                else
-                {
-                    OE_WARN << LC
-                        << "No resource path! Triton might not initialize properly. "
-                        << "Consider setting the TRITON_PATH environment variable."
-                        << std::endl;
-                }
-            }
-
-            MapNode* mapNode = getMapNode(options);
-            return new TritonNode( mapNode, tritonOptions );
+        OceanNode* createOceanNode(MapNode* mapNode) {
+            TritonNode* node = new TritonNode(*this);
+            node->setMapNode(mapNode);
+            return node;
         }
 
     protected:
-        virtual ~TritonDriver() { }
+        TritonExtension(const TritonExtension& rhs, const osg::CopyOp& op) { }
+
+        virtual ~TritonExtension() { }
+
+        osg::ref_ptr<OceanNode> _oceanNode;
     };
 
-    REGISTER_OSGPLUGIN(osgearth_ocean_triton, TritonDriver)
+    REGISTER_OSGEARTH_EXTENSION(osgearth_ocean_triton, TritonExtension);
 
-} } } // namespace osgEarth::Drivers::Triton
+} } // namespace osgEarth::Drivers::Triton

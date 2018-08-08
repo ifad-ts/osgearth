@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -59,11 +59,19 @@ class OSGTileSource : public TileSource
 {
 public:
     OSGTileSource( const TileSourceOptions& options ) :
-      TileSource( options ),      
-      _maxDataLevel( 21 ),
+      TileSource( options ),
       _options( options )
     {
         //nop
+    }
+
+    // By default don't cache local data from this layer
+    CachePolicy getCachePolicyHint(const Profile* targetProfile) const
+    {
+        if (_options.url()->isRemote() == false)
+            return CachePolicy::NO_CACHE;
+        else
+            return CachePolicy::DEFAULT;
     }
 
     Status initialize( const osgDB::Options* dbOptions )
@@ -72,7 +80,7 @@ public:
 
         if ( !getProfile() )
         {
-            return Status::Error( "An explicit profile definition is required by the OSG driver." );
+            return Status::Error( Status::ConfigurationError, "An explicit profile definition is required by the OSG driver." );
         }
 
         osg::ref_ptr<osg::Image> image;
@@ -88,25 +96,17 @@ public:
 
         if ( !image.valid() )
         {
-            return Status::Error( Stringify() <<  "Faild to load data from \"" << _options.url()->full() << "\"" );
+            return Status::Error( Status::ResourceUnavailable, Stringify() <<  "Failed to load data from \"" << _options.url()->full() << "\"" );
         }
 
         // calculate and store the maximum LOD for which to return data
         if ( image.valid() )
         {
-            if ( _options.maxDataLevel().isSet() )
-            {
-                _maxDataLevel = *_options.maxDataLevel();
-            }
-            else
-            {
-                int minSpan = osg::minimum( image->s(), image->t() );
-                int tileSize = _options.tileSize().value();
-                _maxDataLevel = (int)LOG2((minSpan/tileSize)+1);
-                //OE_NOTICE << "[osgEarth::OSG driver] minSpan=" << minSpan << ", _tileSize=" << tileSize << ", maxDataLevel = " << _maxDataLevel << std::endl;
-            }
+            int minSpan = osg::minimum( image->s(), image->t() );
+            int tileSize = getPixelsPerTile();
+            _maxLOD = (int)LOG2((minSpan/tileSize)+1);
             
-            getDataExtents().push_back( DataExtent(getProfile()->getExtent(), 0, _maxDataLevel) );
+            getDataExtents().push_back( DataExtent(getProfile()->getExtent(), 0, _maxLOD) );
 
             bool computeAlpha =
                 (_options.convertLuminanceToRGBA() == true && image->getPixelFormat() == GL_LUMINANCE) ||
@@ -132,17 +132,11 @@ public:
 
         return STATUS_OK;
     }
-    
-    //override
-    unsigned int getMaxDataLevel() const 
-    {
-        return _maxDataLevel;
-    }
 
     osg::Image*
     createImage( const TileKey& key, ProgressCallback* progress )
     {
-        if ( !_image.valid() || key.getLevelOfDetail() > getMaxDataLevel() )
+        if (!_image.valid() || key.getLOD() > _maxLOD)
             return NULL;
 
         GeoImage cropped = _image.crop( key.getExtent(), true, getPixelsPerTile(), getPixelsPerTile(), *_options.bilinearReprojection() );
@@ -157,9 +151,9 @@ public:
 
 private:
     std::string      _extension;
-    int              _maxDataLevel;
     GeoImage         _image;
     const OSGOptions _options;
+    unsigned         _maxLOD;
 };
 
 
@@ -178,7 +172,7 @@ public:
         supportsExtension( "osgearth_osg", "OSG image driver for osgEarth" );
     }
 
-    virtual const char* className()
+    virtual const char* className() const
     {
         return "OSG Image Driver";
     }

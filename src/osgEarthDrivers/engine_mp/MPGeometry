@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -47,6 +50,8 @@ namespace osgEarth { namespace Drivers { namespace MPTerrainEngine
             Layer()
             {
                 _texMatUniformID = ~0;
+                _layerID = 0u;
+                _opaque = true;
             }
 
             osgEarth::UID                  _layerID;
@@ -55,7 +60,6 @@ namespace osgEarth { namespace Drivers { namespace MPTerrainEngine
             osg::ref_ptr<osg::Vec2Array>   _texCoords;
             osg::ref_ptr<osg::Texture>     _texParent;
             osg::Matrixf                   _texMatParent; // yes, must be a float matrix
-            float                          _alphaThreshold;
             bool                           _opaque;
 
             // for shared layers only:
@@ -104,6 +108,8 @@ namespace osgEarth { namespace Drivers { namespace MPTerrainEngine
 
         osg::ref_ptr<osg::Texture> _elevTex;
 
+        mutable osg::ref_ptr<osg::PrimitiveSet> _patchTriangles;
+
     public:
         
         // construct a new MPGeometry.
@@ -131,6 +137,13 @@ namespace osgEarth { namespace Drivers { namespace MPTerrainEngine
         // all the code that handles non-fastPath (don't need it) and
         // called into our custom renderPrimitiveSets method.
         void drawImplementation(osg::RenderInfo& renderInfo) const;
+        
+        // override to correctly process GL_PATCHES if necessary
+        bool supports(const osg::PrimitiveFunctor&) const { return true; }
+        void accept(osg::PrimitiveFunctor& functor) const;
+
+        bool supports(const osg::PrimitiveIndexFunctor&) const { return true; }
+        void accept(osg::PrimitiveIndexFunctor& functor) const;
 
         // recalculate the bound for the tile key uniform.
 #if OSG_VERSION_GREATER_THAN(3,3,1)
@@ -139,10 +152,17 @@ namespace osgEarth { namespace Drivers { namespace MPTerrainEngine
         osg::BoundingBox computeBound() const;
 #endif
 
+    protected:
+#if OSG_MIN_VERSION_REQUIRED(3,5,9)
+        virtual osg::VertexArrayState* createVertexArrayStateImplementation(osg::RenderInfo& renderInfo) const;
+#elif OSG_MIN_VERSION_REQUIRED(3,5,6)
+        virtual osg::VertexArrayState* createVertexArrayState(osg::RenderInfo& renderInfo) const;
+#endif
+
     public:
         META_Object(osgEarth, MPGeometry);
-        MPGeometry() : osg::Geometry(), _frame(0L) { }
-        MPGeometry(const MPGeometry& rhs, const osg::CopyOp& cop) : osg::Geometry(rhs, cop), _frame(rhs._frame) { }
+        MPGeometry();
+        MPGeometry(const MPGeometry& rhs, const osg::CopyOp& cop);
         virtual ~MPGeometry() { }
     };
 

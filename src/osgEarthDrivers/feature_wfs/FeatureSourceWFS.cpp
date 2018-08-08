@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -20,12 +20,16 @@
 
 #include <osgEarth/Registry>
 #include <osgEarth/FileUtils>
+#include <osgEarth/URI>
+
 #include <osgEarthFeatures/FeatureSource>
 #include <osgEarthFeatures/Filter>
-#include <osgEarthFeatures/BufferFilter>
-#include <osgEarthFeatures/ScaleFilter>
-#include <osgEarthUtil/WFS>
+#include <osgEarthFeatures/FilterContext>
+#include <osgEarthFeatures/FeatureCursor>
 #include <osgEarthFeatures/OgrUtils>
+
+#include <osgEarthUtil/WFS>
+
 #include <osg/Notify>
 #include <osgDB/FileNameUtils>
 #include <osgDB/FileUtils>
@@ -34,7 +38,6 @@
 #include <stdlib.h>
 
 #include <ogr_api.h>
-
 
 
 //#undef  OE_DEBUG
@@ -70,37 +73,17 @@ public:
     }
 
     //override
-    void initialize( const osgDB::Options* dbOptions )
+    Status initialize(const osgDB::Options* readOptions)
     {
-        _dbOptions = dbOptions ? osg::clone(dbOptions) : 0L;
-        if ( _dbOptions.valid() )
-        {
-            // Set up a Custom caching bin for this source:
-            Cache* cache = Cache::get( _dbOptions.get() );
-            if ( cache )
-            {
-                Config optionsConf = _options.getConfig();
+        // initialize the base class
+        //FeatureSource::initialize(readOptions);
 
-                std::string binId = Stringify() << std::hex << hashString(optionsConf.toJSON()) << "_wfs";
-                _cacheBin = cache->addBin( binId );
-                _cacheBin->setHashKeys(true);
-                
-                // write a metadata record just for reference purposes.. we don't actually use it
-                Config metadata = _cacheBin->readMetadata();
-                if ( metadata.empty() )
-                {
-                    _cacheBin->writeMetadata( optionsConf );
-                }
+        // store a reference to the read options so we can pass them along to
+        // later requests.
+        _readOptions = readOptions;
 
-                if ( _cacheBin.valid() )
-                {
-                    _cacheBin->apply( _dbOptions.get() );
-                }
-            }
-        }
-
+        // parse the WFS capabilities URL
         std::string capUrl;
-
         if ( _options.url().isSet() )
         {
             char sep = _options.url()->full().find_first_of('?') == std::string::npos? '?' : '&';
@@ -111,16 +94,58 @@ public:
                 "SERVICE=WFS&VERSION=1.0.0&REQUEST=GetCapabilities";
         }        
 
-        _capabilities = WFSCapabilitiesReader::read( capUrl, _dbOptions.get() );
+        // read the WFS capabilities:
+        _capabilities = WFSCapabilitiesReader::read( capUrl, _readOptions.get() );
         if ( !_capabilities.valid() )
         {
-            OE_WARN << "[osgEarth::WFS] Unable to read WFS GetCapabilities." << std::endl;
-            //return;
+            return Status::Error(Status::ResourceUnavailable, Stringify()<<"Failed to read WFS GetCapabilities from \"" << capUrl << "\"");
         }
         else
         {
             OE_INFO << "[osgEarth::WFS] Got capabilities from " << capUrl << std::endl;
         }
+
+        // establish a feature profile
+        FeatureProfile* fp = 0L;
+
+        //Find the feature type by name
+        osg::ref_ptr< WFSFeatureType > featureType = _capabilities->getFeatureTypeByName( _options.typeName().get() );
+        if (featureType.valid())
+        {
+            if (featureType->getExtent().isValid())
+            {
+                fp = new FeatureProfile(featureType->getExtent());
+
+                bool disableTiling = _options.disableTiling().isSetTo(true);
+
+                if (featureType->getTiled() && !disableTiling)
+                {                        
+                    fp->setTiled( true );
+                    fp->setFirstLevel( featureType->getFirstLevel() );
+                    fp->setMaxLevel( featureType->getMaxLevel() );
+                    fp->setProfile(osgEarth::Profile::create(
+                        osgEarth::SpatialReference::create("epsg:4326"), 
+                        featureType->getExtent().xMin(), featureType->getExtent().yMin(), 
+                        featureType->getExtent().xMax(), featureType->getExtent().yMax(), 
+                        1, 1) );
+                }
+            }
+        }
+
+        // if nothing else, fall back on a global geodetic feature profile.
+        if ( !fp )
+        {
+            fp = new FeatureProfile(GeoExtent(SpatialReference::create( "epsg:4326" ), -180, -90, 180, 90));
+        }
+             
+        if (_options.geoInterp().isSet())
+        {
+            fp->geoInterp() = _options.geoInterp().get();
+        }
+
+        setFeatureProfile( fp );
+
+        return Status::OK();
     }
 
     void saveResponse(const std::string buffer, const std::string& filename)
@@ -129,64 +154,6 @@ public:
         fout.open(filename.c_str(), std::ios::out | std::ios::binary);        
         fout.write(buffer.c_str(), buffer.size());        
         fout.close();
-    }
-
-
-    /** Called once at startup to create the profile for this feature set. Successful profile
-        creation implies that the datasource opened succesfully. */
-    const FeatureProfile* createFeatureProfile()
-    {
-        if ( !_featureProfile.valid() )
-        {
-            static Threading::Mutex s_mutex;
-            Threading::ScopedMutexLock lock(s_mutex);
-            
-            if ( !_featureProfile.valid() )
-            {
-                FeatureProfile* result = 0L;
-
-                if (_capabilities.valid())
-                {
-                    //Find the feature type by name
-                    osg::ref_ptr< WFSFeatureType > featureType = _capabilities->getFeatureTypeByName( _options.typeName().get() );
-                    if (featureType.valid())
-                    {
-                        if (featureType->getExtent().isValid())
-                        {
-                            result = new FeatureProfile(featureType->getExtent());
-
-                            bool disableTiling = _options.disableTiling().isSet() && *_options.disableTiling();
-
-                            if (featureType->getTiled() && !disableTiling)
-                            {                        
-                                result->setTiled( true );
-                                result->setFirstLevel( featureType->getFirstLevel() );
-                                result->setMaxLevel( featureType->getMaxLevel() );
-                                result->setProfile( osgEarth::Profile::create(osgEarth::SpatialReference::create("epsg:4326"), featureType->getExtent().xMin(), featureType->getExtent().yMin(), featureType->getExtent().xMax(), featureType->getExtent().yMax(), 1, 1) );
-                            }
-                        }
-                    }
-                }
-
-                if (!result)
-                {
-                    result = new FeatureProfile(GeoExtent(SpatialReference::create( "epsg:4326" ), -180, -90, 180, 90));
-                }
-                
-                _featureProfile = result;
-            }
-        }
-
-        return _featureProfile.get();
-    }
-
-    FeatureProfile* getFeatureProfile()
-    {
-        if ( !_featureProfile.valid() )
-        {
-            createFeatureProfile();
-        }
-        return _featureProfile.get();
     }
 
     bool getFeatures( const std::string& buffer, const std::string& mimeType, FeatureList& features )
@@ -240,16 +207,13 @@ public:
         OGRLayerH layer = OGR_DS_GetLayer(ds, 0);
         if ( layer )
         {
-            FeatureProfile* fp = getFeatureProfile();
-            const SpatialReference* srs = fp ? fp->getSRS() : 0L;
-
             OGR_L_ResetReading(layer);                                
             OGRFeatureH feat_handle;
             while ((feat_handle = OGR_L_GetNextFeature( layer )) != NULL)
             {
                 if ( feat_handle )
                 {
-                    osg::ref_ptr<Feature> f = OgrUtils::createFeature( feat_handle, srs );
+                    osg::ref_ptr<Feature> f = OgrUtils::createFeature( feat_handle, getFeatureProfile() );
                     if ( f.valid() && !isBlacklisted(f->getFID()) )
                     {
                         features.push_back( f.release() );
@@ -280,7 +244,7 @@ public:
         {
             return ".xml";
         }        
-		else if (isJSON(mime))
+        else if (isJSON(mime))
         {
             return ".json";
         }        
@@ -307,26 +271,51 @@ public:
 
     std::string createURL(const Symbology::Query& query)
     {
+        char sep = _options.url()->full().find_first_of('?') == std::string::npos? '?' : '&';
+
         std::stringstream buf;
-        buf << _options.url()->full() << "?SERVICE=WFS&VERSION=1.0.0&REQUEST=GetFeature";
+        buf << _options.url()->full() << sep << "SERVICE=WFS&VERSION=1.0.0&REQUEST=GetFeature";
         buf << "&TYPENAME=" << _options.typeName().get();
         
         std::string outputFormat = "geojson";
         if (_options.outputFormat().isSet()) outputFormat = _options.outputFormat().get();
         buf << "&OUTPUTFORMAT=" << outputFormat;
 
-        if (_options.maxFeatures().isSet())
+        // If the Query limit is set, use that.  Otherwise use the globally defined maxFeatures setting.
+        if (query.limit().isSet())
+        {
+            buf << "&MAXFEATURES=" << query.limit().get();
+        }
+        else if (_options.maxFeatures().isSet())
         {
             buf << "&MAXFEATURES=" << _options.maxFeatures().get();
         }
 
         if (query.tileKey().isSet())
         {
-            buf << "&Z=" << query.tileKey().get().getLevelOfDetail() << 
-                   "&X=" << query.tileKey().get().getTileX() <<
-                   "&Y=" << query.tileKey().get().getTileY();
+
+            unsigned int tileX = query.tileKey().get().getTileX();
+            unsigned int tileY = query.tileKey().get().getTileY();
+            unsigned int level = query.tileKey().get().getLevelOfDetail();
+            
+            // Tiled WFS follows the same protocol as TMS, with the origin in the lower left of the profile.
+            // osgEarth TileKeys are upper left origin, so we need to invert the tilekey to request the correct key.
+            unsigned int numRows, numCols;
+            query.tileKey().get().getProfile()->getNumTiles(level, numCols, numRows);
+            tileY  = numRows - tileY - 1;
+
+            buf << "&Z=" << level << 
+                   "&X=" << tileX <<
+                   "&Y=" << tileY;
         }
-        else if (query.bounds().isSet())
+	// BBOX and CQL_FILTER are mutually exclusive. Give CQL_FILTER priority if specified.
+	// NOTE: CQL_FILTER is a non-standard vendor parameter. See:
+	// http://docs.geoserver.org/latest/en/user/services/wfs/vendor.html
+	else if (query.expression().isSet())
+	{
+	    buf << "&CQL_FILTER=" << osgEarth::URI::urlEncode(query.expression().get());
+	}
+	else if (query.bounds().isSet())
         {            
             double buffer = *_options.buffer();            
             buf << "&BBOX=" << std::setprecision(16)
@@ -335,6 +324,7 @@ public:
                             << query.bounds().get().xMax() + buffer << ","
                             << query.bounds().get().yMax() + buffer;
         }
+
         std::string str;
         str = buf.str();
         return str;
@@ -354,7 +344,7 @@ public:
         URI uri(url);
 
         // read the data:
-        ReadResult r = uri.readString( _dbOptions.get() );
+        ReadResult r = uri.readString( _readOptions.get() );
 
         const std::string& buffer = r.getString();
         const Config&      meta   = r.metadata();
@@ -375,23 +365,29 @@ public:
         }
 
         //If we have any filters, process them here before the cursor is created
-        if (!_options.filters().empty())
+        if (getFilters() && !getFilters()->empty() && !features.empty())
         {
-            // preprocess the features using the filter list:
-            if ( features.size() > 0 )
-            {
-                FilterContext cx;
-                cx.setProfile( getFeatureProfile() );
+            FilterContext cx;
+            cx.setProfile( getFeatureProfile() );
 
-                for( FeatureFilterList::const_iterator i = _options.filters().begin(); i != _options.filters().end(); ++i )
-                {
-                    FeatureFilter* filter = i->get();
-                    cx = filter->push( features, cx );
-                }
+            for( FeatureFilterChain::const_iterator i = getFilters()->begin(); i != getFilters()->end(); ++i )
+            {
+                FeatureFilter* filter = i->get();
+                cx = filter->push( features, cx );
             }
         }
 
-        //result = new FeatureListCursor(features);
+        // If we have any features and we have an fid attribute, override the fid of the features
+        if (_options.fidAttribute().isSet())
+        {
+            for (FeatureList::iterator itr = features.begin(); itr != features.end(); ++itr)
+            {
+                std::string attr = itr->get()->getString(_options.fidAttribute().get());                
+                FeatureID fid = as<long>(attr, 0);
+                itr->get()->setFID( fid );
+            }
+        }
+
         result = dataOK ? new FeatureListCursor( features ) : 0L;
 
         if ( !result )
@@ -400,13 +396,14 @@ public:
         return result;
     }
 
-    /**
-    * Gets the Feature with the given FID
-    * @returns
-    *     The Feature with the given FID or NULL if not found.
-    */
+    virtual bool supportsGetFeature() const
+    {
+        return false;
+    }
+
     virtual Feature* getFeature( FeatureID fid )
     {
+        // not supported for WFS
         return 0;
     }
 
@@ -429,12 +426,11 @@ public:
 
 
 private:
-    const WFSFeatureOptions         _options;  
-    osg::ref_ptr< WFSCapabilities > _capabilities;
-    osg::ref_ptr< FeatureProfile >  _featureProfile;
-    FeatureSchema                   _schema;
-    osg::ref_ptr<CacheBin>          _cacheBin;
-    osg::ref_ptr<osgDB::Options>    _dbOptions;    
+    const WFSFeatureOptions            _options;  
+    osg::ref_ptr< WFSCapabilities >    _capabilities;
+    osg::ref_ptr< FeatureProfile >     _featureProfile;
+    FeatureSchema                      _schema;
+    osg::ref_ptr<const osgDB::Options> _readOptions;
 };
 
 
@@ -446,17 +442,17 @@ public:
         supportsExtension( "osgearth_feature_wfs", "WFS feature driver for osgEarth" );
     }
 
-    virtual const char* className()
+    virtual const char* className() const
     {
         return "WFS Feature Reader";
     }
 
-    virtual ReadResult readObject(const std::string& file_name, const Options* options) const
+    virtual ReadResult readObject(const std::string& file_name, const osgDB::Options* readOptions) const
     {
         if ( !acceptsExtension(osgDB::getLowerCaseFileExtension( file_name )))
             return ReadResult::FILE_NOT_HANDLED;
 
-        return ReadResult( new WFSFeatureSource( getFeatureSourceOptions(options) ) );
+        return ReadResult( new WFSFeatureSource( getFeatureSourceOptions(readOptions) ) );
     }
 };
 

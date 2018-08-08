@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -191,8 +191,6 @@ Control::init()
 
     _geode = new osg::Geode();
     this->addChild( _geode );
-
-    _alphaEffect = new AlphaEffect(this->getOrCreateStateSet());
 }
 
 void
@@ -352,6 +350,12 @@ Control::setVertAlign( const Alignment& value ) {
 }
 
 void
+Control::setAlign(const Alignment& h, const Alignment& v) {
+    setHorizAlign( h );
+    setVertAlign ( v );
+}
+
+void
 Control::setHorizFill( bool hfill, float minWidth ) {
     if ( hfill != _hfill || !_width.isSetTo(minWidth) ) { //minWidth != _width.value() ) {
         _hfill = hfill;
@@ -415,6 +419,12 @@ Control::parentIsVisible() const
     return visible;
 }
 
+void
+Control::setOpacity(float a) {
+    osg::Vec4f c = _foreColor.get();
+    c.a() = a;
+    setForeColor(c);
+}
 
 void
 Control::setForeColor( const osg::Vec4f& value ) {
@@ -601,13 +611,16 @@ Control::draw(const ControlContext& cx)
                 float rx = _renderPos.x() - padding().left();
                 float ry = _renderPos.y() - padding().top();
 
-                osg::Vec3Array* verts = new osg::Vec3Array(4);
+                osg::Vec3Array* verts = new osg::Vec3Array(6);
                 _geom->setVertexArray( verts );
                 (*verts)[0].set( rx, vph - ry, 0 );
                 (*verts)[1].set( rx, vph - ry - _renderSize.y(), 0 );
                 (*verts)[2].set( rx + _renderSize.x(), vph - ry - _renderSize.y(), 0 );
-                (*verts)[3].set( rx + _renderSize.x(), vph - ry, 0 );
-                _geom->addPrimitiveSet( new osg::DrawArrays( GL_QUADS, 0, 4 ) );
+                (*verts)[3].set( (*verts)[2] );
+                (*verts)[4].set( rx + _renderSize.x(), vph - ry, 0 );
+                (*verts)[5].set( (*verts)[0] );
+                
+               _geom->addPrimitiveSet( new osg::DrawArrays( GL_TRIANGLES, 0, 6 ) );
 
                 osg::Vec4Array* colors = new osg::Vec4Array(1);
                 (*colors)[0] = _active && _activeColor.isSet() ? _activeColor.value() : _backColor.value();
@@ -642,7 +655,7 @@ Control::draw(const ControlContext& cx)
                 getGeode()->addDrawable( geom );
             }
         }
-
+        
         _dirty = false;
     }
 }
@@ -695,7 +708,13 @@ namespace
     {
         LabelText() : osgText::Text() { setDataVariance(osg::Object::DYNAMIC); }
         const osg::BoundingBox& getTextBB() const { return _textBB; }
-        const osg::Matrix& getATMatrix(int contextID) const { return _autoTransformCache[contextID]._matrix; }
+        const osg::Matrix& getATMatrix(int contextID) const { 
+        #if OSG_MIN_VERSION_REQUIRED(3,5,6)
+                return _matrix;
+        #else
+                return _autoTransformCache[contextID]._matrix;
+        #endif
+        }
     };
 
     // writes a value to a label
@@ -1087,7 +1106,7 @@ ImageControl::draw( const ControlContext& cx )
         float ry = osg::round( _renderPos.y() );
         float vph = cx._vp->height();
 
-        osg::Vec3Array* verts = new osg::Vec3Array(4);
+        osg::Vec3Array* verts = new osg::Vec3Array(6);
         g->setVertexArray( verts );
 
         if ( _rotation.as(Units::RADIANS) != 0.0f || _fixSizeForRot == true )
@@ -1101,17 +1120,21 @@ ImageControl::draw( const ControlContext& cx )
             rot( rx, vph-ry, rc, ra, (*verts)[0] );
             rot( rx, vph-ry-_image->t(), rc, ra, (*verts)[1] );
             rot( rx+_image->s(), vph-ry-_image->t(), rc, ra, (*verts)[2] );
-            rot( rx+_image->s(), vph-ry, rc, ra, (*verts)[3] );
+            (*verts)[3].set( (*verts)[2] );
+            rot( rx+_image->s(), vph-ry, rc, ra, (*verts)[4] );
+            (*verts)[5].set( (*verts)[0] );
         }
         else
         {
             (*verts)[0].set( rx, vph - ry, 0 );
             (*verts)[1].set( rx, vph - ry - _renderSize.y(), 0 );
             (*verts)[2].set( rx + _renderSize.x(), vph - ry - _renderSize.y(), 0 );
-            (*verts)[3].set( rx + _renderSize.x(), vph - ry, 0 );
+            (*verts)[3].set( (*verts)[2] );
+            (*verts)[4].set( rx + _renderSize.x(), vph - ry, 0 );
+            (*verts)[5].set( (*verts)[0] );
         }
 
-        g->addPrimitiveSet( new osg::DrawArrays( GL_QUADS, 0, 4 ) );
+        g->addPrimitiveSet( new osg::DrawArrays( GL_TRIANGLES, 0, 6 ) );
 
         osg::Vec4Array* c = new osg::Vec4Array(1);
         (*c)[0] = osg::Vec4f(1,1,1,1);
@@ -1120,14 +1143,16 @@ ImageControl::draw( const ControlContext& cx )
 
         bool flip = _image->getOrigin()==osg::Image::TOP_LEFT;
 
-        osg::Vec2Array* t = new osg::Vec2Array(4);
+        osg::Vec2Array* t = new osg::Vec2Array(6);
 
 #ifdef IMAGECONTROL_TEXRECT
 
         (*t)[0].set( 0, flip? 0: _image->t()-1 );
         (*t)[1].set( 0, flip? _image->t()-1: 0 );
         (*t)[2].set( _image->s()-1, flip? _image->t()-1: 0 );
-        (*t)[3].set( _image->s()-1, flip? 0: _image->t()-1 );
+        (*t)[3].set( (*t)[2]);
+        (*t)[4].set( _image->s()-1, flip? 0: _image->t()-1 );
+        (*t)[5].set( (*t)[0] );
         osg::TextureRectangle* tex = new osg::TextureRectangle( _image.get() );
 
 #else
@@ -1135,7 +1160,9 @@ ImageControl::draw( const ControlContext& cx )
         (*t)[0].set( 0, flip? 0 : 1 );
         (*t)[1].set( 0, flip? 1 : 0 );
         (*t)[2].set( 1, flip? 1 : 0 );
-        (*t)[3].set( 1, flip? 0 : 1 );
+        (*t)[3].set( (*t)[2]);
+        (*t)[4].set( 1, flip? 0 : 1 );
+        (*t)[5].set( (*t)[0] );
         osg::Texture2D* tex = new osg::Texture2D( _image.get() );
 #endif
 
@@ -1147,9 +1174,9 @@ ImageControl::draw( const ControlContext& cx )
         tex->setFilter( osg::Texture::MAG_FILTER, osg::Texture::LINEAR );
         g->getOrCreateStateSet()->setTextureAttributeAndModes( 0, tex, osg::StateAttribute::ON );
 
-        osg::TexEnv* texenv = new osg::TexEnv( osg::TexEnv::MODULATE );
+        /*osg::TexEnv* texenv = new osg::TexEnv( osg::TexEnv::MODULATE );
         g->getStateSet()->setTextureAttributeAndModes( 0, texenv, osg::StateAttribute::ON );
-
+         */
         getGeode()->addDrawable( g );
 
         _dirty = false;
@@ -1242,7 +1269,7 @@ HSliderControl::draw( const ControlContext& cx )
 {
     Control::draw( cx );
 
-    if ( visible() == true && parentIsVisible())
+    if ( visible() && parentIsVisible())
     {
         osg::ref_ptr<osg::Geometry> g = newGeometry();
 
@@ -1255,7 +1282,7 @@ HSliderControl::draw( const ControlContext& cx )
         {
             float vph = cx._vp->height();
 
-            osg::Vec3Array* verts = new osg::Vec3Array(8);
+            osg::Vec3Array* verts = new osg::Vec3Array(10);
             g->setVertexArray( verts );
 
             (*verts)[0].set( rx, vph - ry, 0 );
@@ -1269,8 +1296,11 @@ HSliderControl::draw( const ControlContext& cx )
             (*verts)[4].set( hx-4, vph - ry + 3, 0 );
             (*verts)[5].set( hx-4, vph - (ry + rh + 3), 0 );
             (*verts)[6].set( hx+4, vph - (ry + rh + 3), 0 );
-            (*verts)[7].set( hx+4, vph - ry + 3, 0 );
-            g->addPrimitiveSet( new osg::DrawArrays( GL_QUADS, 4, 4 ) );
+            (*verts)[7].set( (*verts)[6] );
+            (*verts)[8].set( hx+4, vph - ry + 3, 0 );
+            (*verts)[9].set( (*verts)[4] );
+            
+            g->addPrimitiveSet( new osg::DrawArrays( GL_TRIANGLES, 4, 6) );
 
             osg::Vec4Array* c = new osg::Vec4Array(1);
             (*c)[0] = *foreColor();
@@ -1354,7 +1384,7 @@ CheckBoxControl::draw( const ControlContext& cx )
 {
     Control::draw( cx );
 
-    if ( visible() == true && parentIsVisible() )
+    if ( visible() && parentIsVisible() )
     {
         osg::Geometry* g = newGeometry();
 
@@ -1648,6 +1678,27 @@ Container::addControls( const ControlVector& controls )
     }
 }
 
+
+
+
+
+
+void Container::setVisible(bool visibility) 
+{ 
+        Control::setVisible(visibility); 
+        std::vector<osgEarth::Util::Controls::Control*> out; 
+        getChildren(out); 
+        for (int i = 0; i < (int) out.size(); i++) 
+        { 
+                Container* container = dynamic_cast<Container*>( out[i] ); 
+                if (container) { 
+                        container->setVisible(visibility); 
+                } else { 
+                        out[i]->setVisible(visibility); 
+                } 
+        } 
+}
+
 // ---------------------------------------------------------------------------
 
 VBox::VBox()
@@ -1680,7 +1731,7 @@ VBox::clearControls()
 void
 VBox::calcSize(const ControlContext& cx, osg::Vec2f& out_size)
 {
-    if ( visible() == true )
+    if ( visible() )
     {
         _renderSize.set( 0, 0 );
 
@@ -1770,14 +1821,16 @@ VBox::calcPos(const ControlContext& cx, const osg::Vec2f& cursor, const osg::Vec
 void
 VBox::draw( const ControlContext& cx )
 {
-    Container::draw( cx );
+   
+        Container::draw( cx );
 
-    for( unsigned i=1; i<getNumChildren(); ++i )
-    {
-        Control* c = dynamic_cast<Control*>(getChild(i));
-        if ( c )
-            c->draw( cx );
-    }
+        for( unsigned i=1; i<getNumChildren(); ++i )
+        {
+            Control* c = dynamic_cast<Control*>(getChild(i));
+            if ( c )
+                c->draw( cx );
+        }
+     
 }
 
 // ---------------------------------------------------------------------------
@@ -1812,7 +1865,7 @@ HBox::clearControls()
 void
 HBox::calcSize(const ControlContext& cx, osg::Vec2f& out_size)
 {
-    if ( visible() == true )
+    if ( visible() )
     {
         _renderSize.set( 0, 0 );
 
@@ -1836,6 +1889,10 @@ HBox::calcSize(const ControlContext& cx, osg::Vec2f& out_size)
         if (width().isSet() && width().get() > _renderSize.x()) _renderSize.x() = width().get();
 
         Container::calcSize( cx, out_size );
+    }
+    else
+    {
+        out_size.set(0,0);
     }
 }
 
@@ -1901,14 +1958,16 @@ HBox::calcPos(const ControlContext& cx, const osg::Vec2f& cursor, const osg::Vec
 void
 HBox::draw( const ControlContext& cx )
 {
-    Container::draw( cx );
+    
+        Container::draw( cx );
 
-    for( unsigned i=1; i<getNumChildren(); ++i )
-    {
-        Control* c = dynamic_cast<Control*>(getChild(i));
-        if ( c )
-            c->draw( cx );
-    }
+        for( unsigned i=1; i<getNumChildren(); ++i )
+        {
+            Control* c = dynamic_cast<Control*>(getChild(i));
+            if ( c )
+                c->draw( cx );
+        }
+    
 }
 
 // ---------------------------------------------------------------------------
@@ -2055,8 +2114,7 @@ Grid::clearControls()
 void
 Grid::calcSize( const ControlContext& cx, osg::Vec2f& out_size )
 {
-    if ( visible() == true )
-    {
+    
         _renderSize.set( 0, 0 );
 
         int nRows = (int)getNumRows();
@@ -2095,7 +2153,7 @@ Grid::calcSize( const ControlContext& cx, osg::Vec2f& out_size )
         }
 
         Container::calcSize( cx, out_size );
-    }
+    
 }
 
 void
@@ -2150,26 +2208,32 @@ Grid::calcPos( const ControlContext& cx, const osg::Vec2f& cursor, const osg::Ve
     }
 }
 
+
+
+
+
 void
 Grid::draw( const ControlContext& cx )
 {
-    Container::draw( cx );
+    
+        Container::draw( cx );
 
-    for( unsigned i=1; i<getNumChildren(); ++i )
-    {
-        osg::Group* rowGroup = getChild(i)->asGroup();
-        if ( rowGroup )
+        for( unsigned i=1; i<getNumChildren(); ++i )
         {
-            for( unsigned j=0; j<rowGroup->getNumChildren(); ++j )
+            osg::Group* rowGroup = getChild(i)->asGroup();
+            if ( rowGroup )
             {
-                Control* c = dynamic_cast<Control*>( rowGroup->getChild(j) );
-                if ( c )
+                for( unsigned j=0; j<rowGroup->getNumChildren(); ++j )
                 {
-                    c->draw( cx );
+                    Control* c = dynamic_cast<Control*>( rowGroup->getChild(j) );
+                    if ( c )
+                    {
+                        c->draw( cx );
+                    }
                 }
             }
         }
-    }
+ 
 }
 
 // ---------------------------------------------------------------------------
@@ -2250,7 +2314,7 @@ ControlCanvas::EventCallback::handleResize(osg::View* view, ControlCanvas* canva
             if ( !gc && view->getNumSlaves() > 0 )
                 gc = view->getSlave(0)._camera->getGraphicsContext();
 
-            if ( gc )
+            if ( gc && gc->getState() )
                 cx._viewContextID = gc->getState()->getContextID();
             else
                 cx._viewContextID = ~0u;
@@ -2335,7 +2399,8 @@ ControlNode::traverse( osg::NodeVisitor& nv )
 ControlNode::TravSpecificData::TravSpecificData() :
 _obscured   ( true ),
 _visibleTime( 0.0 ),
-_screenPos  ( 0.0, 0.0, 0.0 )
+_screenPos  ( 0.0, 0.0, 0.0 ),
+_visitFrame(0)
 {
     //nop
 }
@@ -2392,9 +2457,6 @@ ControlNodeBin::setFading( bool value )
 void
 ControlNodeBin::draw( const ControlContext& context, bool newContext, int bin )
 {
-    const osg::Viewport* vp = context._vp.get();
-    osg::Vec2f surfaceSize( context._vp->width(), context._vp->height() );
-
     // we don't really need to keep this list in the object, but that prevents it from having to
     // reallocate it each time
     _taken.clear();
@@ -2404,18 +2466,25 @@ ControlNodeBin::draw( const ControlContext& context, bool newContext, int bin )
 
     if ( _sortingEnabled && _sortByDistance )
     {
-        for( ControlNodeCollection::iterator i = _controlNodes.begin(); i != _controlNodes.end(); i++) 
+        for( ControlNodeCollection::iterator i = _controlNodes.begin(); i != _controlNodes.end();)
         {
             ControlNode* node = i->second.get();
             if ( node->getNumParents() == 0 )
             {
+              // Save the iterator and erase it before we increment it.  erase will invalidate i so we can't increment it directly.
+              ControlNodeCollection::iterator saveItr = i;
+              ++saveItr;
               _renderNodes.erase( node );
+              // Erase the current iterator
               _controlNodes.erase( i );
+              // Assign i to the incremented iterator
+              i = saveItr;
             }
             else
             {
                 ControlNode::TravSpecificData& nodeData = node->getData( context._view->getCamera() );
                 byDepth.insert( ControlNodePair(nodeData._screenPos.z(), node) );
+                i++;
             }
         }
 
@@ -2672,7 +2741,7 @@ ControlCanvas::init()
     _controlNodeBin = new ControlNodeBin();
     this->addChild( _controlNodeBin->getControlGroup() );
    
-#ifndef OSG_GLES2_AVAILABLE
+#if OSG_VERSION_LESS_THAN(3,5,8) && defined(OSG_GL_FIXED_FUNCTION_AVAILABLE)
     // don't use shaders unless we have to.
     this->getOrCreateStateSet()->setAttributeAndModes(
         new osg::Program(), 
@@ -2804,6 +2873,10 @@ ControlCanvas::update(const osg::FrameStamp* frameStamp)
             control->calcPos( _context, osg::Vec2f(0,0), surfaceSize );
 
             control->draw( _context );
+
+#if !defined(OSG_GL_FIXED_FUNCTION_AVAILABLE)
+            osgEarth::Registry::shaderGenerator().run(control);
+#endif
         }
     }
 
@@ -2812,7 +2885,7 @@ ControlCanvas::update(const osg::FrameStamp* frameStamp)
         _controlNodeBin->draw( _context, _contextDirty, bin );
     }
 
-#ifdef OSG_GLES2_AVAILABLE
+#if defined(OSG_GLES2_AVAILABLE) || defined(OSG_GLES3_AVAILABLE)
     // shaderize.
     // we don't really need to rebuild shaders on every dirty; we could probably
     // just do it on add/remove controls; but that's an optimization for later
@@ -2862,6 +2935,7 @@ ControlCanvas::traverse(osg::NodeVisitor& nv)
         }
         break;
 
+    default:
     case osg::NodeVisitor::CULL_VISITOR:
         {
         }

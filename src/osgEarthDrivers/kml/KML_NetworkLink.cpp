@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -37,6 +37,11 @@ KML_NetworkLink::build( xml_node<>* node, KMLContext& cx )
 
     // parse the link:
     std::string href = KMLUtils::parseLink(node);
+    
+    if ( !href.empty())
+    {
+        href = URIContext(cx._referrer).getOSGPath(href);
+    }
 
     // "open" determines whether to load it immediately
     bool open = as<bool>(getValue(node, "open"), false);

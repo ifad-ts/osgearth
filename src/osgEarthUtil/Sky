@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -24,6 +27,7 @@
 #include <osgEarth/DateTime>
 #include <osgEarth/GeoData>
 #include <osgEarth/Config>
+#include <osgEarth/Profile>
 #include <osg/Group>
 #include <osg/Uniform>
 #include <osg/View>
@@ -31,13 +35,12 @@
 
 namespace osgEarth {
     class MapNode;
-    class UpdateLightingUniformsHelper;
 }
 namespace osgDB {
     class Options;
 }
 
-namespace osgEarth { namespace Util 
+namespace osgEarth { namespace Util
 {
     using namespace osgEarth;
 
@@ -75,20 +78,20 @@ namespace osgEarth { namespace Util
             DriverConfigOptions::mergeConfig( conf );
             fromConfig( conf );
         }
-        
+
     private:
         void fromConfig( const Config& conf ) {
             conf.getIfSet("hours", _hours);
             conf.getIfSet("ambient", _ambient);
         }
-        
+
         optional<float> _hours;
         optional<float> _ambient;
     };
 
 
     /**
-    * Interface for classes that provide sky, lighting, and other 
+    * Interface for classes that provide sky, lighting, and other
     * environmental effect.
     */
     class OSGEARTHUTIL_EXPORT SkyNode : public osg::Group
@@ -100,14 +103,14 @@ namespace osgEarth { namespace Util
          */
         static SkyNode* create(
             osgEarth::MapNode* mapNode );
-        
+
         /**
          * Creates a new SkyNode with custom options.
          */
         static SkyNode* create(
             const SkyOptions&  options,
             osgEarth::MapNode* mapNode );
-        
+
         /**
          * Creates a new SkyNode with a named driver.
          */
@@ -137,7 +140,7 @@ namespace osgEarth { namespace Util
          */
         void setReferencePoint(const GeoPoint& point);
         const GeoPoint& getReferencePoint() const { return *_refpoint; }
-       
+
         /**
          * Whether the sky lights its subgraph.
          */
@@ -164,22 +167,24 @@ namespace osgEarth { namespace Util
         void setStarsVisible(bool value);
         bool getStarsVisible() const { return _starsVisible; }
 
-        /** Access the osg::Light representing the sun */
-        virtual osg::Light* getSunLight() = 0;
+        /** Whether the atmosphere is visible */
+        void setAtmosphereVisible(bool value);
+        bool getAtmosphereVisible() const { return _atmosphereVisible; }
 
-        /** Sets a minimum ambient lighting value. */
-        virtual void setMinimumAmbient(const osg::Vec4f& ambient);
-        const osg::Vec4& getMinimumAmbient() const { return _minimumAmbient; }
+        /** Access the osg::Light representing the sun */
+        virtual osg::Light* getSunLight() const = 0;
+        //virtual const osg::Light* getSunLight() const = 0;
+
+        /** @deprecated. use getSunLight()->setAmbient instead */
+        void setMinimumAmbient(const osg::Vec4f& ambient) { if (getSunLight()) getSunLight()->setAmbient(ambient); }
+        /** @deprecated; use getSunLight()->getAmbient instead */
+        const osg::Vec4 getMinimumAmbient() const { if (!getSunLight()) return osg::Vec4(0,0,0,0); return getSunLight()->getAmbient(); }
 
     public:
-        
+
         /** Attaches this sky node to a view (placing a sky light). Optional */
         virtual void attach(osg::View* view, int lightNum) { }
         void attach(osg::View* view) { attach(view, 0); }
-
-    public: // osg::Node
-
-        virtual void traverse(osg::NodeVisitor&);
 
     protected:
 
@@ -190,7 +195,7 @@ namespace osgEarth { namespace Util
         virtual void onSetMoonVisible() { }
         virtual void onSetStarsVisible() { }
         virtual void onSetSunVisible() { }
-        virtual void onSetMinimumAmbient() { }
+        virtual void onSetAtmosphereVisible() { }
 
     private:
 
@@ -199,13 +204,12 @@ namespace osgEarth { namespace Util
         bool                    _sunVisible;
         bool                    _moonVisible;
         bool                    _starsVisible;
+        bool                    _atmosphereVisible;
         osg::Vec4f              _minimumAmbient;
         optional<GeoPoint>      _refpoint;
 
         osg::StateAttribute::OverrideValue _lightingValue;
         osg::ref_ptr<osg::Uniform>         _lightingUniform;
-
-        osg::ref_ptr<UpdateLightingUniformsHelper> _lightingUniformsHelper;
 
         void baseInit(const SkyOptions&);
     };
@@ -219,6 +223,18 @@ namespace osgEarth { namespace Util
     protected:
         MapNode* getMapNode(const osgDB::Options* opt) const;
         const SkyOptions& getSkyOptions(const osgDB::Options* opt) const;
+    };
+
+    /**
+     * Factory interface that sky extensions need to implement. Someday we will
+     * convert the sky extensions into proper NodeKits, at which point this method
+     * will probably be no longer necessary since you can just link with the library
+     * and create the SkyNode normally.
+     */
+    class /*header-only*/ SkyNodeFactory
+    {
+    public:
+        virtual SkyNode* createSkyNode(const Profile* profile) =0;
     };
 
 } } // namespace osgEarth::Util

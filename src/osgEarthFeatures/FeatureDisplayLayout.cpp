@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -72,7 +72,9 @@ _minRange      ( 0.0f ),
 _maxRange      ( 0.0f ),
 _cropFeatures  ( false ),
 _priorityOffset( 0.0f ),
-_priorityScale ( 1.0f )
+_priorityScale ( 1.0f ),
+_minExpiryTime ( 0.0f ),
+_paged(true)
 {
     fromConfig( conf );
 }
@@ -80,12 +82,15 @@ _priorityScale ( 1.0f )
 void
 FeatureDisplayLayout::fromConfig( const Config& conf )
 {
+    conf.getIfSet( "tile_size",        _tileSize );
     conf.getIfSet( "tile_size_factor", _tileSizeFactor );
     conf.getIfSet( "crop_features",    _cropFeatures );
     conf.getIfSet( "priority_offset",  _priorityOffset );
     conf.getIfSet( "priority_scale",   _priorityScale );
+    conf.getIfSet( "min_expiry_time",  _minExpiryTime );
     conf.getIfSet( "min_range",        _minRange );
     conf.getIfSet( "max_range",        _maxRange );
+    conf.getIfSet("paged", _paged);
     ConfigSet children = conf.children( "level" );
     for( ConfigSet::const_iterator i = children.begin(); i != children.end(); ++i )
         addLevel( FeatureLevel( *i ) );
@@ -95,12 +100,15 @@ Config
 FeatureDisplayLayout::getConfig() const
 {
     Config conf( "layout" );
+    conf.addIfSet( "tile_size",        _tileSize );
     conf.addIfSet( "tile_size_factor", _tileSizeFactor );
     conf.addIfSet( "crop_features",    _cropFeatures );
     conf.addIfSet( "priority_offset",  _priorityOffset );
     conf.addIfSet( "priority_scale",   _priorityScale );
+    conf.addIfSet( "min_expiry_time",  _minExpiryTime );
     conf.addIfSet( "min_range",        _minRange );
     conf.addIfSet( "max_range",        _maxRange );
+    conf.addIfSet("paged", _paged);
     for( Levels::const_iterator i = _levels.begin(); i != _levels.end(); ++i )
         conf.add( i->second.getConfig() );
     return conf;
@@ -109,7 +117,7 @@ FeatureDisplayLayout::getConfig() const
 void 
 FeatureDisplayLayout::addLevel( const FeatureLevel& level )
 {
-    _levels.insert( std::make_pair( -level.maxRange(), level ) );
+    _levels.insert( std::make_pair( -level.maxRange().get(), level ) );
 }
 
 unsigned 
@@ -129,12 +137,6 @@ FeatureDisplayLayout::getLevel( unsigned n ) const
     }
     return 0L;
 }
-
-//float
-//FeatureDisplayLayout::getMaxRange() const
-//{
-//    return _levels.size() > 0 ? _levels.begin()->second.maxRange() : 0.0f;
-//}
 
 unsigned
 FeatureDisplayLayout::chooseLOD( const FeatureLevel& level, double fullExtentRadius ) const

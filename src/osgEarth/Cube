@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -144,7 +144,14 @@ namespace osgEarth
     protected: // SpatialReference overrides
 
         void _init();
-
+        
+        bool transformInFaceExtentToMBR(
+            const SpatialReference* to_srs,
+            int                     face,
+            double&                 in_out_xmin,
+            double&                 in_out_ymin,
+            double&                 in_out_xmax,
+            double&                 in_out_ymax ) const;
     };
 
     /**

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -19,10 +22,15 @@
 
 #include <osgEarth/Registry>
 #include <osgEarth/FileUtils>
+
 #include <osgEarthUtil/TileIndex>
-#include <osgEarthDrivers/feature_ogr/OGRFeatureOptions>
-#include <ogr_api.h>
+
 #include <osgEarthFeatures/OgrUtils>
+#include <osgEarthFeatures/FeatureCursor>
+
+#include <osgEarthDrivers/feature_ogr/OGRFeatureOptions>
+
+#include <ogr_api.h>
 #include <osgDB/FileUtils>
 
 using namespace osgEarth;
@@ -43,7 +51,7 @@ TileIndex::~TileIndex()
 }
 
 TileIndex*
-    TileIndex::load(const std::string& filename)
+TileIndex::load(const std::string& filename)
 {        
     if (!osgDB::fileExists( filename ) )
     {
@@ -62,8 +70,12 @@ TileIndex*
         OE_NOTICE << "Can't load " << filename << std::endl;
         return 0;
     }
-    features->initialize();
-    features->getFeatureProfile();    
+    Status s = features->open();
+    if (s.isError())
+    {
+        OE_WARN << s.message();
+        return 0L;
+    }
 
     TileIndex* index = new TileIndex();
     index->_features = features.get();
@@ -72,7 +84,7 @@ TileIndex*
 }
 
 TileIndex*
-    TileIndex::create( const std::string& filename, const osgEarth::SpatialReference* srs )
+TileIndex::create( const std::string& filename, const osgEarth::SpatialReference* srs )
 {
     // Make sure the registry is loaded since that is where the OGR/GDAL registration happens
     osgEarth::Registry::instance();
@@ -103,7 +115,7 @@ TileIndex*
 
 
 void
-    TileIndex::getFiles(const osgEarth::GeoExtent& extent, std::vector< std::string >& files)
+TileIndex::getFiles(const osgEarth::GeoExtent& extent, std::vector< std::string >& files)
 {            
     files.clear();
     osgEarth::Symbology::Query query;    
@@ -132,7 +144,7 @@ bool TileIndex::add( const std::string& filename, const GeoExtent& extent )
     polygon->push_back( osg::Vec3d(extent.bounds().xMin(), extent.bounds().yMax(), 0) );
     polygon->push_back( osg::Vec3d(extent.bounds().xMin(), extent.bounds().yMin(), 0) );
    
-    osg::ref_ptr< Feature > feature = new Feature( polygon, extent.getSRS()  );
+    osg::ref_ptr< Feature > feature = new Feature( polygon.get(), extent.getSRS()  );
     feature->set("location", filename );
     
     const SpatialReference* wgs84 = SpatialReference::create("epsg:4326");

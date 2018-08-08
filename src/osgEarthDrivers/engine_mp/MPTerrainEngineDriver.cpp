@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -48,7 +48,7 @@ namespace osgEarth { namespace Drivers { namespace MPTerrainEngine
                 _profiling = as<int>(std::string(p), 1);
         }
 
-        virtual const char* className()
+        virtual const char* className() const
         {
             return "osgEarth MP Terrain Engine";
         }
@@ -71,7 +71,6 @@ namespace osgEarth { namespace Drivers { namespace MPTerrainEngine
                 }
                 else
                 {
-                    MPTerrainEngineOptions terrainOpts;
                     OE_INFO << LC << "Activated!" << std::endl;
                     return ReadResult( new MPTerrainEngineNode() );
                 }
@@ -146,7 +145,7 @@ namespace osgEarth { namespace Drivers { namespace MPTerrainEngine
                             progress->stats()["http_get_time"] / progress->stats()["http_get_count"];
 
                         OE_NOTICE << "tile: " << tileDef << std::endl;
-                        for(fast_map<std::string,double>::iterator i = progress->stats().begin();
+                        for(ProgressCallback::Stats::iterator i = progress->stats().begin();
                             i != progress->stats().end();
                             ++i)
                         {
@@ -226,9 +225,10 @@ namespace osgEarth { namespace Drivers { namespace MPTerrainEngine
                     else
                     {   
                         // notify the Terrain interface of a new tile
-                        osg::Timer_t start = osg::Timer::instance()->tick();
-                        engineNode->getTerrain()->notifyTileAdded(key, node.get());
-                        osg::Timer_t end = osg::Timer::instance()->tick();
+                        // moved this to TileNodeRegistry::add
+                        //osg::Timer_t start = osg::Timer::instance()->tick();
+                        //engineNode->getTerrain()->notifyTileAdded(key, node.get());
+                        //osg::Timer_t end = osg::Timer::instance()->tick();
                     }
                     
                     return ReadResult( node.get(), ReadResult::FILE_LOADED );

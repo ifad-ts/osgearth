@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -20,8 +20,11 @@
 #include <osgEarth/MaskSource>
 #include <osgEarth/Registry>
 #include <osgEarth/Map>
+
 #include <osgEarthFeatures/TransformFilter>
 #include <osgEarthFeatures/FeatureSource>
+#include <osgEarthFeatures/FilterContext>
+#include <osgEarthFeatures/FeatureCursor>
 
 #include <osgDB/FileNameUtils>
 #include <OpenThreads/Mutex>
@@ -58,28 +61,28 @@ public:
         }
     }
 
-    const MaskSourceOptions& getOptions() const { return _options; }
+    const MaskSourceOptions& getOptions() const { 
+        return _options; 
+    }
 
     //override
-    void initialize(const osgDB::Options* dbOptions)
+    Status initialize(const osgDB::Options* readOptions)
     {
-        MaskSource::initialize( dbOptions );
+        if (!_features.valid())
+            return Status::Error(LC, "No feature source available");
 
-        if ( _features.valid() )
-        {
-            _features->initialize( dbOptions );
-        } 
-        else
-        {
-            OE_WARN << LC << "No FeatureSource; nothing will be rendered (" << getName() << ")" << std::endl;
-        }
+        const Status& fstatus = _features->open(readOptions);
+        if (fstatus.isError())
+            return fstatus;
+
+        return Status::OK();
     }
 
     osg::Vec3dArray* createBoundary(const SpatialReference* srs, ProgressCallback* progress)
     {
-        if ( _failed )
+        if (getStatus().isError())
             return 0L;
-
+        
         if ( _features.valid() )
         {
             if ( _features->getFeatureProfile() )
@@ -102,20 +105,20 @@ public:
                             cx = xform.push(featureList, cx);
                         }
 
-                        return f->getGeometry()->toVec3dArray();
+                        return f->getGeometry()->createVec3dArray();
                     }
                 }
             }
             else
             {
-                OE_WARN << LC << "Failed to create boundary; feature source has no SRS" << std::endl;
-                _failed = true;
+                setStatus(Status::Error("Failed to create boundary"));
+                OE_WARN << LC << getStatus().message() << std::endl;
             }
         }
         else
         {
-            OE_WARN << LC << "Unable to create boundary; invalid feature source" << std::endl;
-            _failed = true;
+            setStatus(Status::Error("Failed to create boundary"));
+            OE_WARN << LC << getStatus().message() << std::endl;
         }
         return 0L;
     }
@@ -136,7 +139,7 @@ public:
         supportsExtension( "osgearth_mask_feature", "osgEarth feature mask plugin" );
     }
 
-    virtual const char* className()
+    virtual const char* className() const
     {
         return "osgEarth Feature Mask Plugin";
     }

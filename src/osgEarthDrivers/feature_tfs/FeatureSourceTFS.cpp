@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -21,12 +21,18 @@
 #include <osgEarth/Registry>
 #include <osgEarth/XmlUtils>
 #include <osgEarth/FileUtils>
+
 #include <osgEarthFeatures/FeatureSource>
 #include <osgEarthFeatures/Filter>
+#include <osgEarthFeatures/FilterContext>
 #include <osgEarthFeatures/BufferFilter>
 #include <osgEarthFeatures/ScaleFilter>
+#include <osgEarthFeatures/MVT>
 #include <osgEarthFeatures/OgrUtils>
+#include <osgEarthFeatures/FeatureCursor>
+
 #include <osgEarthUtil/TFS>
+
 #include <osg/Notify>
 #include <osgDB/FileNameUtils>
 #include <osgDB/FileUtils>
@@ -70,115 +76,117 @@ public:
     }
 
     //override
-    void initialize( const osgDB::Options* dbOptions )
-    {
-        _dbOptions = dbOptions ? osg::clone(dbOptions) : 0L;
-        if ( _dbOptions.valid() )
-        {
-            // Set up a Custom caching bin for this source:
-            Cache* cache = Cache::get( _dbOptions.get() );
-            if ( cache )
-            {
-                Config optionsConf = _options.getConfig();
+    Status initialize(const osgDB::Options* readOptions)
+    { 
+        // make a local copy of the read options.
+        _readOptions = Registry::cloneOrCreateOptions(readOptions);
 
-                std::string binId = Stringify() << std::hex << hashString(optionsConf.toJSON()) << "_tfs";
-                _cacheBin = cache->addBin( binId );
-                if ( _cacheBin.valid() )
-                {                
-                    // write a metadata record just for reference purposes.. we don't actually use it
-                    Config metadata = _cacheBin->readMetadata();
-                    if ( metadata.empty() )
-                    {
-                        _cacheBin->writeMetadata( optionsConf );
-                    }
+        FeatureProfile* fp = 0L;
 
-                    if ( _cacheBin.valid() )
-                    {
-                        _cacheBin->apply( _dbOptions.get() );
-                    }
-                }
-                else
-                {
-                    OE_INFO << LC << "Failed to open cache bin \"" << binId << "\"\n";
-                }
-            }
-        }     
-        _layerValid = TFSReaderWriter::read(_options.url().get(), _dbOptions.get(), _layer);
+        // Try to read the TFS metadata:
+        _layerValid = TFSReaderWriter::read(_options.url().get(), _readOptions.get(), _layer);
+
         if (_layerValid)
         {
             OE_INFO << LC <<  "Read layer TFS " << _layer.getTitle() << " " << _layer.getAbstract() << " " << _layer.getFirstLevel() << " " << _layer.getMaxLevel() << " " << _layer.getExtent().toString() << std::endl;
+
+            fp = new FeatureProfile(_layer.getExtent());
+            fp->setTiled( true );
+            fp->setFirstLevel( _layer.getFirstLevel());
+            fp->setMaxLevel( _layer.getMaxLevel());
+            fp->setProfile( osgEarth::Profile::create(_layer.getSRS(), _layer.getExtent().xMin(), _layer.getExtent().yMin(), _layer.getExtent().xMax(), _layer.getExtent().yMax(), 1, 1) );
+            if ( _options.geoInterp().isSet() )
+                fp->geoInterp() = _options.geoInterp().get();
         }
-    }
-
-
-    /** Called once at startup to create the profile for this feature set. Successful profile
-        creation implies that the datasource opened succesfully. */
-    const FeatureProfile* createFeatureProfile()
-    {
-        FeatureProfile* result = NULL;
-        if (_layerValid)
+        else
         {
-            result = new FeatureProfile(_layer.getExtent());
-            result->setTiled( true );
-            result->setFirstLevel( _layer.getFirstLevel());
-            result->setMaxLevel( _layer.getMaxLevel());
-            result->setProfile( osgEarth::Profile::create(_layer.getSRS(), _layer.getExtent().xMin(), _layer.getExtent().yMin(), _layer.getExtent().xMax(), _layer.getExtent().yMax(), 1, 1) );
-        }
-        return result;        
-    }
-
-
-    bool getFeatures( const std::string& buffer, const std::string& mimeType, FeatureList& features )
-    {        
-        // find the right driver for the given mime type
-        OGR_SCOPED_LOCK;
-                
-        // find the right driver for the given mime type
-        OGRSFDriverH ogrDriver =
-            isJSON(mimeType) ? OGRGetDriverByName( "GeoJSON" ) :
-            isGML(mimeType)  ? OGRGetDriverByName( "GML" ) :
-            0L;
-
-        // fail if we can't find an appropriate OGR driver:
-        if ( !ogrDriver )
-        {
-            OE_WARN << LC << "Error reading TFS response; cannot grok content-type \"" << mimeType << "\""
-                << std::endl;
-            return false;
-        }
-
-        OGRDataSourceH ds = OGROpen( buffer.c_str(), FALSE, &ogrDriver );
-        
-        if ( !ds )
-        {
-            OE_WARN << LC << "Error reading TFS response" << std::endl;
-            return false;
-        }
-
-        // read the feature data.
-        OGRLayerH layer = OGR_DS_GetLayer(ds, 0);
-        if ( layer )
-        {
-            const SpatialReference* srs = _layer.getSRS();
-
-            OGR_L_ResetReading(layer);                                
-            OGRFeatureH feat_handle;
-            while ((feat_handle = OGR_L_GetNextFeature( layer )) != NULL)
+            // Try to get the results from the settings instead
+            if ( !_options.profile().isSet())
             {
-                if ( feat_handle )
+                return Status::Error(Status::ConfigurationError, "TFS driver requires an explicit profile");
+            }
+
+            if (!_options.minLevel().isSet() || !_options.maxLevel().isSet())
+            {
+                return Status::Error(Status::ConfigurationError, "TFS driver requires a min and max level");
+            }
+           
+            osg::ref_ptr<const Profile> profile = Profile::create( *_options.profile() );    
+
+            fp = new FeatureProfile(profile->getExtent());
+            fp->setTiled( true );
+            fp->setFirstLevel( *_options.minLevel() );
+            fp->setMaxLevel( *_options.maxLevel() );
+            fp->setProfile( profile.get() );
+            if ( _options.geoInterp().isSet() )
+                fp->geoInterp() = _options.geoInterp().get();
+        }
+
+        setFeatureProfile(fp);
+
+        return Status::OK();
+    }
+
+
+    bool getFeatures( const std::string& buffer, const TileKey& key, const std::string& mimeType, FeatureList& features )
+    {            
+        if (mimeType == "application/x-protobuf" || mimeType == "binary/octet-stream")
+        {
+            std::stringstream in(buffer);
+            return MVT::read(in, key, features);
+        }
+        else
+        {            
+            // find the right driver for the given mime type
+            OGR_SCOPED_LOCK;
+
+            // find the right driver for the given mime type
+            OGRSFDriverH ogrDriver =
+                isJSON(mimeType) ? OGRGetDriverByName( "GeoJSON" ) :
+                isGML(mimeType)  ? OGRGetDriverByName( "GML" ) :
+                0L;
+
+            // fail if we can't find an appropriate OGR driver:
+            if ( !ogrDriver )
+            {
+                OE_WARN << LC << "Error reading TFS response; cannot grok content-type \"" << mimeType << "\""
+                    << std::endl;
+                return false;
+            }
+
+            OGRDataSourceH ds = OGROpen( buffer.c_str(), FALSE, &ogrDriver );
+
+            if ( !ds )
+            {
+                OE_WARN << LC << "Error reading TFS response" << std::endl;
+                return false;
+            }
+
+            // read the feature data.
+            OGRLayerH layer = OGR_DS_GetLayer(ds, 0);
+            if ( layer )
+            {
+                const SpatialReference* srs = _layer.getSRS();
+
+                OGR_L_ResetReading(layer);                                
+                OGRFeatureH feat_handle;
+                while ((feat_handle = OGR_L_GetNextFeature( layer )) != NULL)
                 {
-                    osg::ref_ptr<Feature> f = OgrUtils::createFeature( feat_handle, srs );
-                    if ( f.valid() && !isBlacklisted(f->getFID()) )
+                    if ( feat_handle )
                     {
-                        features.push_back( f.release() );
+                        osg::ref_ptr<Feature> f = OgrUtils::createFeature( feat_handle, getFeatureProfile() );
+                        if ( f.valid() && !isBlacklisted(f->getFID()) )
+                        {
+                            features.push_back( f.release() );
+                        }
+                        OGR_F_Destroy( feat_handle );
                     }
-                    OGR_F_Destroy( feat_handle );
                 }
             }
-        }
 
-        // Destroy the datasource
-        OGR_DS_Destroy( ds );
+            // Destroy the datasource
+            OGR_DS_Destroy( ds );
+        }
         
         return true;
     }
@@ -232,19 +240,32 @@ public:
     {     
         if (query.tileKey().isSet())
         {
+            const TileKey &key = query.tileKey().get();
+            unsigned int tileX = key.getTileX();
+            unsigned int tileY = key.getTileY();
+            unsigned int level = key.getLevelOfDetail();
+            
+            // TFS follows the same protocol as TMS, with the origin in the lower left of the profile.
+            // osgEarth TileKeys are upper left origin, so we need to invert the tilekey to request the correct key.            
+            if (_options.invertY() == false)
+            {                
+                unsigned int numRows, numCols;
+                key.getProfile()->getNumTiles(key.getLevelOfDetail(), numCols, numRows);
+                tileY  = numRows - tileY - 1;            
+            }
+
             std::stringstream buf;
             std::string path = osgDB::getFilePath(_options.url()->full());
-            buf << path << "/" << query.tileKey().get().getLevelOfDetail() << "/"
-                               << query.tileKey().get().getTileX() << "/"
-                               << query.tileKey().get().getTileY()
+            buf << path << "/" << level << "/"
+                               << tileX << "/"
+                               << tileY
                                << "." << _options.format().get();            
-            OE_DEBUG << "TFS url " << buf.str() << std::endl;
             return buf.str();
         }
         return "";                       
     }
 
-    FeatureCursor* createFeatureCursor( const Symbology::Query& query )
+    FeatureCursor* createFeatureCursor(const Symbology::Query& query)
     {
         FeatureCursor* result = 0L;
 
@@ -259,7 +280,7 @@ public:
         URI uri(url);
 
         // read the data:
-        ReadResult r = uri.readString( _dbOptions.get() );
+        ReadResult r = uri.readString( _readOptions.get() );
 
         const std::string& buffer = r.getString();
         const Config&      meta   = r.metadata();
@@ -276,8 +297,9 @@ public:
             {
                 if (_options.format().value() == "json") mimeType = "json";
                 else if (_options.format().value().compare("gml") == 0) mimeType = "text/xml";
+                else if (_options.format().value().compare("pbf") == 0) mimeType = "application/x-protobuf";
             }
-            dataOK = getFeatures( buffer, mimeType, features );
+            dataOK = getFeatures( buffer, *query.tileKey(), mimeType, features );
         }
 
         if ( dataOK )
@@ -286,19 +308,27 @@ public:
         }
 
         //If we have any filters, process them here before the cursor is created
-        if (!_options.filters().empty())
+        if (getFilters() && !getFilters()->empty() && !features.empty())
         {
-            // preprocess the features using the filter list:
-            if ( features.size() > 0 )
-            {
-                FilterContext cx;
-                cx.setProfile( getFeatureProfile() );
+            FilterContext cx;
+            cx.setProfile(getFeatureProfile());
+            cx.extent() = query.tileKey()->getExtent();
 
-                for( FeatureFilterList::const_iterator i = _options.filters().begin(); i != _options.filters().end(); ++i )
-                {
-                    FeatureFilter* filter = i->get();
-                    cx = filter->push( features, cx );
-                }
+            for (FeatureFilterChain::const_iterator i = getFilters()->begin(); i != getFilters()->end(); ++i)
+            {
+                FeatureFilter* filter = i->get();
+                cx = filter->push(features, cx);
+            }
+        }
+
+        // If we have any features and we have an fid attribute, override the fid of the features
+        if (_options.fidAttribute().isSet())
+        {
+            for (FeatureList::iterator itr = features.begin(); itr != features.end(); ++itr)
+            {
+                std::string attr = itr->get()->getString(_options.fidAttribute().get());                
+                FeatureID fid = as<long>(attr, 0);
+                itr->get()->setFID( fid );
             }
         }
 
@@ -311,13 +341,14 @@ public:
         return result;
     }
 
-    /**
-    * Gets the Feature with the given FID
-    * @returns
-    *     The Feature with the given FID or NULL if not found.
-    */
+    virtual bool supportsGetFeature() const
+    {
+        return false;
+    }
+
     virtual Feature* getFeature( FeatureID fid )
     {
+        // not supported for TFS.
         return 0;
     }
 
@@ -341,9 +372,8 @@ public:
 
 private:
     const TFSFeatureOptions         _options;    
-    FeatureSchema                   _schema;
-    osg::ref_ptr<CacheBin>          _cacheBin;
-    osg::ref_ptr<osgDB::Options>    _dbOptions;    
+    FeatureSchema                   _schema;    
+    osg::ref_ptr<osgDB::Options>    _readOptions;    
     TFSLayer                        _layer;
     bool                            _layerValid;
 };
@@ -357,7 +387,7 @@ public:
         supportsExtension( "osgearth_feature_tfs", "TFS feature driver for osgEarth" );
     }
 
-    virtual const char* className()
+    virtual const char* className() const
     {
         return "TFS Feature Reader";
     }

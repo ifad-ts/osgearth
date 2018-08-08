@@ -1,11 +1,11 @@
 SET(TARGET_SRC 
     GLSkyDriver.cpp
     GLSkyNode.cpp
+    GLSkyExtension.cpp
 )
 SET(TARGET_H
     GLSkyOptions
 	GLSkyNode
-    GLSkyShaders
 )
 
 SET(TARGET_COMMON_LIBRARIES ${TARGET_COMMON_LIBRARIES}

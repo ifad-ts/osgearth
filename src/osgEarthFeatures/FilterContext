@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -22,20 +22,25 @@
 #include <osgEarthFeatures/Common>
 #include <osgEarthFeatures/Feature>
 #include <osgEarthFeatures/Session>
+
 #include <osgEarthSymbology/Geometry>
 #include <osgEarthSymbology/ResourceCache>
+
 #include <osgEarth/GeoData>
 #include <osgEarth/ShaderUtils>
+
 #include <osg/Matrix>
 #include <list>
+#include <vector>
 
 namespace osgEarth { namespace Features
 {
     using namespace osgEarth;
     using namespace osgEarth::Symbology;
-    class Session;
+
+    //class Session;
     class FeatureProfile;
-    class FeatureSourceIndex;
+    class FeatureIndexBuilder;
 
     /**
      * Context within which a chain of filters is executed.
@@ -43,16 +48,18 @@ namespace osgEarth { namespace Features
     class OSGEARTHFEATURES_EXPORT FilterContext
     {
     public:
+        FilterContext();
+
         FilterContext(
-            Session*              session       =0L,
+            Session*              session,
             const FeatureProfile* profile       =0L,
             const GeoExtent&      workingExtent =GeoExtent::INVALID,
-            FeatureSourceIndex*   index         =0L);
+            FeatureIndexBuilder*  index         =0L);
 
         FilterContext( const FilterContext& rhs );
-        
-        virtual ~FilterContext() { }
 
+        ~FilterContext();
+        
         /**
          * Assigns a resource cache to use. One is created automatically if you
          * don't assign one.
@@ -60,14 +67,17 @@ namespace osgEarth { namespace Features
         void setResourceCache( ResourceCache* value ) { _resourceCache = value; }
 
         /**
-         * Sets the feature index that the filter chain should populate
-         */
-        void setFeatureIndex( FeatureSourceIndex* value ) { _index = value; }
-
-        /**
          * Sets the profile (SRS etc) of the feature data
          */
         void setProfile( const FeatureProfile* profile );
+
+        /**
+         * Sets the output SRS for feature processing. This is optional.
+         * If you do not set this, the output SRS will be that of the
+         * session's Map.
+         */
+        void setOutputSRS(const SpatialReference* srs) { _outputSRS = srs; }
+        const SpatialReference* getOutputSRS() const;
 
 
     public: // properties
@@ -75,13 +85,13 @@ namespace osgEarth { namespace Features
         /**
          * Whether this context contains complete georeferencing information.
          */
-        bool isGeoreferenced() const { return _session.valid() && _profile.valid(); }
+        bool isGeoreferenced() const;
 
         /**
          * Access to the Session under which this filter context operates
          */
-        Session* getSession() { return _session.get(); }
-        const Session* getSession() const { return _session.get(); }
+        Session* getSession();
+        const Session* getSession() const;
 
         /**
          * The spatial profile of the feature data in this context.
@@ -97,8 +107,8 @@ namespace osgEarth { namespace Features
         /**
          * The feature index
          */
-        FeatureSourceIndex* featureIndex() { return _index; }
-        const FeatureSourceIndex* featureIndex() const { return _index; }
+        FeatureIndexBuilder* featureIndex() { return _index; }
+        const FeatureIndexBuilder* featureIndex() const { return _index; }
 
         /**
          * Whether this context has a non-identity reference frame
@@ -177,7 +187,15 @@ namespace osgEarth { namespace Features
          */
         const osgDB::Options* getDBOptions() const;
 
+        /**
+         * Gets a "history" string for debugging purposes
+         */
+        std::string getHistory() const;
+
+        void pushHistory(const std::string& value) { _history.push_back(value); }
+
     protected:
+
         osg::ref_ptr<Session>              _session;
         osg::ref_ptr<const FeatureProfile> _profile;
         bool                               _isGeocentric;
@@ -185,8 +203,10 @@ namespace osgEarth { namespace Features
         osg::Matrixd                       _referenceFrame;
         osg::Matrixd                       _inverseReferenceFrame;
         osg::ref_ptr<ResourceCache>        _resourceCache;
-        FeatureSourceIndex*                _index;
+        FeatureIndexBuilder*               _index;
         optional<ShaderPolicy>             _shaderPolicy;
+        std::vector<std::string>           _history;
+        osg::ref_ptr<const SpatialReference> _outputSRS;
     };
 
 } } // namespace osgEarth::Features

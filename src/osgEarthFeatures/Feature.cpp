@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -17,8 +17,11 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>
  */
 #include <osgEarthFeatures/Feature>
-#include <osgEarth/StringUtils>
+#include <osgEarthFeatures/FilterContext>
 #include <osgEarthFeatures/GeometryUtils>
+#include <osgEarthFeatures/ScriptEngine>
+
+#include <osgEarth/StringUtils>
 #include <osgEarth/JsonUtils>
 #include <algorithm>
 
@@ -175,10 +178,31 @@ _srs      ( rhs._srs.get() )
     dirty();
 }
 
+Feature::~Feature()
+{
+    //nop
+}
+
 FeatureID
 Feature::getFID() const 
 {
     return _fid;
+}
+
+void
+Feature::setFID(FeatureID fid)
+{
+    _fid = fid;
+}
+
+GeoExtent
+Feature::getExtent() const
+{
+    if (!getSRS() || !getGeometry())
+    {
+        return GeoExtent::INVALID;
+    }
+    return GeoExtent(getSRS(), getGeometry()->getBounds());
 }
 
 void
@@ -228,6 +252,12 @@ Feature::set( const std::string& name, int value )
     a.first = ATTRTYPE_INT;
     a.second.intValue = value;
     a.second.set = true;
+}
+
+void
+Feature::set( const std::string& name, const AttributeValue& value)
+{
+    _attrs[ name ] = value;
 }
 
 void
@@ -310,7 +340,7 @@ Feature::eval( NumericExpression& expr, FilterContext const* context ) const
       {
         val = ai->second.getDouble(0.0);
       }
-      else if (context)
+      else if (context && context->getSession())
       {
         //No attr found, look for script
         ScriptEngine* engine = context->getSession()->getScriptEngine();
@@ -331,6 +361,42 @@ Feature::eval( NumericExpression& expr, FilterContext const* context ) const
     return expr.eval();
 }
 
+double
+Feature::eval(NumericExpression& expr, Session* session) const
+{
+    const NumericExpression::Variables& vars = expr.variables();
+    for( NumericExpression::Variables::const_iterator i = vars.begin(); i != vars.end(); ++i )
+    {
+        double val = 0.0;
+        AttributeTable::const_iterator ai = _attrs.find(toLower(i->first));
+        if (ai != _attrs.end())
+        {
+            val = ai->second.getDouble(0.0);
+        }
+        else if (session)
+        {
+            //No attr found, look for script
+            ScriptEngine* engine = session->getScriptEngine();
+            if (engine)
+            {
+                ScriptResult result = engine->run(i->first, this);
+                if (result.success())
+                {
+                    val = result.asDouble();
+                }
+                else
+                {
+                    OE_WARN << LC << "Feature Script error on '" << expr.expr() << "': " << result.message() << std::endl;
+                }
+            }
+        }
+
+        expr.set( *i, val );
+    }
+
+    return expr.eval();
+}
+
 const std::string&
 Feature::eval( StringExpression& expr, FilterContext const* context ) const
 {
@@ -343,7 +409,7 @@ Feature::eval( StringExpression& expr, FilterContext const* context ) const
       {
         val = ai->second.getString();
       }
-      else if (context)
+      else if (context && context->getSession())
       {
         //No attr found, look for script
         ScriptEngine* engine = context->getSession()->getScriptEngine();
@@ -353,11 +419,51 @@ Feature::eval( StringExpression& expr, FilterContext const* context ) const
           if (result.success())
             val = result.asString();
           else
-            OE_WARN << LC << "Feature Script error on '" << expr.expr() << "': " << result.message() << std::endl;
+          {
+            // Couldn't execute it as code, just take it as a string literal.
+            val = i->first;
+            OE_DEBUG << LC << "Feature Script error on '" << expr.expr() << "': " << result.message() << std::endl;
+          }
         }
       }
 
       expr.set( *i, val );
+    }
+
+    return expr.eval();
+}
+
+const std::string&
+Feature::eval(StringExpression& expr, Session* session) const
+{
+    const StringExpression::Variables& vars = expr.variables();
+    for( StringExpression::Variables::const_iterator i = vars.begin(); i != vars.end(); ++i )
+    {
+        std::string val = "";
+        AttributeTable::const_iterator ai = _attrs.find(toLower(i->first));
+        if (ai != _attrs.end())
+        {
+            val = ai->second.getString();
+        }
+        else if (session)
+        {
+            //No attr found, look for script
+            ScriptEngine* engine = session->getScriptEngine();
+            if (engine)
+            {
+                ScriptResult result = engine->run(i->first, this);
+                if (result.success())
+                    val = result.asString();
+                else
+                {
+                    // Couldn't execute it as code, just take it as a string literal.
+                    val = i->first;
+                    OE_DEBUG << LC << "Feature Script error on '" << expr.expr() << "': " << result.message() << std::endl;
+                }
+            }
+        }
+
+        expr.set( *i, val );
     }
 
     return expr.eval();
@@ -405,6 +511,16 @@ Feature::getWorldBoundingPolytope(const SpatialReference* srs,
     osg::BoundingSphered bs;
     if ( getWorldBound(srs, bs) && bs.valid() )
     {
+        return getWorldBoundingPolytope( bs, srs, out_polytope );
+    }
+    return false;
+}
+
+bool Feature::getWorldBoundingPolytope( const osg::BoundingSphered& bs, const SpatialReference* srs, osg::Polytope& out_polytope )
+{
+    if ( bs.valid() )
+    {
+        out_polytope.getMaskStack().clear();
         out_polytope.clear();
 
         // add planes for the four sides of the BS. Normals point inwards.
@@ -443,6 +559,18 @@ Feature::getWorldBoundingPolytope(const SpatialReference* srs,
     return false;
 }
 
+GeoExtent
+Feature::calculateExtent() const
+{    
+    GeoExtent e(getSRS());
+    ConstGeometryIterator gi(getGeometry(), false);
+    while (gi.hasMore()) {
+        const Geometry* part = gi.next();
+        for (Geometry::const_iterator v = part->begin(); v != part->end(); ++v)
+            e.expandToInclude(*v);
+    }
+    return e;
+}
 
 std::string
 Feature::getGeoJSON() const
@@ -518,16 +646,16 @@ Feature::getGeoJSON() const
     return Json::FastWriter().write( root );
 }
 
-std::string Feature::featuresToGeoJSON( FeatureList& features)
+std::string Feature::featuresToGeoJSON( const FeatureList& features)
 {
     std::stringstream buf;
 
     buf << "{\"type\": \"FeatureCollection\", \"features\": [";
 
-    FeatureList::iterator last = features.end();
+    FeatureList::const_iterator last = features.end();
     last--;
 
-    for (FeatureList::iterator i = features.begin(); i != features.end(); i++)
+    for (FeatureList::const_iterator i = features.begin(); i != features.end(); i++)
     {
         buf << i->get()->getGeoJSON();
         if (i != last)
@@ -559,4 +687,48 @@ void Feature::transform( const SpatialReference* srs )
         getSRS()->transform( geom->asVector(), srs );
     }
     setSRS( srs );
+}
+
+void Feature::splitAcrossDateLine(FeatureList& splitFeatures)
+{
+    splitFeatures.clear();
+    
+     // If the feature is geodetic, try to split it across the dateline.
+    if (getSRS() && getSRS()->isGeodetic())
+    {
+        GeoExtent extent(getSRS(), getGeometry()->getBounds());
+        // Only split the feature if it crosses the antimerdian
+        if (extent.crossesAntimeridian())
+        {
+            // This tries to split features across the dateline in three different zones.  -540 to -180, -180 to 180, and 180 to 540.
+            double minLon = -540;
+            for (int i = 0; i < 3; i++)
+            {
+                double offset = minLon - -180.0;
+                double maxLon = minLon + 360.0;
+                Bounds bounds(minLon, -90.0, maxLon, 90.0);
+                osg::ref_ptr< Geometry > croppedGeometry;
+                if (getGeometry()->crop(bounds, croppedGeometry))
+                {
+                    // If the geometry was cropped, offset the x coordinate so it's within normal longitude ranges.
+                    for (int j = 0; j < croppedGeometry->size(); j++)
+                    {
+                        (*croppedGeometry)[j].x() -= offset;
+                    }
+                    osg::ref_ptr< Feature > croppedFeature = new Feature(*this);
+                    // Make sure the feature is wound correctly.
+                    croppedGeometry->rewind(osgEarth::Symbology::Geometry::ORIENTATION_CCW);
+                    croppedFeature->setGeometry(croppedGeometry.get());
+                    splitFeatures.push_back(croppedFeature);
+                }
+                minLon += 360.0;
+            }
+        }
+    }
+
+    // If we didn't actually split the feature then just add the original
+    if (splitFeatures.empty())
+    {
+        splitFeatures.push_back( this );
+    }   
 }

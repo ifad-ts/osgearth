@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -20,6 +23,7 @@
 #include <osg/Notify>
 #include <osg/Depth>
 #include <osg/LineWidth>
+#include <osg/LineStipple>
 #include <osgGA/StateSetManipulator>
 #include <osgGA/AnimationPathManipulator>
 #include <osgViewer/CompositeViewer>
@@ -102,13 +106,27 @@ namespace
                 }
                 else
                 {
-                    dump->getOrCreateStateSet()->setAttributeAndModes(new osg::Depth(
-                        osg::Depth::LEQUAL, 0, 1, false), 1 | osg::StateAttribute::OVERRIDE);
-                    dump->getOrCreateStateSet()->setMode(GL_BLEND,1);
-                    dump->getOrCreateStateSet()->setAttributeAndModes(new osg::LineWidth(1.5f), 1);
+                    // note: the dumped geometry has some state in it (from ConvexPolyhedron::dumpGeometry)
+                    // so we need to override it.
+                    osg::Group* g = new osg::Group();
+                    osg::StateSet* gss = g->getOrCreateStateSet();
+                    gss->setAttributeAndModes(new osg::LineWidth(1.5f), 1);
+                    gss->setRenderBinDetails(90210, "DepthSortedBin");
+
+                    osg::Group* g0 = new osg::Group();
+                    g->addChild( g0 );
+                    osg::StateSet* g0ss = g0->getOrCreateStateSet();
+                    g0ss->setAttributeAndModes(new osg::LineStipple(1, 0x000F), 1);
+                    g0->addChild( dump );
+
+                    osg::Group* g1 = new osg::Group();
+                    g->addChild( g1 );
+                    osg::StateSet* g1ss = g1->getOrCreateStateSet();
+                    g1ss->setMode(GL_DEPTH_TEST, osg::StateAttribute::OVERRIDE | 1);
+                    g1->addChild( dump );
 
                     _parent->removeChildren(1, _parent->getNumChildren()-1);
-                    _parent->addChild( dump );
+                    _parent->addChild( g );
 
                     toggle(_parent, "camera", s_cameraCheck->getValue());
                     //toggle(_parent, "overlay", s_overlayCheck->getValue());
@@ -189,9 +207,8 @@ main(int argc, char** argv)
 
     osgViewer::View* overlayView = new osgViewer::View();
     overlayView->getCamera()->setNearFarRatio(0.00002);
-    EarthManipulator* overlayEM = new EarthManipulator();
-    overlayEM->getSettings()->setCameraProjection(overlayEM->PROJ_ORTHOGRAPHIC);
-    overlayView->setCameraManipulator( overlayEM );
+    //overlayView->getCamera()->setProjectionMatrixAsOrtho2D(-1,1,-1,1);
+    overlayView->setCameraManipulator( new EarthManipulator() );
     
     //overlayView->setUpViewInWindow( 700, 50, 600, 600 );
     overlayView->setUpViewInWindow( (width/2), b, (width/2)-b*2, (height-b*4) );

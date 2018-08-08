@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -572,6 +572,7 @@ Value::Value( ValueType type )
 
 Value::Value( Int value )
    : type_( intValue )
+   , allocated_( 0 )
    , comments_( 0 )
 # ifdef JSON_VALUE_USE_INTERNAL_MAP
    , itemIsUsed_( 0 )
@@ -583,6 +584,7 @@ Value::Value( Int value )
 
 Value::Value( UInt value )
    : type_( uintValue )
+   , allocated_( 0 )
    , comments_( 0 )
 # ifdef JSON_VALUE_USE_INTERNAL_MAP
    , itemIsUsed_( 0 )
@@ -593,6 +595,7 @@ Value::Value( UInt value )
 
 Value::Value( double value )
    : type_( realValue )
+   , allocated_( 0 )
    , comments_( 0 )
 # ifdef JSON_VALUE_USE_INTERNAL_MAP
    , itemIsUsed_( 0 )
@@ -652,6 +655,7 @@ Value::Value( const CppTL::ConstString &value )
 
 Value::Value( bool value )
    : type_( booleanValue )
+   , allocated_(false)
    , comments_( 0 )
 # ifdef JSON_VALUE_USE_INTERNAL_MAP
    , itemIsUsed_( 0 )
@@ -663,6 +667,7 @@ Value::Value( bool value )
 
 Value::Value( const Value &other )
    : type_( other.type_ )
+   , allocated_(false)
    , comments_( 0 )
 # ifdef JSON_VALUE_USE_INTERNAL_MAP
    , itemIsUsed_( 0 )
@@ -1776,7 +1781,8 @@ Value::end()
 // //////////////////////////////////////////////////////////////////
 
 PathArgument::PathArgument()
-   : kind_( kindNone )
+   : index_(0)
+   , kind_( kindNone )
 {
 }
 
@@ -1791,6 +1797,7 @@ PathArgument::PathArgument( Value::UInt index )
 PathArgument::PathArgument( const char *key )
    : key_( key )
    , kind_( kindKey )
+   , index_(0)
 {
 }
 
@@ -1798,6 +1805,7 @@ PathArgument::PathArgument( const char *key )
 PathArgument::PathArgument( const std::string &key )
    : key_( key.c_str() )
    , kind_( kindKey )
+   , index_(0)
 {
 }
 
@@ -2016,8 +2024,15 @@ namespace osgEarth {
 // Class Reader
 // //////////////////////////////////////////////////////////////////
 
-Reader::Reader()
+Reader::Reader() :
+begin_(0),
+end_(0),
+current_(0),
+lastValueEnd_(0),
+lastValue_(0),
+collectComments_(false)
 {
+    //nop
 }
 
 bool
@@ -2497,7 +2512,7 @@ Reader::decodeDouble( Token &token )
    int length = int(token.end_ - token.start_);
    if ( length <= bufferSize )
    {
-      Char buffer[bufferSize];
+      Char buffer[bufferSize+1];
       memcpy( buffer, token.start_, length );
       buffer[length] = 0;
       count = sscanf( buffer, "%lf", &value );
@@ -2959,6 +2974,7 @@ FastWriter::writeValue( const Value &value )
 StyledWriter::StyledWriter()
    : rightMargin_( 74 )
    , indentSize_( 3 )
+   , addChildValues_(false)
 {
 }
 
@@ -3235,6 +3251,7 @@ StyledStreamWriter::StyledStreamWriter( std::string indentation )
    : document_(NULL)
    , rightMargin_( 74 )
    , indentation_( indentation )
+   , addChildValues_(false)
 {
 }
 

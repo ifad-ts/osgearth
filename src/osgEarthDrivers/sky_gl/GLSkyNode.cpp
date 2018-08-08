@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,29 +8,33 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
 */
 
 #include "GLSkyNode"
-#include "GLSkyShaders"
-#include <osgEarthUtil/Ephemeris>
+#include <osg/LightSource>
 
 #include <osgEarth/VirtualProgram>
 #include <osgEarth/SpatialReference>
 #include <osgEarth/GeoData>
+#include <osgEarth/Lighting>
 #include <osgEarth/PhongLightingEffect>
+#include <osgEarthUtil/Ephemeris>
 
 #define LC "[GLSkyNode] "
 
 using namespace osgEarth;
 using namespace osgEarth::Util;
-using namespace osgEarth::Drivers::GLSky;
+using namespace osgEarth::GLSky;
 
 //---------------------------------------------------------------------------
 
@@ -52,11 +56,13 @@ void
 GLSkyNode::initialize(const Profile* profile)
 {
     _profile = profile;
-    _light = new osg::Light(0);
+    //_light = new osg::Light(0);
+    _light = new LightGL3(0);
+    _light->setDataVariance(_light->DYNAMIC);
     _light->setAmbient(osg::Vec4(0.1f, 0.1f, 0.1f, 1.0f));
     _light->setDiffuse(osg::Vec4(1.0f, 1.0f, 1.0f, 1.0f));
     _light->setSpecular(osg::Vec4(1.0f, 1.0f, 1.0f, 1.0f));
-    
+
     if ( _options.ambient().isSet() )
     {
         float a = osg::clampBetween(_options.ambient().get(), 0.0f, 1.0f);
@@ -67,8 +73,15 @@ GLSkyNode::initialize(const Profile* profile)
     osg::StateSet* stateset = this->getOrCreateStateSet();
 
     _lighting = new PhongLightingEffect();
-    _lighting->setCreateLightingUniform( false );
+    //_lighting->setCreateLightingUniform( false );
     _lighting->attach( stateset );
+
+    // install the Sun as a lightsource.
+    osg::LightSource* lightSource = new osg::LightSource();
+    lightSource->setLight(_light.get());
+    lightSource->setCullingActive(false);
+    this->addChild( lightSource );
+    lightSource->addCullCallback(new LightSourceGL3UniformGenerator());
 
     onSetDateTime();
 }
@@ -104,7 +117,7 @@ GLSkyNode::onSetDateTime()
     if ( _profile->getSRS()->isGeographic() )
     {
         sunPosECEF.normalize();
-        getSunLight()->setPosition( osg::Vec4(sunPosECEF, 0.0) );
+        _light->setPosition(osg::Vec4(sunPosECEF, 0.0)); // directional light
     }
     else
     {
@@ -134,20 +147,18 @@ GLSkyNode::onSetDateTime()
 }
 
 void
-GLSkyNode::onSetMinimumAmbient()
-{
-    // GLSky doesn't adjust the ambient lighting automatically, so just set it.
-    _light->setAmbient( getMinimumAmbient() );
-}
-
-void
 GLSkyNode::attach( osg::View* view, int lightNum )
 {
     if ( !view ) return;
 
     _light->setLightNum( lightNum );
-    view->setLight( _light.get() );
-    view->setLightingMode( osg::View::SKY_LIGHT );
+    
+    // install the light in the view (so other modules can access it, like shadowing)
+    view->setLight(_light.get());
 
+    // Tell the view not to automatically include a light.
+    view->setLightingMode( osg::View::NO_LIGHT );
+
+    // initial date/time setup.
     onSetDateTime();
 }

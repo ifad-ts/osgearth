@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -24,6 +24,8 @@
 #include <osgEarthSymbology/Skins>
 #include <osgEarthSymbology/MarkerResource>
 #include <osgEarthSymbology/InstanceResource>
+#include <osgEarthSymbology/ModelResource>
+#include <osgEarthSymbology/ModelSymbol>
 #include <osgEarth/ThreadingUtils>
 #include <osgEarth/Random>
 #include <map>
@@ -35,9 +37,6 @@ namespace osgEarth { namespace Symbology
     /** 
      * ResourceLibrary manages a collection of external resources that a
      * build system can use the construct geometries.
-     *
-     * TODO: This class PROBABLY NEEDS the ability to share a mutex with
-     * whatever session is using it... like in osgGIS...
      */
     class OSGEARTHSYMBOLOGY_EXPORT ResourceLibrary : public osg::Referenced
     {
@@ -68,6 +67,7 @@ namespace osgEarth { namespace Symbology
          * Gets the name of the lib.
          */
         const std::string& getName() const { return _name; }
+        void setName(const std::string& name) { _name = name; }
 
         /**
          * Adds a resoure to the library.
@@ -126,7 +126,18 @@ namespace osgEarth { namespace Symbology
          * Finds an instance-resource by name.
          */
         InstanceResource* getInstance( const std::string& name, const osgDB::Options* dbOptions =0L ) const;
+        
+        ModelResource* getModel( const ModelSymbol* ms, const osgDB::Options* dbOptions =0L ) const;
 
+        /**
+         * Returns a list of all Model resources.
+         */
+        void getModels( ModelResourceVector& output, const osgDB::Options* dbOptions =0L ) const;
+        
+        /**
+         * Returns a list of models that match the input symbol.
+         */
+        void getModels(const ModelSymbol* ms, ModelResourceVector& output, const osgDB::Options* dbOptions =0L) const;
 
     public: // serialization functions
 

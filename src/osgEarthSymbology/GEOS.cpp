@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -42,6 +42,7 @@ using namespace osgEarth::Symbology;
 using namespace geos;
 using namespace geos::operation;
 
+#define LC "[GEOS] "
 
 namespace
 {
@@ -54,7 +55,7 @@ namespace
         coords->reserve( input->size() + (needToClose ? 1 : 0) );
         for( osg::Vec3dArray::const_iterator i = input->begin(); i != input->end(); ++i )
         {
-            coords->push_back( geom::Coordinate( i->x(), i->y() ) ); //, i->z() ));
+            coords->push_back( geom::Coordinate( i->x(), i->y(), i->z() ));
         }
         if ( needToClose )
         {
@@ -138,15 +139,18 @@ namespace
                     {
                         const Symbology::Polygon* poly = static_cast<const Symbology::Polygon*>(input);
                         std::vector<geom::Geometry*>* holes = poly->getHoles().size() > 0 ? new std::vector<geom::Geometry*>() : 0L;
-                        for( Symbology::RingCollection::const_iterator r = poly->getHoles().begin(); r != poly->getHoles().end(); ++r )
+                        if (holes)
                         {
-                            geom::Geometry* hole = import( r->get(), f );
-                            if ( hole ) holes->push_back( hole );
-                        }
-                        if ( holes && holes->size() == 0 )
-                        {
-                            delete holes;
-                            holes = 0L;
+                            for( Symbology::RingCollection::const_iterator r = poly->getHoles().begin(); r != poly->getHoles().end(); ++r )
+                            {
+                                geom::Geometry* hole = import( r->get(), f );
+                                if ( hole ) holes->push_back( hole );
+                            }
+                            if (holes->size() == 0)
+                            {
+                                delete holes;
+                                holes = 0L;
+                            }
                         }
                         output = f->createPolygon( shell, holes );
                     }
@@ -160,7 +164,7 @@ namespace
                 //if ( seq )
                 //    delete seq;
 
-                OE_NOTICE << "GEOS::import: Removed degenerate geometry" << std::endl;
+                OE_DEBUG << "GEOS::import: Removed degenerate geometry" << std::endl;
             }
         }
 
@@ -175,7 +179,6 @@ namespace
         const geom::LineString* outerRing = input->getExteriorRing();
         if ( outerRing )
         {
-            // leaks here:
             const geom::CoordinateSequence* s = outerRing->getCoordinatesRO();
 
             output = new Symbology::Polygon( s->getSize() );
@@ -183,7 +186,8 @@ namespace
             for( unsigned int j=0; j<s->getSize(); j++ ) 
             {
                 const geom::Coordinate& c = s->getAt( j );
-                output->push_back( osg::Vec3d( c.x, c.y, 0 ) ); 
+                output->push_back( osg::Vec3d( c.x, c.y, !osg::isNaN(c.z)? c.z : 0.0) );
+                //OE_NOTICE << "c.z = " << c.z << "\n";
             }
             output->rewind( Symbology::Ring::ORIENTATION_CCW );
 
@@ -195,7 +199,7 @@ namespace
                 for( unsigned int m = 0; m<s->getSize(); m++ )
                 {
                     const geom::Coordinate& c = s->getAt( m );
-                    hole->push_back( osg::Vec3d( c.x, c.y, 0 ) );
+                    hole->push_back( osg::Vec3d( c.x, c.y, !osg::isNaN(c.z)? c.z : 0.0) );
                 }
                 hole->rewind( Symbology::Ring::ORIENTATION_CW );
                 output->getHoles().push_back( hole );
@@ -212,7 +216,11 @@ GEOSContext::GEOSContext()
     geos::geom::PrecisionModel* pm = new geos::geom::PrecisionModel(geom::PrecisionModel::FLOATING);
 
     // Factory will clone the PM
+#if GEOS_VERSION_MAJOR >= 3 && GEOS_VERSION_MINOR >= 6
+    _factory = geos::geom::GeometryFactory::create( pm );
+#else
     _factory = new geos::geom::GeometryFactory( pm );
+#endif
 
     // Delete the template.
     delete pm;
@@ -220,7 +228,9 @@ GEOSContext::GEOSContext()
 
 GEOSContext::~GEOSContext()
 {
+#if !(GEOS_VERSION_MAJOR >= 3 && GEOS_VERSION_MINOR >= 6)
     delete _factory;
+#endif
 }
 
 geom::Geometry*
@@ -229,12 +239,16 @@ GEOSContext::importGeometry(const Symbology::Geometry* input)
     geom::Geometry* output = 0L;
     if ( input && input->isValid() )
     {
+#if GEOS_VERSION_MAJOR >= 3 && GEOS_VERSION_MINOR >= 6
+        output = import( input, _factory.get() );
+#else
         output = import( input, _factory );
 
         // if output is ok, it will have a pointer to f. this is probably a leak.
         // TODO: Check whether this is a leak!! -gw
         //if ( !output )
         //    delete f;
+#endif
     }
     return output;
 }
@@ -248,7 +262,11 @@ GEOSContext::exportGeometry(const geom::Geometry* input)
 
     if ( dynamic_cast<const geom::Point*>( input ) )
     {
-        OE_NOTICE << "GEOS 'Point' NYI" << std::endl;        
+        const geom::Point* point = dynamic_cast< const geom::Point* >(input);
+        Symbology::PointSet* part = new Symbology::PointSet();
+        const geom::Coordinate* c = point->getCoordinate();
+        part->push_back(osg::Vec3d(c->x, c->y, c->z));
+        return part;
     }
     else if ( dynamic_cast<const geom::MultiPoint*>( input ) )
     {
@@ -256,9 +274,15 @@ GEOSContext::exportGeometry(const geom::Geometry* input)
         Symbology::PointSet* part = new Symbology::PointSet( mp->getNumPoints() );
         for( unsigned int i=0; i < mp->getNumPoints(); i++ )
         {
-            const geom::Point* p = dynamic_cast<const geom::Point*>( mp->getGeometryN(i) );
-            if ( p )
-                part->push_back( osg::Vec3d( p->getX(), p->getY(), 0 ) );
+            const geom::Geometry* g = mp->getGeometryN(i);
+            if ( g )
+            {
+                const geom::Coordinate* c = mp->getCoordinate();
+                if ( c )
+                {
+                    part->push_back( osg::Vec3d( c->x, c->y, c->z ) ); //p->getX(), p->getY(), 0 ) );
+                }
+            }
         }
         parts.push_back( part );
     }
@@ -269,7 +293,7 @@ GEOSContext::exportGeometry(const geom::Geometry* input)
         for( unsigned int i=0; i<line->getNumPoints(); i++ )
         {
             const geom::Coordinate& c = line->getCoordinateN(i);
-            part->push_back( osg::Vec3d( c.x, c.y, 0 ) );
+            part->push_back( osg::Vec3d( c.x, c.y, c.z ) ); //0 ) );
         }
         parts.push_back( part );
     }
@@ -321,10 +345,13 @@ GEOSContext::disposeGeometry(geom::Geometry* input)
 {
     if (input)
     {
-        geom::GeometryFactory* f = const_cast<geom::GeometryFactory*>(input->getFactory());
+#if GEOS_VERSION_MAJOR >= 3 && GEOS_VERSION_MINOR >= 6
         _factory->destroyGeometry(input);
+#else
+        geom::GeometryFactory* f = const_cast<geom::GeometryFactory*>(input->getFactory());
         if ( f != _factory )
             delete f;
+#endif
     }
 }
 

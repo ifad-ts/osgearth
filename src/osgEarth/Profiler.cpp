@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -72,4 +72,11 @@ void Profiler::dump()
     {
         OE_NOTICE << itr->first << ": calls=" << S_CALL_COUNT[itr->first] << "  time=" << itr->second << "s" << std::endl;
     }
+}
+
+void Profiler::clear()
+{
+	S_ELAPSED_TIMES.clear();
+	S_CALL_COUNT.clear();
+	S_START_TIMES.clear();
 }

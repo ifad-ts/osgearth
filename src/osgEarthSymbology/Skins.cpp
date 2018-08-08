@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -24,6 +24,7 @@
 
 #include <osg/BlendFunc>
 #include <osg/Texture2D>
+#include <osg/Texture2DArray>
 
 #define LC "[SkinResource] "
 
@@ -45,7 +46,8 @@ _imageBiasS       ( 0.0f ),
 _imageBiasT       ( 0.0f ),
 _imageLayer       ( 0 ),
 _imageScaleS      ( 1.0f ),
-_imageScaleT      ( 1.0f )
+_imageScaleT      ( 1.0f ),
+_atlasHint        ( true )
 {
     mergeConfig( conf );
 }
@@ -72,6 +74,9 @@ SkinResource::mergeConfig( const Config& conf )
     conf.getIfSet( "image_layer",         _imageLayer );
     conf.getIfSet( "image_scale_s",       _imageScaleS );
     conf.getIfSet( "image_scale_t",       _imageScaleT );
+
+    conf.getIfSet( "atlas", _atlasHint );
+    conf.getIfSet( "read_options", _readOptions );
 }
 
 Config
@@ -80,25 +85,28 @@ SkinResource::getConfig() const
     Config conf = Resource::getConfig();
     conf.key() = "skin";
 
-    conf.updateIfSet( "url",                 _imageURI );
-    conf.updateIfSet( "image_width",         _imageWidth );
-    conf.updateIfSet( "image_height",        _imageHeight );
-    conf.updateIfSet( "min_object_height",   _minObjHeight );
-    conf.updateIfSet( "max_object_height",   _maxObjHeight );
-    conf.updateIfSet( "tiled",               _isTiled );
-    conf.updateIfSet( "max_texture_span",    _maxTexSpan );
+    conf.set( "url",                 _imageURI );
+    conf.set( "image_width",         _imageWidth );
+    conf.set( "image_height",        _imageHeight );
+    conf.set( "min_object_height",   _minObjHeight );
+    conf.set( "max_object_height",   _maxObjHeight );
+    conf.set( "tiled",               _isTiled );
+    conf.set( "max_texture_span",    _maxTexSpan );
     
-    conf.updateIfSet( "texture_mode", "decal",    _texEnvMode, osg::TexEnv::DECAL );
-    conf.updateIfSet( "texture_mode", "modulate", _texEnvMode, osg::TexEnv::MODULATE );
-    conf.updateIfSet( "texture_mode", "replace",  _texEnvMode, osg::TexEnv::REPLACE );
-    conf.updateIfSet( "texture_mode", "blend",    _texEnvMode, osg::TexEnv::BLEND );
+    conf.set( "texture_mode", "decal",    _texEnvMode, osg::TexEnv::DECAL );
+    conf.set( "texture_mode", "modulate", _texEnvMode, osg::TexEnv::MODULATE );
+    conf.set( "texture_mode", "replace",  _texEnvMode, osg::TexEnv::REPLACE );
+    conf.set( "texture_mode", "blend",    _texEnvMode, osg::TexEnv::BLEND );
 
     // texture atlas support
-    conf.updateIfSet( "image_bias_s",        _imageBiasS );
-    conf.updateIfSet( "image_bias_t",        _imageBiasT );
-    conf.updateIfSet( "image_layer",         _imageLayer );
-    conf.updateIfSet( "image_scale_s",       _imageScaleS );
-    conf.updateIfSet( "image_scale_t",       _imageScaleT );
+    conf.set( "image_bias_s",        _imageBiasS );
+    conf.set( "image_bias_t",        _imageBiasT );
+    conf.set( "image_layer",         _imageLayer );
+    conf.set( "image_scale_s",       _imageScaleS );
+    conf.set( "image_scale_t",       _imageScaleT );
+    
+    conf.set( "atlas", _atlasHint );
+    conf.set( "read_options", _readOptions );
 
     return conf;
 }
@@ -109,11 +117,67 @@ SkinResource::getUniqueID() const
     return imageURI()->full();
 }
 
+osg::Texture*
+SkinResource::createTexture(const osgDB::Options* readOptions) const
+{
+    OE_DEBUG << LC << "Creating skin texture for " << imageURI()->full() << std::endl;
+    osg::ref_ptr<osg::Image> image = createImage(readOptions);
+    return createTexture(image.get());
+}
+
+osg::Texture*
+SkinResource::createTexture(osg::Image* image) const
+{
+    if ( !image ) return 0L;
+
+    osg::Texture* tex;
+
+    if (image->r() > 1)
+    {
+        osg::Texture2DArray* ta = new osg::Texture2DArray();
+
+        ta->setTextureDepth(image->r());
+        ta->setTextureWidth(image->s());
+        ta->setTextureHeight(image->t());
+        ta->setInternalFormatMode(osg::Texture::USE_IMAGE_DATA_FORMAT);
+        tex = ta;
+
+        std::vector<osg::ref_ptr<osg::Image> > layers;
+        ImageUtils::flattenImage(image, layers);
+        for (unsigned i = 0; i < layers.size(); ++i)
+        {
+            tex->setImage(i, layers[i].get());
+        }
+        tex->setWrap(osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE);
+        tex->setWrap(osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE);
+    }
+    else
+    {
+        tex = new osg::Texture2D(image);
+        tex->setWrap(osg::Texture::WRAP_S, osg::Texture::REPEAT);
+        tex->setWrap(osg::Texture::WRAP_T, osg::Texture::REPEAT);
+    }
+
+    tex->setFilter(osg::Texture::MIN_FILTER, osg::Texture::LINEAR_MIPMAP_LINEAR);
+    tex->setFilter(osg::Texture::MAG_FILTER, osg::Texture::LINEAR);
+
+    // skin textures are likely to be shared, paged, etc. so keep them in memory.
+    tex->setUnRefImageDataAfterApply(false);
+
+    // don't resize them, let it be
+    tex->setResizeNonPowerOfTwoHint(false);
+
+    ImageUtils::activateMipMaps(tex);
+
+    return tex;
+}
+
 osg::StateSet*
-SkinResource::createStateSet( const osgDB::Options* dbOptions ) const
+SkinResource::createStateSet(const osgDB::Options* readOptions) const
 {
     OE_DEBUG << LC << "Creating skin state set for " << imageURI()->full() << std::endl;
-    return createStateSet( createImage(dbOptions) );
+    osg::ref_ptr<osg::Image> image = createImage(readOptions);
+    return createStateSet(image.get());
 }
 
 osg::StateSet*
@@ -124,66 +188,57 @@ SkinResource::createStateSet( osg::Image* image ) const
     {
         stateSet = new osg::StateSet();
         
-        osg::Texture* tex;
-
-        if ( image->r() > 1 )
+        osg::Texture* tex = createTexture(image);
+        if ( tex )
         {
-            osg::Texture2DArray* ta = new osg::Texture2DArray();
-            
-            ta->setTextureDepth( image->r() );
-            ta->setTextureWidth( image->s() );
-            ta->setTextureHeight( image->t() );
-            ta->setInternalFormatMode(osg::Texture::USE_IMAGE_DATA_FORMAT);
-            tex = ta;
+            stateSet->setTextureAttributeAndModes(0, tex, osg::StateAttribute::ON);
 
-            std::vector<osg::ref_ptr<osg::Image> > layers;
-            ImageUtils::flattenImage(image, layers);
-            for(unsigned i=0; i<layers.size(); ++i)
+            if ( _texEnvMode.isSet() )
             {
-                tex->setImage(i, layers[i].get());
+                osg::TexEnv* texenv = new osg::TexEnv();
+                texenv = new osg::TexEnv();
+                texenv->setMode( *_texEnvMode );
+                stateSet->setTextureAttributeAndModes( 0, texenv, osg::StateAttribute::ON );
             }
-            tex->setWrap( osg::Texture::WRAP_S, osg::Texture::CLAMP_TO_EDGE );
-            tex->setWrap( osg::Texture::WRAP_T, osg::Texture::CLAMP_TO_EDGE );
-            stateSet->setTextureAttribute( 0, tex, osg::StateAttribute::ON );
-        }
-        else
-        {
-            tex = new osg::Texture2D( image );
-            tex->setWrap( osg::Texture::WRAP_S, osg::Texture::REPEAT );
-            tex->setWrap( osg::Texture::WRAP_T, osg::Texture::REPEAT );     
-            stateSet->setTextureAttributeAndModes( 0, tex, osg::StateAttribute::ON );
-        }
-        
-        tex->setFilter(osg::Texture::MIN_FILTER,osg::Texture::LINEAR_MIPMAP_LINEAR);
-        tex->setFilter(osg::Texture::MAG_FILTER,osg::Texture::LINEAR);
 
-        tex->setUnRefImageDataAfterApply(true);
-        tex->setResizeNonPowerOfTwoHint(false);
-
-        if ( _texEnvMode.isSet() )
-        {
-            osg::TexEnv* texenv = new osg::TexEnv();
-            texenv = new osg::TexEnv();
-            texenv->setMode( *_texEnvMode );
-            stateSet->setTextureAttributeAndModes( 0, texenv, osg::StateAttribute::ON );
-        }
-
-        if ( ImageUtils::hasAlphaChannel( image ) )
-        {
-            osg::BlendFunc* blendFunc = new osg::BlendFunc();
-            blendFunc->setFunction( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
-            stateSet->setAttributeAndModes( blendFunc, osg::StateAttribute::ON );
-            stateSet->setRenderingHint( osg::StateSet::TRANSPARENT_BIN );
+            if ( ImageUtils::hasAlphaChannel( image ) )
+            {
+                osg::BlendFunc* blendFunc = new osg::BlendFunc();
+                blendFunc->setFunction( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
+                stateSet->setAttributeAndModes( blendFunc, osg::StateAttribute::ON );
+                stateSet->setRenderingHint( osg::StateSet::TRANSPARENT_BIN );
+            }
         }
     }
 
     return stateSet;
 }
 
-osg::Image*
+osg::ref_ptr<osg::Image>
 SkinResource::createImage( const osgDB::Options* dbOptions ) const
 {
-    return _imageURI->readImage(dbOptions).releaseImage();
+    if (getStatus().isError())
+        return 0L;
+
+    ReadResult result;
+    if (_readOptions.isSet())
+    {
+        osg::ref_ptr<osgDB::Options> ro = Registry::cloneOrCreateOptions(dbOptions);
+        ro->setOptionString(Stringify() << _readOptions.get() << " " << ro->getOptionString());
+        result = _imageURI->readImage(ro.get());
+    }
+    else
+    {
+        result = _imageURI->readImage(dbOptions);
+    }
+
+    if (result.failed())
+    {
+        Threading::ScopedMutexLock lock(_mutex);
+        if (_status.isOK())
+            _status = Status::Error(Status::ServiceUnavailable, "Failed to load resource image\n");
+    }
+    return result.releaseImage();
 }
 
 //---------------------------------------------------------------------------

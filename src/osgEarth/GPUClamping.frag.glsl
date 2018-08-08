@@ -1,8 +1,10 @@
-#version 110
-#pragma vp_entryPoint "oe_clamp_fragment"
-#pragma vp_location   "fragment_coloring"
+#version $GLSL_VERSION_STR
+$GLSL_DEFAULT_PRECISION_FLOAT
 
-varying float oe_clamp_alpha;
+#pragma vp_entryPoint oe_clamp_fragment
+#pragma vp_location   fragment_coloring
+
+in float oe_clamp_alpha;
 
 void oe_clamp_fragment(inout vec4 color)
 {

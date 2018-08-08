@@ -1,5 +1,5 @@
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -7,10 +7,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -98,8 +101,8 @@ void LOSCreationDialog::initUi(const std::string& name, osg::Group* los)
   //       to the on__TypeChange() methods.  Currently doing here for efficiency.
   for (AnnotationVector::const_iterator it = _annotations.begin(); it != _annotations.end(); ++it)
   {
-    osgEarth::Annotation::AnnotationData* annoData = (*it)->getAnnotationData();
-    std::string annoName = annoData && annoData->getName().size() > 0 ? annoData->getName() : "Annotation";
+    std::string annoName = (*it)->getName();
+    if ( annoName.empty() ) annoName = "Annotation";
     _ui.p1NodeCombo->addItem(tr(annoName.c_str()));
     _ui.p2NodeCombo->addItem(tr(annoName.c_str()));
     _ui.radNodeCombo->addItem(tr(annoName.c_str()));
@@ -748,9 +751,11 @@ void LOSCreationDialog::centerMapOnNode(osg::Node* node)
   if (node && _map.valid() && _manager.valid() && _views)
   {
     AnnotationNode* annoNode = dynamic_cast<AnnotationNode*>(node);
-    if (annoNode && annoNode->getAnnotationData() && annoNode->getAnnotationData()->getViewpoint())
+    if (annoNode)
     {
-      _manager->doAction(this, new SetViewpointAction(osgEarth::Viewpoint(*annoNode->getAnnotationData()->getViewpoint()), *_views));
+      osgEarth::Viewpoint vp;
+      vp.setNode( annoNode );
+      _manager->doAction(this, new SetViewpointAction(vp, *_views));
     }
     else
     {
@@ -760,7 +765,8 @@ void LOSCreationDialog::centerMapOnNode(osg::Node* node)
       output.fromWorld( _map->getSRS(), center );
       //_map->worldPointToMapPoint(center, output);
 
-      _manager->doAction(this, new SetViewpointAction(osgEarth::Viewpoint(output.vec3d(), 0.0, -90.0, 1e5), *_views));
+      _manager->doAction(this, new SetViewpointAction(osgEarth::Viewpoint(
+          "center", output.x(), output.y(), output.z(), 0.0, -90.0, 1e5), *_views));
     }
   }
 }

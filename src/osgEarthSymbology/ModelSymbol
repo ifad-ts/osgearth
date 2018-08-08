@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -48,11 +48,11 @@ namespace osgEarth { namespace Symbology
         optional<NumericExpression>& heading() { return _heading; }
         const optional<NumericExpression>& heading() const { return _heading; }
 
-		 /** calculate heading from neighbors, use prev & next to calculate heading */
+        /** calculate heading from neighbors, use prev & next to calculate heading */
         optional<bool>& autoHeading() { return _autoHeading; }
         const optional<bool>& autoHeading() const { return _autoHeading; }
 
-		/** heading bias in degrees */
+        /** heading bias in degrees */
         optional<float>& headingBias() { return _headingBias; }
         const optional<float>& headingBias() const { return _headingBias; }
 
@@ -68,9 +68,42 @@ namespace osgEarth { namespace Symbology
         optional<bool>& autoScale() { return _autoScale; }
         const optional<bool>& autoScale() const { return _autoScale; }
 
-		 /** obsolute height of model, will scale model to have height 1, then apply height */
+        /** absolute height of model, will scale model to have height 1, then apply height */
         optional<NumericExpression>& height() { return _height; }
         const optional<NumericExpression>& height() const { return _height; }
+	
+		/** minimum scale of the model when autoscale is enabled */
+        optional<double>& minAutoScale() { return _minAutoScale; }
+        const optional<double>& minAutoScale() const { return _minAutoScale; }
+		
+		/** maximum scale of the model when autoscale is enabled */
+        optional<double>& maxAutoScale() { return _maxAutoScale; }
+        const optional<double>& maxAutoScale() const { return _maxAutoScale; }
+		
+        /** Name of a specific model in the catalog */
+        optional<StringExpression>& name() { return _name; }
+        const optional<StringExpression>& name() const { return _name; }
+        
+        /** Maximum acceptable model length (size in the X dimension) */
+        optional<float>& maxSizeX() { return _maxSizeX; }
+        const optional<float>& maxSizeX() const { return _maxSizeX; }
+        
+        /** Maximum acceptable model width (size in the Y dimension) */
+        optional<float>& maxSizeY() { return _maxSizeY; }
+        const optional<float>& maxSizeY() const { return _maxSizeY; }
+
+        /** Model instance scale factor */
+        optional<NumericExpression>& scaleX() { return _scaleX; }
+        const optional<NumericExpression>& scaleX() const { return _scaleX; }
+
+        /** Model instance scale factor */
+        optional<NumericExpression>& scaleY() { return _scaleY; }
+        const optional<NumericExpression>& scaleY() const { return _scaleY; }
+
+        /** Model instance scale factor */
+        optional<NumericExpression>& scaleZ() { return _scaleZ; }
+        const optional<NumericExpression>& scaleZ() const { return _scaleZ; }
+
         
         
     public: // non-serialized properties (for programmatic use only)
@@ -90,13 +123,22 @@ namespace osgEarth { namespace Symbology
 
     protected:
         optional<NumericExpression>  _heading;
-		optional<bool>				 _autoHeading;
-		optional<float>				_headingBias;
+        optional<bool>               _autoHeading;
+        optional<float>              _headingBias;
         optional<NumericExpression>  _pitch;
         optional<NumericExpression>  _roll;
         optional<bool>               _autoScale;
-		optional<NumericExpression>  _height;
+        optional<NumericExpression>  _height;
         osg::ref_ptr<osg::Node>      _node;
+        optional<double>             _minAutoScale;
+        optional<double>             _maxAutoScale;
+        osg::ref_ptr<osg::Node>      _node;
+        optional<StringExpression>   _name;
+        optional<float>              _maxSizeX;
+        optional<float>              _maxSizeY;
+        optional<NumericExpression>  _scaleX;
+        optional<NumericExpression>  _scaleY;
+        optional<NumericExpression>  _scaleZ;
     };
 
 } } // namespace osgEarth::Symbology

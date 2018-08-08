@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -45,7 +45,7 @@ _options  ( options )
 
 
 
-osgEarth::TileSource::Status WCS11Source::initialize(const osgDB::Options* dbOptions)
+osgEarth::Status WCS11Source::initialize(const osgDB::Options* dbOptions)
 {        
     osg::ref_ptr<const Profile> profile;
     
@@ -208,8 +208,8 @@ WCS11Source::createRequest( const TileKey& key ) const
     double lon_min, lat_min, lon_max, lat_max;
     key.getExtent().getBounds( lon_min, lat_min, lon_max, lat_max );
 
-    int lon_samples = _options.tileSize().value();
-    int lat_samples = _options.tileSize().value();
+    int lon_samples = getPixelsPerTile();
+    int lat_samples = getPixelsPerTile();
     double lon_interval = (lon_max-lon_min)/(double)(lon_samples-1);
     double lat_interval = (lat_max-lat_min)/(double)(lat_samples-1);
 

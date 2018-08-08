@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -29,6 +32,8 @@
 
 using namespace osgEarth;
 
+#define LC "[Config] "
+
 Config::~Config()
 {
 }
@@ -36,23 +41,34 @@ Config::~Config()
 void
 Config::setReferrer( const std::string& referrer )
 {
-    _referrer = referrer;
+    if ( referrer.empty() )
+        return;
+
+    std::string absReferrer;
+    if( !osgDB::containsServerAddress( referrer ) && !osgDB::isAbsolutePath( referrer ) ) {
+
+        absReferrer = osgEarth::getAbsolutePath( referrer );
+
+        if( osgEarth::isRelativePath( absReferrer ) )
+        {
+            OE_WARN << LC << "ILLEGAL: call to setReferrer with relative path:  "
+                "key=" << key() << "; referrer=" << referrer << "\n";
+            return;
+        }
+    }
+    else {
+        absReferrer = referrer;
+    }
+
+    // Don't overwrite an existing referrer:
+    if ( _referrer.empty() )
+    {
+        _referrer = absReferrer;
+    }
+
     for( ConfigSet::iterator i = _children.begin(); i != _children.end(); i++ )
     { 
-        i->setReferrer( osgEarth::getFullPath(_referrer, i->_referrer) );
-    }
-}
-
-void
-Config::inheritReferrer( const std::string& referrer )
-{
-    if ( _referrer.empty() || !osgEarth::isRelativePath(referrer) )
-    {
-        setReferrer( referrer );
-    }
-    else if ( !referrer.empty() )
-    {
-        setReferrer( osgDB::concatPaths(_referrer, referrer) );
+        i->setReferrer( absReferrer );
     }
 }
 
@@ -65,6 +81,21 @@ Config::fromXML( std::istream& in )
     return xml.valid();
 }
 
+#if 1
+const Config&
+Config::child( const std::string& childName ) const
+{
+    for( ConfigSet::const_iterator i = _children.begin(); i != _children.end(); i++ ) {
+        if ( i->key() == childName )
+            return *i;
+    }
+    static Config s_emptyConf;
+    return s_emptyConf;
+    //Config emptyConf;
+    //emptyConf.setReferrer( _referrer );
+    //return emptyConf;
+}
+#else
 Config
 Config::child( const std::string& childName ) const
 {
@@ -72,11 +103,11 @@ Config::child( const std::string& childName ) const
         if ( i->key() == childName )
             return *i;
     }
-
     Config emptyConf;
     emptyConf.setReferrer( _referrer );
     return emptyConf;
 }
+#endif
 
 const Config*
 Config::child_ptr( const std::string& childName ) const
@@ -154,6 +185,16 @@ ConfigOptions::~ConfigOptions()
 {
 }
 
+Config
+ConfigOptions::getConfig() const
+{
+    // iniialize with the raw original conf. subclass getConfig's can 
+    // override the values there.
+    Config conf = _conf;
+    conf.setReferrer(referrer());
+    return conf;
+}
+
 /****************************************************************/
 DriverConfigOptions::~DriverConfigOptions()
 {
@@ -205,20 +246,28 @@ namespace
                         {
                             Config& c = i->second[0];
                             if ( c.isSimple() )
+                            {
                                 value[i->first] = c.value();
+                            }
                             else
-                                value[i->first] = conf2json(c, nicer, depth+1);
+                            {
+                                Json::Value child = conf2json(c, nicer, depth+1);
+                                if (child.isObject())
+                                {
+                                    value[i->first] = child;
+                                }   
+                            }
                         }
                         else
                         {
-                            std::string array_key = Stringify() << i->first << "_$set";
+                            std::string array_key = Stringify() << i->first << "__array__";
                             Json::Value array_value( Json::arrayValue );
                             for( std::vector<Config>::iterator j = i->second.begin(); j != i->second.end(); ++j )
                             {
                                 array_value.append( conf2json(*j, nicer, depth+1) );
                             }
-                            value = array_value;
-                            //value[array_key] = array_value;
+                            value[array_key] = array_value;
+                            //value = array_value;
                         }
                     }
                 }
@@ -280,14 +329,24 @@ namespace
                 }
                 else if ( value.isArray() )
                 {
-                    if ( endsWith(*i, "_$set") )
+                    if ( endsWith(*i, "__array__") )
+                    {
+                        std::string key = i->substr(0, i->length()-9);
+                        for( Json::Value::const_iterator j = value.begin(); j != value.end(); ++j )
+                        {
+                            Config child;
+                            json2conf( *j, child, depth+1 );
+                            conf.add( key, child );
+                        }
+                    }
+                    else if ( endsWith(*i, "_$set") ) // backwards compatibility
                     {
                         std::string key = i->substr(0, i->length()-5);
                         for( Json::Value::const_iterator j = value.begin(); j != value.end(); ++j )
                         {
-                            Config child( key );
+                            Config child;
                             json2conf( *j, child, depth+1 );
-                            conf.add( child );
+                            conf.add( key, child );
                         }
                     }
                     else
@@ -360,6 +419,14 @@ Config::fromJSON( const std::string& input )
             << std::endl;
     }
     return false;
+}
+
+Config
+Config::readJSON(const std::string& json)
+{
+    Config conf;
+    conf.fromJSON(json);
+    return conf;
 }
 
 Config

@@ -1,5 +1,5 @@
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -7,10 +7,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -20,8 +23,8 @@
 #include <osgEarthQt/DataManager>
 #include <osgEarthQt/GuiActions>
 
-
 #include <osgEarth/Map>
+#include <osgEarth/ModelLayer>
 #include <osgEarth/Viewpoint>
 #include <osgEarthAnnotation/AnnotationNode>
 
@@ -69,11 +72,11 @@ namespace
   public:
     WidgetImageLayerCallback(ImageLayerControlWidget* widget) : _widget(widget) {}
 
-    void onOpacityChanged(ImageLayer* layer)
-    {
-      if (_widget)
-        _widget->setLayerOpacity(layer->getOpacity());
-    }
+    //void onOpacityChanged(ImageLayer* layer)
+    //{
+    //  if (_widget)
+    //    _widget->setLayerOpacity(layer->getOpacity());
+    //}
 
     void onEnabledChanged(TerrainLayer* layer)
     {
@@ -378,7 +381,7 @@ void ElevationLayerControlWidget::onEnabledCheckStateChanged(int state)
 void ElevationLayerControlWidget::onRemoveClicked(bool checked)
 {
   if (_parent && _parent->getMap())
-    _parent->getMap()->removeElevationLayer(_layer);
+    _parent->getMap()->removeLayer(_layer);
 }
 
 void ElevationLayerControlWidget::setLayerVisible(bool visible)
@@ -410,7 +413,7 @@ Action* ElevationLayerControlWidget::getDoubleClickAction(const ViewVector& view
 	  if (range == 0.0)
 		  range = 20000000.0;
 
-    _doubleClick = new SetViewpointAction(osgEarth::Viewpoint(focalPoint, 0.0, -90.0, range), views);
+    _doubleClick = new SetViewpointAction(osgEarth::Viewpoint("ClickAction", focalPoint.x(), focalPoint.y(), focalPoint.z(), 0.0, -90.0, range), views);
   }
 
   return _doubleClick.get();
@@ -494,7 +497,7 @@ void ImageLayerControlWidget::onSliderValueChanged(int value)
 void ImageLayerControlWidget::onRemoveClicked(bool checked)
 {
   if (_parent && _parent->getMap())
-    _parent->getMap()->removeImageLayer(_layer);
+    _parent->getMap()->removeLayer(_layer);
 }
 
 void ImageLayerControlWidget::setLayerVisible(bool visible)
@@ -533,7 +536,7 @@ Action* ImageLayerControlWidget::getDoubleClickAction(const ViewVector& views)
 	  if (range == 0.0)
 		  range = 20000000.0;
 
-    _doubleClick = new SetViewpointAction(osgEarth::Viewpoint(focalPoint, 0.0, -90.0, range), views);
+    _doubleClick = new SetViewpointAction(osgEarth::Viewpoint("DoubleClick", focalPoint.x(), focalPoint.y(), focalPoint.z(), 0.0, -90.0, range), views);
   }
 
   return _doubleClick.get();
@@ -594,7 +597,7 @@ void ModelLayerControlWidget::onEnabledCheckStateChanged(int state)
 void ModelLayerControlWidget::onRemoveClicked(bool checked)
 {
   if (_parent && _parent->getMap())
-    _parent->getMap()->removeModelLayer(_layer);
+    _parent->getMap()->removeLayer(_layer);
 }
 
 void ModelLayerControlWidget::setLayerVisible(bool visible)
@@ -616,7 +619,7 @@ Action* ModelLayerControlWidget::getDoubleClickAction(const ViewVector& views)
 {
   if (!_doubleClick.valid() && _layer.valid() && _map.valid())
   {
-    osg::ref_ptr<osg::Node> temp = _layer->getOrCreateSceneGraph( _map.get(), _map->getDBOptions(), 0L );
+    osg::ref_ptr<osg::Node> temp = _layer->getOrCreateSceneGraph( _map.get(), _map->getReadOptions(), 0L );
     if (temp.valid())
     {
       osg::NodePathList nodePaths = temp->getParentalNodePaths();
@@ -639,7 +642,7 @@ Action* ModelLayerControlWidget::getDoubleClickAction(const ViewVector& views)
         //_map->worldPointToMapPoint(center, output);
 
         //TODO: make a better range calculation
-        return new SetViewpointAction(osgEarth::Viewpoint(output.vec3d(), 0.0, -90.0, bs.radius() * 4.0), views);
+        return new SetViewpointAction(osgEarth::Viewpoint("DoubleClick", output.x(), output.y(), output.z(), 0.0, -90.0, bs.radius() * 4.0), views);
       }
     }
   }
@@ -746,21 +749,21 @@ void LayerManagerWidget::refresh()
   if (_type == IMAGE_LAYERS)
   {
     osgEarth::ImageLayerVector layers;
-    _map->getImageLayers(layers);
+    _map->getLayers(layers);
     for (osgEarth::ImageLayerVector::const_iterator it = layers.begin(); it != layers.end(); ++it)
       addImageLayerItem(*it);
   }
   else if (_type == MODEL_LAYERS)
   {
     osgEarth::ModelLayerVector layers;
-    _map->getModelLayers(layers);
+    _map->getLayers(layers);
     for (osgEarth::ModelLayerVector::const_iterator it = layers.begin(); it != layers.end(); ++it)
       addModelLayerItem(*it);
   }
   else if (_type == ELEVATION_LAYERS)
   {
     osgEarth::ElevationLayerVector layers;
-    _map->getElevationLayers(layers);
+    _map->getLayers(layers);
     for (osgEarth::ElevationLayerVector::const_iterator it = layers.begin(); it != layers.end(); ++it)
       addElevationLayerItem(*it);
   }
@@ -893,19 +896,19 @@ void LayerManagerWidget::doLayerWidgetDrop(LayerControlWidgetBase* widget, Layer
     {
       ElevationLayerControlWidget* elevWidget = dynamic_cast<ElevationLayerControlWidget*>(widget);
       if (elevWidget)
-        _map->moveElevationLayer(elevWidget->layer(), newRow >= 0 ? newRow : _stack->count() - 1);
+        _map->moveLayer(elevWidget->layer(), newRow >= 0 ? newRow : _stack->count() - 1);
     }
     else if (_type == IMAGE_LAYERS)
     {
       ImageLayerControlWidget* imageWidget = dynamic_cast<ImageLayerControlWidget*>(widget);
       if (imageWidget)
-        _map->moveImageLayer(imageWidget->layer(), newRow >= 0 ? newRow : _stack->count() - 1);
+        _map->moveLayer(imageWidget->layer(), newRow >= 0 ? newRow : _stack->count() - 1);
     }
     else if (_type == MODEL_LAYERS)
     {
       ModelLayerControlWidget* modelWidget = dynamic_cast<ModelLayerControlWidget*>(widget);
       if (modelWidget)
-        _map->moveModelLayer(modelWidget->layer(), newRow >= 0 ? newRow : _stack->count() - 1);
+        _map->moveLayer(modelWidget->layer(), newRow >= 0 ? newRow : _stack->count() - 1);
     }
   }
 }

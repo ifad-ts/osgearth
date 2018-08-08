@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -52,21 +55,22 @@ createMRTPass(App& app, osg::Node* sceneGraph)
     rtt->attach(osg::Camera::BufferComponent(osg::Camera::COLOR_BUFFER0), app.gcolor);
     rtt->attach(osg::Camera::BufferComponent(osg::Camera::COLOR_BUFFER1), app.gnormal);
     rtt->attach(osg::Camera::BufferComponent(osg::Camera::COLOR_BUFFER2), app.gdepth);
+    rtt->setCullingMode(rtt->getCullingMode() & ~osg::CullSettings::SMALL_FEATURE_CULLING); 
 
     static const char* vertSource =
-        "varying float mrt_depth;\n"
+        "out float mrt_depth;\n"
         "void oe_mrt_vertex(inout vec4 vertexClip)\n"
         "{\n"
         "    mrt_depth = (vertexClip.z/vertexClip.w)*0.5+1.0;\n"
         "}\n";
 
     static const char* fragSource =
-        "varying float mrt_depth;\n"
-        "varying vec3 oe_Normal; \n"
+        "in float mrt_depth;\n"
+        "in vec3 vp_Normal; \n"
         "void oe_mrt_fragment(inout vec4 color)\n"
         "{\n"
         "    gl_FragData[0] = color; \n"
-        "    gl_FragData[1] = vec4((oe_Normal+1.0)/2.0,1.0);\n"
+        "    gl_FragData[1] = vec4((vp_Normal+1.0)/2.0,1.0);\n"
         "    gl_FragData[2] = vec4(mrt_depth,mrt_depth,mrt_depth,1.0); \n"
         "}\n";
 
@@ -122,61 +126,50 @@ createFramebufferPass(App& app)
     osg::StateSet* stateset = quad->getOrCreateStateSet();
 
     static const char* vertSource =
-        "varying vec4 texcoord;\n"
+        "out vec4 texcoord;\n"
         "void effect_vert(inout vec4 vertexView)\n"
         "{\n"
         "    texcoord = gl_MultiTexCoord0; \n"
         "}\n";
 
+    // fragment shader that performs edge detection and tints edges red.
     static const char* fragSource =
-        "#version 120\n"
+        "#version " GLSL_VERSION_STR "\n"
         "#extension GL_ARB_texture_rectangle : enable\n"
         "uniform sampler2DRect gcolor;\n"
         "uniform sampler2DRect gnormal;\n"
         "uniform sampler2DRect gdepth;\n"
-        "varying vec4 texcoord;\n"
+        "uniform float osg_FrameTime;\n"
+        "in vec4 texcoord;\n"
 
         "void effect_frag(inout vec4 color)\n"
         "{\n"
-        "    color = texture2DRect(gcolor, texcoord.st); \n"
-        "    float depth = texture2DRect(gdepth, texcoord.st).r; \n"
-        "    vec3 normal = texture2DRect(gnormal,texcoord.st).xyz *2.0-1.0; \n"
+        "    color = texture(gcolor, texcoord.st); \n"
+        "    float depth = texture(gdepth, texcoord.st).r; \n"
+        "    vec3 normal = texture(gnormal,texcoord.st).xyz *2.0-1.0; \n"
 
         // sample radius in pixels:
-        "    float e = 5.0; \n"
+        "    float e = 25.0 * sin(osg_FrameTime); \n"
 
         // sample the normals around our pixel and find the approximate
         // deviation from our center normal:
         "    vec3 avgNormal =\n"
-        "       texture2DRect(gnormal, texcoord.st+vec2( e, e)).xyz + \n"
-        "       texture2DRect(gnormal, texcoord.st+vec2(-e, e)).xyz + \n"
-        "       texture2DRect(gnormal, texcoord.st+vec2(-e,-e)).xyz + \n"
-        "       texture2DRect(gnormal, texcoord.st+vec2( e,-e)).xyz + \n"
-        "       texture2DRect(gnormal, texcoord.st+vec2( 0, e)).xyz + \n"
-        "       texture2DRect(gnormal, texcoord.st+vec2( e, 0)).xyz + \n"
-        "       texture2DRect(gnormal, texcoord.st+vec2( 0,-e)).xyz + \n"
-        "       texture2DRect(gnormal, texcoord.st+vec2(-e, 0)).xyz;  \n"
+        "       texture(gnormal, texcoord.st+vec2( e, e)).xyz + \n"
+        "       texture(gnormal, texcoord.st+vec2(-e, e)).xyz + \n"
+        "       texture(gnormal, texcoord.st+vec2(-e,-e)).xyz + \n"
+        "       texture(gnormal, texcoord.st+vec2( e,-e)).xyz + \n"
+        "       texture(gnormal, texcoord.st+vec2( 0, e)).xyz + \n"
+        "       texture(gnormal, texcoord.st+vec2( e, 0)).xyz + \n"
+        "       texture(gnormal, texcoord.st+vec2( 0,-e)).xyz + \n"
+        "       texture(gnormal, texcoord.st+vec2(-e, 0)).xyz;  \n"
         "    avgNormal = normalize((avgNormal/8.0)*2.0-1.0); \n"
+
+        // average deviation from normal:
         "    float deviation = clamp(dot(normal, avgNormal),0.0,1.0); \n"
 
-        // set a blur factor based on the normal deviation, so that we
-        // blur more around edges.
+        // use that to tint the pixel red:
         "    e = 2.5 * (1.0-deviation); \n"
-
-        "    vec4 blurColor = \n"
-        "       color + \n"
-        "       texture2DRect(gcolor, texcoord.st+vec2( e, e)) + \n"
-        "       texture2DRect(gcolor, texcoord.st+vec2(-e, e)) + \n"
-        "       texture2DRect(gcolor, texcoord.st+vec2(-e,-e)) + \n"
-        "       texture2DRect(gcolor, texcoord.st+vec2( e,-e)) + \n"
-        "       texture2DRect(gcolor, texcoord.st+vec2( 0, e)) + \n"
-        "       texture2DRect(gcolor, texcoord.st+vec2( e, 0)) + \n"
-        "       texture2DRect(gcolor, texcoord.st+vec2( 0,-e)) + \n"
-        "       texture2DRect(gcolor, texcoord.st+vec2(-e, 0));  \n"
-        "    blurColor /= 9.0; \n"
-
-        // blur the color and darken the edges at the same time
-        "    color.rgb = blurColor.rgb * deviation; \n"
+        "    color.rgb = color.rgb + vec3(e,0,0);\n"
         "}\n";
 
     VirtualProgram* vp = VirtualProgram::getOrCreate(stateset);

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -24,7 +27,9 @@
 #include <osgEarth/Registry>
 #include <osgEarth/VirtualProgram>
 #include <osgEarth/Capabilities>
-
+#include <osgEarth/CullingUtils>
+#include <osgEarth/DrapeableNode>
+#include <osgEarth/ClampableNode>
 
 #include <osgText/Text>
 #include <osg/Depth>
@@ -82,14 +87,27 @@ AnnotationUtils::convertTextSymbolEncoding (const TextSymbol::Encoding encoding)
     return text_encoding;
 }
 
-osg::Drawable* 
+namespace
+{
+    static int nextPowerOf2(int x)
+    {
+        --x;
+        x |= x >> 1;
+        x |= x >> 2;
+        x |= x >> 4;
+        x |= x >> 8;
+        x |= x >> 16;
+        return x+1;
+    }
+}
+
+osg::Drawable*
 AnnotationUtils::createTextDrawable(const std::string& text,
                                     const TextSymbol*  symbol,
-                                    const osg::Vec3&   positionOffset )
-                                    
+                                    const osg::BoundingBox& box)
 {
     osgText::Text* t = new osgText::Text();
-    
+
     osgText::String::Encoding text_encoding = osgText::String::ENCODING_UNDEFINED;
     if ( symbol && symbol->encoding().isSet() )
     {
@@ -116,47 +134,123 @@ AnnotationUtils::createTextDrawable(const std::string& text,
             t->setLayout(osgText::TextBase::VERTICAL);
         }
     }
-    if ( symbol && symbol->pixelOffset().isSet() )
+
+    // calculate the text position relative to the alignment box.
+    osg::Vec3f pos;
+
+    osgText::Text::AlignmentType align = osgText::Text::CENTER_CENTER;
+    if ( symbol )
     {
-        t->setPosition( osg::Vec3(
-            positionOffset.x() + symbol->pixelOffset()->x(),
-            positionOffset.y() + symbol->pixelOffset()->y(),
-            positionOffset.z() ) );
-    }
-    else
-    {
-        t->setPosition( positionOffset );
+        // they're the same enum, but we need to apply the BBOX offsets.
+        align = (osgText::Text::AlignmentType)symbol->alignment().value();
     }
 
-    t->setAutoRotateToScreen( false );
+    switch( align )
+    {
+    case osgText::Text::LEFT_TOP:
+        pos.x() = box.xMax();
+        pos.y() = box.yMin();
+        break;
+    case osgText::Text::LEFT_CENTER:
+        pos.x() = box.xMax();
+        pos.y() = box.center().y();
+        break;
+    case osgText::Text::LEFT_BOTTOM:
+    case osgText::Text::LEFT_BOTTOM_BASE_LINE:
+    case osgText::Text::LEFT_BASE_LINE:
+        pos.x() = box.xMax();
+        pos.y() = box.yMax();
+        break;
+
+    case osgText::Text::RIGHT_TOP:
+        pos.x() = box.xMin();
+        pos.y() = box.yMin();
+        break;
+    case osgText::Text::RIGHT_CENTER:
+        pos.x() = box.xMin();
+        pos.y() = box.center().y();
+        break;
+    case osgText::Text::RIGHT_BOTTOM:
+    case osgText::Text::RIGHT_BOTTOM_BASE_LINE:
+    case osgText::Text::RIGHT_BASE_LINE:
+        pos.x() = box.xMin();
+        pos.y() = box.yMax();
+        break;
+
+    case osgText::Text::CENTER_TOP:
+        pos.x() = box.center().x();
+        pos.y() = box.yMin();
+        break;
+    case osgText::Text::CENTER_BOTTOM:
+    case osgText::Text::CENTER_BOTTOM_BASE_LINE:
+    case osgText::Text::CENTER_BASE_LINE:
+        pos.x() = box.center().x();
+        pos.y() = box.yMax();
+        break;
+    case osgText::Text::CENTER_CENTER:
+    default:
+        pos = box.center();
+        break;
+    }
+
+    t->setPosition( pos );
+    t->setAlignment( align );
+
+    t->setAutoRotateToScreen(false);
+
+    t->setCullingActive(false);
+
     t->setCharacterSizeMode( osgText::Text::OBJECT_COORDS );
-    t->setCharacterSize( symbol && symbol->size().isSet() ? (float)(symbol->size()->eval()) : 16.0f );
+    
+    float size = symbol && symbol->size().isSet() ? (float)(symbol->size()->eval()) : 16.0f;    
+
+    t->setCharacterSize( size * Registry::instance()->getDevicePixelRatio() );
     t->setColor( symbol && symbol->fill().isSet() ? symbol->fill()->color() : Color::White );
 
-    osgText::Font* font = 0L;
+    osg::ref_ptr<osgText::Font> font;
     if ( symbol && symbol->font().isSet() )
     {
-        font = osgText::readFontFile( *symbol->font() );
-        // mitigates mipmapping issues that cause rendering artifacts for some fonts/placement
-        if ( font )
-          font->setGlyphImageMargin( 2 );
+        font = osgText::readRefFontFile( *symbol->font() );
     }
     if ( !font )
         font = Registry::instance()->getDefaultFont();
+
     if ( font )
+    {
         t->setFont( font );
 
-    if ( symbol )
-    {
-        // they're the same enum.
-        osgText::Text::AlignmentType at = (osgText::Text::AlignmentType)symbol->alignment().value();
-        t->setAlignment( at );
+        
+#if OSG_VERSION_LESS_THAN(3,5,8)
+        // mitigates mipmapping issues that cause rendering artifacts for some fonts/placement
+        font->setGlyphImageMargin( 2 );
+#endif
+
+        // OSG 3.4.1+ adds a program, so we remove it since we're using VPs.
+        t->setStateSet(0L);
     }
+
+    float resFactor = 2.0f;
+    int res = nextPowerOf2((int)(size*resFactor));
+    t->setFontResolution(res, res);
+    float offsetFactor = 1.0f / (resFactor*256.0f);
+    t->setBackdropOffset( (float)t->getFontWidth() * offsetFactor, (float)t->getFontHeight() * offsetFactor );
 
     if ( symbol && symbol->halo().isSet() )
     {
         t->setBackdropColor( symbol->halo()->color() );
-        t->setBackdropType( osgText::Text::OUTLINE );
+        if ( symbol->haloBackdropType().isSet() )
+        {
+            t->setBackdropType( *symbol->haloBackdropType() );
+        }
+        else
+        {
+            t->setBackdropType( osgText::Text::OUTLINE );
+        }
+
+        if ( symbol->haloImplementation().isSet() )
+        {
+            t->setBackdropImplementation( *symbol->haloImplementation() );
+        }
 
         if ( symbol->haloOffset().isSet() )
         {
@@ -204,11 +298,11 @@ AnnotationUtils::createImageGeometry(osg::Image*       image,
 
     // set up the geoset.
     osg::Geometry* geom = new osg::Geometry();
-    geom->setUseVertexBufferObjects(true);    
+    geom->setUseVertexBufferObjects(true);
     geom->setStateSet(dstate);
 
-    float s = scale * image->s();
-    float t = scale * image->t();
+    float s = Registry::instance()->getDevicePixelRatio() * scale * image->s();
+    float t = Registry::instance()->getDevicePixelRatio() * scale * image->t();
 
     float x0 = (float)pixelOffset.x() - s/2.0;
     float y0 = (float)pixelOffset.y() - t/2.0;
@@ -242,7 +336,8 @@ AnnotationUtils::createImageGeometry(osg::Image*       image,
     geom->setColorArray(colors);
     geom->setColorBinding(osg::Geometry::BIND_OVERALL);
 
-    geom->addPrimitiveSet(new osg::DrawArrays(osg::PrimitiveSet::QUADS,0,4));
+    GLushort indices[] = {0,1,2,0,2,3};
+    geom->addPrimitiveSet( new osg::DrawElementsUShort( GL_TRIANGLES, 6, indices ) );
 
     return geom;
 }
@@ -263,130 +358,7 @@ AnnotationUtils::createHighlightUniform()
     return u;
 }
 
-//-------------------------------------------------------------------------
-
-// This is identical to osg::AutoTransform::accept, except that we (a) removed
-// code that's not used by OrthoNode, and (b) took out the call to
-// Transform::accept since we don't want to traverse the child graph from
-// this call.
-void
-AnnotationUtils::OrthoNodeAutoTransform::acceptCullNoTraverse( osg::CullStack* cs )
-{
-    osg::Viewport::value_type width = _previousWidth;
-    osg::Viewport::value_type height = _previousHeight;
-
-    osg::Viewport* viewport = cs->getViewport();
-    if (viewport)
-    {
-        width = viewport->width();
-        height = viewport->height();
-    }
-
-    osg::Vec3d eyePoint = cs->getEyeLocal(); 
-    osg::Vec3d localUp = cs->getUpLocal(); 
-    osg::Vec3d position = getPosition();
-
-    const osg::Matrix& projection = *(cs->getProjectionMatrix());
-
-    bool doUpdate = _firstTimeToInitEyePoint;
-    if (!_firstTimeToInitEyePoint)
-    {
-        osg::Vec3d dv = _previousEyePoint-eyePoint;
-        if (dv.length2()>getAutoUpdateEyeMovementTolerance()*(eyePoint-getPosition()).length2())
-        {
-            doUpdate = true;
-        }
-        osg::Vec3d dupv = _previousLocalUp-localUp;
-        // rotating the camera only affects ROTATE_TO_*
-        if (_autoRotateMode &&
-            dupv.length2()>getAutoUpdateEyeMovementTolerance())
-        {
-            doUpdate = true;
-        }
-        else if (width!=_previousWidth || height!=_previousHeight)
-        {
-            doUpdate = true;
-        }
-        else if (projection != _previousProjection) 
-        {
-            doUpdate = true;
-        }                
-        else if (position != _previousPosition) 
-        { 
-            doUpdate = true; 
-        } 
-    }
-    _firstTimeToInitEyePoint = false;
-
-    if (doUpdate)
-    {            
-        if (getAutoScaleToScreen())
-        {
-            double size = 1.0/cs->pixelSize(getPosition(),0.48f);
-
-            if (_autoScaleTransitionWidthRatio>0.0)
-            {
-                if (_minimumScale>0.0)
-                {
-                    double j = _minimumScale;
-                    double i = (_maximumScale<DBL_MAX) ? 
-                        _minimumScale+(_maximumScale-_minimumScale)*_autoScaleTransitionWidthRatio :
-                    _minimumScale*(1.0+_autoScaleTransitionWidthRatio);
-                    double c = 1.0/(4.0*(i-j));
-                    double b = 1.0 - 2.0*c*i;
-                    double a = j + b*b / (4.0*c);
-                    double k = -b / (2.0*c);
-
-                    if (size<k) size = _minimumScale;
-                    else if (size<i) size = a + b*size + c*(size*size);
-                }
-
-                if (_maximumScale<DBL_MAX)
-                {
-                    double n = _maximumScale;
-                    double m = (_minimumScale>0.0) ?
-                        _maximumScale+(_minimumScale-_maximumScale)*_autoScaleTransitionWidthRatio :
-                    _maximumScale*(1.0-_autoScaleTransitionWidthRatio);
-                    double c = 1.0 / (4.0*(m-n));
-                    double b = 1.0 - 2.0*c*m;
-                    double a = n + b*b/(4.0*c);
-                    double p = -b / (2.0*c);
-
-                    if (size>p) size = _maximumScale;
-                    else if (size>m) size = a + b*size + c*(size*size);
-                }        
-            }
-
-            setScale(size);
-        }
-
-        if (_autoRotateMode==ROTATE_TO_SCREEN)
-        {
-            osg::Vec3d translation;
-            osg::Quat rotation;
-            osg::Vec3d scale;
-            osg::Quat so;
-
-            cs->getModelViewMatrix()->decompose( translation, rotation, scale, so );
-
-            setRotation(rotation.inverse());
-        }
-        // GW: removed other unused auto-rotate modes
-
-        _previousEyePoint = eyePoint;
-        _previousLocalUp = localUp;
-        _previousWidth = width;
-        _previousHeight = height;
-        _previousProjection = projection;
-        _previousPosition = position;
-
-        _matrixDirty = true;
-    }
-
-    // GW: the stock AutoTransform calls Transform::accept here; we do NOT
-}
-
-osg::Node* 
+osg::Node*
 AnnotationUtils::createSphere( float r, const osg::Vec4& color, float maxAngle )
 {
     osg::Geometry* geom = new osg::Geometry();
@@ -445,7 +417,7 @@ AnnotationUtils::createSphere( float r, const osg::Vec4& color, float maxAngle )
       return geode;
 }
 
-osg::Node* 
+osg::Node*
 AnnotationUtils::createHemisphere( float r, const osg::Vec4& color, float maxAngle )
 {
     osg::Geometry* geom = new osg::Geometry();
@@ -500,10 +472,10 @@ AnnotationUtils::createHemisphere( float r, const osg::Vec4& color, float maxAng
 
 // constructs an ellipsoidal mesh
 osg::Geometry*
-AnnotationUtils::createEllipsoidGeometry(float xRadius, 
+AnnotationUtils::createEllipsoidGeometry(float xRadius,
                                          float yRadius,
                                          float zRadius,
-                                         const osg::Vec4f& color, 
+                                         const osg::Vec4f& color,
                                          float maxAngle,
                                          float minLat,
                                          float maxLat,
@@ -525,6 +497,7 @@ AnnotationUtils::createEllipsoidGeometry(float xRadius,
     osg::Vec3Array* verts = new osg::Vec3Array();
     verts->reserve( latSegments * lonSegments );
 
+#if 0
     bool genTexCoords = false; // TODO: optional
     osg::Vec2Array* texCoords = 0;
     if (genTexCoords)
@@ -533,6 +506,7 @@ AnnotationUtils::createEllipsoidGeometry(float xRadius,
         texCoords->reserve( latSegments * lonSegments );
         geom->setTexCoordArray( 0, texCoords );
     }
+#endif
 
     osg::Vec3Array* normals = new osg::Vec3Array();
     normals->reserve( latSegments * lonSegments );
@@ -555,24 +529,23 @@ AnnotationUtils::createEllipsoidGeometry(float xRadius,
             float sin_u = sinf(u);
             float cos_v = cosf(v);
             float sin_v = sinf(v);
-            
+
             verts->push_back(osg::Vec3(
                 xRadius * cos_u * cos_v,
                 yRadius * sin_u * cos_v,
                 zRadius * sin_v ));
 
+#if 0
             if (genTexCoords)
             {
                 double s = (lon + 180) / 360.0;
                 double t = (lat + 90.0) / 180.0;
                 texCoords->push_back( osg::Vec2(s, t ) );
             }
+#endif
 
-            if (normals)
-            {
-                normals->push_back( verts->back() );
-                normals->back().normalize();
-            }
+            normals->push_back( verts->back() );
+            normals->back().normalize();
 
             if ( y < latSegments )
             {
@@ -599,11 +572,11 @@ AnnotationUtils::createEllipsoidGeometry(float xRadius,
     return geom;
 }
 
-osg::Node* 
-AnnotationUtils::createEllipsoid(float xRadius, 
+osg::Node*
+AnnotationUtils::createEllipsoid(float xRadius,
                                  float yRadius,
                                  float zRadius,
-                                 const osg::Vec4f& color, 
+                                 const osg::Vec4f& color,
                                  float maxAngle,
                                  float minLat,
                                  float maxLat,
@@ -634,7 +607,7 @@ AnnotationUtils::createEllipsoid(float xRadius,
     return geode;
 }
 
-osg::Node* 
+osg::Node*
 AnnotationUtils::createFullScreenQuad( const osg::Vec4& color )
 {
     osg::Geometry* geom = new osg::Geometry();
@@ -788,7 +761,7 @@ AnnotationUtils::installTwoPassAlpha(osg::Node* node)
 }
 
 
-bool 
+bool
 AnnotationUtils::styleRequiresAlphaBlending( const Style& style )
 {
     if (style.has<PolygonSymbol>() &&
@@ -832,7 +805,7 @@ AnnotationUtils::getAltitudePolicy(const Style& style, AltitudePolicy& out)
         const AltitudeSymbol* alt = style.get<AltitudeSymbol>();
         if ( alt )
         {
-            if (alt->clamping() == AltitudeSymbol::CLAMP_TO_TERRAIN || 
+            if (alt->clamping() == AltitudeSymbol::CLAMP_TO_TERRAIN ||
                 alt->clamping() == AltitudeSymbol::CLAMP_RELATIVE_TO_TERRAIN )
             {
                 out.sceneClamping = alt->technique() == AltitudeSymbol::TECHNIQUE_SCENE;
@@ -850,3 +823,31 @@ AnnotationUtils::getAltitudePolicy(const Style& style, AltitudePolicy& out)
         }
     }
 }
+
+osg::Node*
+AnnotationUtils::installOverlayParent(osg::Node* node, const Style& style)
+{
+    AnnotationUtils::AltitudePolicy ap;
+
+    AnnotationUtils::getAltitudePolicy( style, ap );
+
+    // Draped (projected) geometry
+    if ( ap.draping )
+    {
+        DrapeableNode* drapable = new DrapeableNode();
+        drapable->addChild( node );
+        node = drapable;
+    }
+
+    // gw - not sure whether is makes sense to support this for LocalizedNode
+    // GPU-clamped geometry
+    else if ( ap.gpuClamping )
+    {
+        ClampableNode* clampable = new ClampableNode();
+        clampable->addChild( node );
+        node = clampable;
+    }
+
+    return node;
+}
+

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -19,13 +22,15 @@
 
 #include <osgEarthAnnotation/ModelNode>
 #include <osgEarthAnnotation/AnnotationRegistry>
+#include <osgEarthAnnotation/AnnotationUtils>
+#include <osgEarthAnnotation/GeoPositionNodeAutoScaler>
 #include <osgEarthSymbology/Style>
 #include <osgEarthSymbology/InstanceSymbol>
-#include <osgEarth/AutoScale>
 #include <osgEarth/Registry>
 #include <osgEarth/Capabilities>
 #include <osgEarth/ShaderGenerator>
 #include <osgEarth/VirtualProgram>
+#include <osgEarth/NodeUtils>
 
 #define LC "[ModelNode] "
 
@@ -40,11 +45,10 @@ using namespace osgEarth::Symbology;
 ModelNode::ModelNode(MapNode*              mapNode,
                      const Style&          style,
                      const osgDB::Options* dbOptions ) :
-LocalizedNode( mapNode ),
+GeoPositionNode( mapNode ),
 _style       ( style ),
 _dbOptions   ( dbOptions )
 {
-    _xform = new osg::MatrixTransform();
     init();
 }
 
@@ -54,25 +58,20 @@ ModelNode::setStyle(const Style& style)
 {
     _style = style;
     init();
+    setPosition(getPosition());
 }
-
 
 void
 ModelNode::init()
 {
-    // reset.
-    this->clearDecoration();
-    osgEarth::clearChildren( this );
-    osgEarth::clearChildren( _xform.get() );
-    this->addChild( _xform.get() );
-
-    this->setHorizonCulling(false);
+    osgEarth::clearChildren( getPositionAttitudeTransform() );
 
     osg::ref_ptr<const ModelSymbol> sym = _style.get<ModelSymbol>();
     
     // backwards-compatibility: support for MarkerSymbol (deprecated)
     if ( !sym.valid() && _style.has<MarkerSymbol>() )
     {
+        OE_WARN << LC << "MarkerSymbol is deprecated, please remove it\n";
         osg::ref_ptr<InstanceSymbol> temp = _style.get<MarkerSymbol>()->convertToInstanceSymbol();
         sym = dynamic_cast<const ModelSymbol*>( temp.get() );
     }
@@ -85,9 +84,9 @@ ModelNode::init()
             osg::ref_ptr<osg::Node> node = sym->getModel();
 
             // Try to get a model from URI
-            if (node.valid() == false)
+            if ( !node.valid() )
             {
-                URI uri( sym->url()->eval(), sym->url()->uriContext() );
+                URI uri = sym->url()->evalURI();
 
                 if ( sym->uriAliasMap()->empty() )
                 {
@@ -101,13 +100,13 @@ ModelNode::init()
                     node = uri.getNode( tempOptions.get() );
                 }
 
-                if (node.valid() == false)
+                if ( !node.valid() )
                 {
                     OE_WARN << LC << "No model and failed to load data from " << uri.full() << std::endl;
                 }
             }
 
-            if (node.valid() == true)
+            if ( node.valid() )
             {
                 if ( Registry::capabilities().supportsGLSL() )
                 {
@@ -118,23 +117,35 @@ ModelNode::init()
                         Registry::stateSetCache() );
                 }
 
-                // attach to the transform:
-                _xform->addChild( node );
+                // install clamping/draping if necessary
+                node = AnnotationUtils::installOverlayParent( node.get(), _style );
 
-                // insert a clamping agent if necessary:
-                replaceChild( _xform.get(), applyAltitudePolicy(_xform.get(), _style) );
+                getPositionAttitudeTransform()->addChild( node.get() );
+
+                osg::Vec3d scale(1, 1, 1);
 
                 if ( sym->scale().isSet() )
                 {
                     double s = sym->scale()->eval();
-                    this->setScale( osg::Vec3f(s, s, s) );
+                    scale.set(s, s, s);
                 }
+                if ( sym->scaleX().isSet() )
+                    scale.x() = sym->scaleX()->eval();
+
+                if ( sym->scaleY().isSet() )
+                    scale.y() = sym->scaleY()->eval();
+
+                if ( sym->scaleZ().isSet() )
+                    scale.z() = sym->scaleZ()->eval();
+
+                getPositionAttitudeTransform()->setScale( scale );
 
                 // auto scaling?
                 if ( sym->autoScale() == true )
                 {
-                    this->getOrCreateStateSet()->setRenderBinDetails(0, osgEarth::AUTO_SCALE_BIN );
-                }
+                    this->setCullingActive(false);
+                    this->addCullCallback( new GeoPositionNodeAutoScaler( osg::Vec3d(1,1,1), sym->minAutoScale().value(), sym->maxAutoScale().value() ));
+                } 
 
                 // rotational offsets?
                 if (sym && (sym->heading().isSet() || sym->pitch().isSet() || sym->roll().isSet()) )
@@ -147,10 +158,11 @@ ModelNode::init()
                         osg::DegreesToRadians(heading), osg::Vec3(0,0,1),
                         osg::DegreesToRadians(pitch),   osg::Vec3(1,0,0),
                         osg::DegreesToRadians(roll),    osg::Vec3(0,1,0) );
-                    this->setLocalRotation( rot.getRotate() );
+
+                    getPositionAttitudeTransform()->setAttitude( rot.getRotate() );
                 }
 
-                this->applyGeneralSymbology( _style );
+                this->applyRenderSymbology( _style );
             }
             else
             {
@@ -174,11 +186,9 @@ OSGEARTH_REGISTER_ANNOTATION( model, osgEarth::Annotation::ModelNode );
 
 
 ModelNode::ModelNode(MapNode* mapNode, const Config& conf, const osgDB::Options* dbOptions) :
-LocalizedNode( mapNode, conf ),
+GeoPositionNode    ( mapNode, conf ),
 _dbOptions   ( dbOptions )
 {
-    _xform = new osg::MatrixTransform();
-
     conf.getObjIfSet( "style", _style );
 
     std::string uri = conf.value("url");
@@ -186,12 +196,13 @@ _dbOptions   ( dbOptions )
         _style.getOrCreate<ModelSymbol>()->url() = StringExpression(uri);
 
     init();
+    setPosition(getPosition());
 }
 
 Config
 ModelNode::getConfig() const
 {
-    Config conf = LocalizedNode::getConfig();
+    Config conf = GeoPositionNode::getConfig();
     conf.key() = "model";
 
     if ( !_style.empty() )

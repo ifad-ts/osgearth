@@ -21,42 +21,54 @@
 #define OSGEARTH_DRAPEABLE_NODE_H 1
 
 #include <osgEarth/Common>
-#include <osgEarth/OverlayNode>
+#include <osgEarth/optional>
+#include <osgEarth/MapNode>
+#include <osgEarth/MapNodeObserver>
 #include <osg/Group>
 
 namespace osgEarth
 {
-    class MapNode;
-
     /**
-     * Base class for a graph that can be "draped" on the MapNode terrain
-     * using the overlay decorator.
+     * Base class for a graph that can be "draped" on the terrain using
+     * projective texturing.
      *
-     * Usage: Create this node and put it anywhere in the scene graph. The
-     * subgraph of this node will be draped on the MapNode's terrain.
+     * Usage: Create this node and place it as a descendant of a MapNode.
      */
-    class OSGEARTH_EXPORT DrapeableNode : public OverlayNode
+    class OSGEARTH_EXPORT DrapeableNode : public osg::Group, public MapNodeObserver
     {
     public:
+        META_Object(osgEarth, DrapeableNode);
+
         /**
          * Constructs a new drapeable node.
          */
-        DrapeableNode( MapNode* mapNode, bool active =true );
+        DrapeableNode();
 
-        /** Sets the rendering order of the draped geometry */
-        void setRenderOrder(int order);
-        const optional<int>& renderOrder() const { return _renderOrder; }
+        /** Copy */
+        DrapeableNode(const DrapeableNode& rhs, const osg::CopyOp& copy);
 
-        /** Backwards compatibility */
-        void setDraped( bool value ) { setActive(value); }
-        bool getDraped() const { return getActive(); }
+        /**
+         * Whether draping is enabled.
+         */
+        void setDrapingEnabled(bool value);
+        bool getDrapingEnabled() const     { return _drapingEnabled; }
 
+    public: // osg::Group/Node
+
+        virtual void traverse(osg::NodeVisitor& nv);
+
+    public: // osgEarth::MapNodeObserver
+
+        virtual void setMapNode(MapNode* mapNode) { _mapNode = mapNode; }
+        virtual MapNode* getMapNode() { return _mapNode.get(); }
 
     protected:
         /** dtor */
         virtual ~DrapeableNode() { }
 
-        optional<int> _renderOrder;
+        bool _drapingEnabled;
+        bool _updateRequested;
+        osg::observer_ptr<MapNode> _mapNode;
     };
 
 } // namespace osgEarth

@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -39,7 +42,7 @@ quit(const std::string& msg)
 int
 main(int argc, char** argv)
 {
-    osg::ref_ptr<Cache> cache = Registry::instance()->getCache();
+    osg::ref_ptr<Cache> cache = Registry::instance()->getDefaultCache();
     if ( !cache.valid() )
     {
         return quit( "Please configure a cache path in your environment (OSGEARTH_CACHE_PATH)." );
@@ -55,10 +58,10 @@ main(int argc, char** argv)
         std::string value( "What is the sound of one hand clapping?" );
         osg::ref_ptr<StringObject> s = new StringObject( value );
 
-        if ( !bin->write("string_key", s.get()) )
+        if ( !bin->write("string_key", s.get(), 0L) )
             return quit( "String write failed." );
 
-        ReadResult r = bin->readString("string_key");
+        ReadResult r = bin->readString("string_key", 0L);
         if ( r.failed() )
             return quit( Stringify() << "String read failed - " << r.getResultCodeString() );
 
@@ -72,10 +75,10 @@ main(int argc, char** argv)
     {
         osg::ref_ptr<osg::Image> image = ImageUtils::createOnePixelImage(osg::Vec4(1,0,0,1));
 
-        if ( !bin->write("image_key", image.get()) )
+        if ( !bin->write("image_key", image.get(), 0L) )
             return quit("Image write failed.");
 
-        ReadResult r = bin->readImage("image_key");
+        ReadResult r = bin->readImage("image_key", 0L);
         if ( r.failed() )
             return quit( Stringify() << "Image read failed - " << r.getResultCodeString() );
 
@@ -86,7 +89,7 @@ main(int argc, char** argv)
     }
 
     // Need to properly shut down the cache here
-    Registry::instance()->setCache( 0L );
+    cache = 0L;
 
     OE_NOTICE << "All tests passed." << std::endl;
     return 0;

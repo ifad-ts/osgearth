@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -31,7 +34,7 @@ namespace osgEarth
 
     /**
      * Stores information about the hardware and graphics system capbilities.
-     * The osgEarth::Registry stores a singleton Capabilities object that you can 
+     * The osgEarth::Registry stores a singleton Capabilities object that you can
      * use to determine what your system supports.
      */
     class OSGEARTH_EXPORT Capabilities : public osg::Referenced
@@ -62,13 +65,13 @@ namespace osgEarth
         int getDepthBufferBits() const { return _depthBits; }
 
         /** whether the GPU supports shaders. */
-        bool supportsGLSL() const { 
+        bool supportsGLSL() const {
             return _supportsGLSL; }
-        
+
         /** whether the GPU supports a minimum GLSL version */
-        bool supportsGLSL(float minimumVersion) const { 
+        bool supportsGLSL(float minimumVersion) const {
             return _supportsGLSL && _GLSLversion >= minimumVersion; }
-        
+
         /** whether the GPU supports a minimum GLSL version (as an int; e.g. 1.2 => "120") */
         bool supportsGLSL(unsigned minVersionInt) const {
             return _supportsGLSL && ((unsigned)(_GLSLversion*100.0f)) >= minVersionInt; }
@@ -77,7 +80,7 @@ namespace osgEarth
         float getGLSLVersion() const { return _GLSLversion; }
 
         /** GLSL version as an integer x 100. I.e.: GLSL 1.4 => 140. */
-        unsigned getGLSLVersionInt() const { return (unsigned)(_GLSLversion*100.0f); }
+        unsigned getGLSLVersionInt() const { return (unsigned)(_GLSLversion*100.0f + 0.5f); }
 
         /** Are we running OpenGLES? */
         bool isGLES() const { return _isGLES; }
@@ -138,11 +141,16 @@ namespace osgEarth
 
         /** whether the GPU supports writing to the depth fragment */
         bool supportsFragDepthWrite() const { return _supportsFragDepthWrite; }
-        
+
         /** whether the GPU supports a texture compression scheme */
         bool supportsTextureCompression(const osg::Texture::InternalFormatMode& mode) const;
 
-		Capabilities(osg::GraphicsContext* gc);
+        /** whether texture buffers are supported */
+        bool supportsTextureBuffer() const { return _supportsTextureBuffer; }
+
+        /** Maximum size of a texture buffer, when supportsTextureBuffer() is true. */
+        int getMaxTextureBufferSize() const { return _maxTextureBufferSize; }
+
 
     protected:
         Capabilities();
@@ -186,6 +194,8 @@ namespace osgEarth
         bool _supportsETC;
         bool _supportsRGTC;
         bool _isGLES;
+        bool _supportsTextureBuffer;
+        int  _maxTextureBufferSize;
 
     public:
         friend class Registry;

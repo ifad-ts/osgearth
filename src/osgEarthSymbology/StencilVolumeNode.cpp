@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -262,7 +262,7 @@ StencilVolumeNode::init()
     // zFail=true if more compute intensive, but lets you get inside the volume.
     // Again, a custom node will give us a better opportunity to choose between zFail and zPass based on
     // the eye location (you only need zFail if you camera is inside the volume).
-    bool zFail = true;
+#define zFail true
 
     OE_DEBUG << "Stencil buffer wrap = " << s_EXT_stencil_wrap << std::endl;
 

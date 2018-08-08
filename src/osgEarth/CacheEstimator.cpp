@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -50,8 +50,6 @@ CacheEstimator::getNumTiles() const
 
     for (unsigned int level = _minLevel; level <= _maxLevel; level++)
     {
-        double coverageRatio = 0.0;
-
         if (_extents.empty())
         {
             unsigned int wide, high;
@@ -60,10 +58,9 @@ CacheEstimator::getNumTiles() const
         }
         else
         {
-            for (std::vector< GeoExtent >::const_iterator itr = _extents.begin(); itr != _extents.end(); itr++)
+            for (std::vector< GeoExtent >::const_iterator itr = _extents.begin(); itr != _extents.end(); ++itr)
             {
                 const GeoExtent& extent = *itr;
-                double boundsArea = extent.area();
 
                 TileKey ll = _profile->createTileKey(extent.xMin(), extent.yMin(), level);
                 TileKey ur = _profile->createTileKey(extent.xMax(), extent.yMax(), level);

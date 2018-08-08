@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -39,7 +39,7 @@ namespace osgEarth { namespace Drivers { namespace Duktape
                 "osgearth_scriptengine_javascript", "osgEarth Duktape JavaScript Engine" );
         }
 
-        const char* className()
+        const char* className() const
         {
             return "osgEarth Duktape JavaScript Engine";
         }
@@ -49,7 +49,7 @@ namespace osgEarth { namespace Drivers { namespace Duktape
           if ( !acceptsExtension(osgDB::getLowerCaseFileExtension(filename)) )
                 return ReadResult::FILE_NOT_HANDLED;
 
-          OE_INFO << LC << "Loaded duktape JavaScript engine" << std::endl;
+          OE_DEBUG << LC << "Loaded duktape JavaScript engine" << std::endl;
           return ReadResult( new DuktapeEngine(getScriptEngineOptions(dbOptions)) );
         }
     };

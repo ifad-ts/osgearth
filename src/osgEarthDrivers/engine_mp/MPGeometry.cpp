@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -34,16 +37,76 @@ using namespace osgEarth;
 #define LC "[MPGeometry] "
 
 
+MPGeometry::MPGeometry() :
+osg::Geometry(),
+_frame(0L),
+_uidUniformNameID(0),
+_birthTimeUniformNameID(0u),
+_orderUniformNameID(0u),
+_opacityUniformNameID(0u),
+_texMatParentUniformNameID(0u),
+_tileKeyUniformNameID(0u),
+_minRangeUniformNameID(0u),
+_maxRangeUniformNameID(0u),
+_imageUnit(0),
+_imageUnitParent(0),
+_elevUnit(0),
+_supportsGLSL(false)
+{
+}
+
+MPGeometry::MPGeometry(const MPGeometry& rhs, const osg::CopyOp& cop) :
+osg::Geometry(rhs, cop),
+_frame(rhs._frame),
+_uidUniformNameID(rhs._uidUniformNameID),
+_birthTimeUniformNameID(rhs._birthTimeUniformNameID),
+_orderUniformNameID(rhs._orderUniformNameID),
+_opacityUniformNameID(rhs._opacityUniformNameID),
+_texMatParentUniformNameID(rhs._texMatParentUniformNameID),
+_tileKeyUniformNameID(rhs._tileKeyUniformNameID),
+_minRangeUniformNameID(rhs._minRangeUniformNameID),
+_maxRangeUniformNameID(rhs._maxRangeUniformNameID),
+_imageUnit(rhs._imageUnit),
+_imageUnitParent(rhs._imageUnitParent),
+_elevUnit(rhs._elevUnit),
+_supportsGLSL(rhs._supportsGLSL)
+{
+}
+
+
 MPGeometry::MPGeometry(const TileKey& key, const MapFrame& frame, int imageUnit) : 
 osg::Geometry    ( ),
 _frame           ( frame ),
-_imageUnit       ( imageUnit )
+_imageUnit       ( imageUnit ),
+_uidUniformNameID(0),
+_birthTimeUniformNameID(0u),
+_orderUniformNameID(0u),
+_opacityUniformNameID(0u),
+_texMatParentUniformNameID(0u),
+_tileKeyUniformNameID(0u),
+_minRangeUniformNameID(0u),
+_maxRangeUniformNameID(0u),
+_imageUnitParent(0),
+_elevUnit(0),
+_supportsGLSL(false)
 {
     _supportsGLSL = Registry::capabilities().supportsGLSL();
-
+    
+    // Encode the tile key in a uniform. Note! The X and Y components are presented
+    // modulo 2^16 form so they don't overrun single-precision space.
     unsigned tw, th;
     key.getProfile()->getNumTiles(key.getLOD(), tw, th);
-    _tileKeyValue.set( key.getTileX(), th-key.getTileY()-1.0f, key.getLOD(), -1.0f );
+
+    const double m = pow(2.0, 16.0);
+
+    double x = (double)key.getTileX();
+    double y = (double)(th - key.getTileY()-1);
+
+    _tileKeyValue.set(
+        (float)fmod(x, m),
+        (float)fmod(y, m),
+        (float)key.getLOD(),
+        -1.0f);
 
     _imageUnitParent = _imageUnit + 1; // temp
 
@@ -60,8 +123,8 @@ _imageUnit       ( imageUnit )
     _maxRangeUniformNameID     = osg::Uniform::getNameID( "oe_layer_maxRange" );
 
     // we will set these later (in TileModelCompiler)
-    this->setUseVertexBufferObjects(false);
     this->setUseDisplayList(false);
+    this->setUseVertexBufferObjects(true);
 }
 
 
@@ -81,9 +144,12 @@ MPGeometry::renderPrimitiveSets(osg::State& state,
             // This should only happen is the layer ordering changes;
             // If layers are added or removed, the Tile gets rebuilt and
             // the point is moot.
+            ImageLayerVector layers;
+            _frame.getLayers(layers);
+
             std::vector<Layer> reordered;
-            const ImageLayerVector& layers = _frame.imageLayers();
             reordered.reserve( layers.size() );
+
             for( ImageLayerVector::const_iterator i = layers.begin(); i != layers.end(); ++i )
             {
                 std::vector<Layer>::iterator j = std::find( _layers.begin(), _layers.end(), i->get()->getUID() );
@@ -99,21 +165,13 @@ MPGeometry::renderPrimitiveSets(osg::State& state,
     // access the GL extensions interface for the current GC:
     const osg::Program::PerContextProgram* pcp = 0L;
 
-#if OSG_MIN_VERSION_REQUIRED(3,3,3)
 	osg::ref_ptr<osg::GLExtensions> ext;
-#else
-    osg::ref_ptr<osg::GL2Extensions> ext;
-#endif
     unsigned contextID;
 
     if (_supportsGLSL)
     {
         contextID = state.getContextID();
-#if OSG_MIN_VERSION_REQUIRED(3,3,3)
 		ext = osg::GLExtensions::Get(contextID, true);
-#else
-		ext = osg::GL2Extensions::Get( contextID, true );
-#endif
         pcp = state.getLastAppliedProgramObject();
     }
 
@@ -138,6 +196,8 @@ MPGeometry::renderPrimitiveSets(osg::State& state,
         uidLocation          = pcp->getUniformLocation( _uidUniformNameID );
         orderLocation        = pcp->getUniformLocation( _orderUniformNameID );
         texMatParentLocation = pcp->getUniformLocation( _texMatParentUniformNameID );
+        minRangeLocation = pcp->getUniformLocation( _minRangeUniformNameID );
+        maxRangeLocation = pcp->getUniformLocation( _maxRangeUniformNameID );
     }
     
     // apply the tilekey uniform once.
@@ -167,42 +227,29 @@ MPGeometry::renderPrimitiveSets(osg::State& state,
         state.setTexCoordPointer( _imageUnit+1, _tileCoords.get() );
     }
 
-#ifndef OSG_GLES2_AVAILABLE
+#if !( defined(OSG_GLES2_AVAILABLE) || defined(OSG_GLES3_AVAILABLE) || defined(OSG_GL3_AVAILABLE) )
     if ( renderColor )
     {
         // emit a default terrain color since we're not binding a color array:
         glColor4f(1.0f, 1.0f, 1.0f, 1.0f);
     }
-#endif
-
-    // activate the elevation texture if there is one. Same for all layers.
-    //if ( _elevTex.valid() )
-    //{
-    //    state.setActiveTextureUnit( 2 );
-    //    state.setTexCoordPointer( 1, _tileCoords.get() ); // necessary?? since we do it above
-    //    _elevTex->apply( state );
-    //    // todo: probably need an elev texture matrix as well. -gw
-    //}
-    
+#endif    
 
     // track the active image unit.
     int activeImageUnit = -1;
 
     // remember whether we applied a parent texture.
     bool usedTexParent = false;
-    bool useMinVisibleRange = false;
-    bool useMaxVisibleRange = false;
 
     if ( _layers.size() > 0 )
     {
         float prev_opacity        = -1.0f;
-        float prev_alphaThreshold = -1.0f;
 
         // first bind any shared layers. We still have to do this even if we are
         // in !renderColor mode b/c these textures could be used by vertex shaders
         // to alter the geometry.
         int sharedLayers = 0;
-        if ( _supportsGLSL )
+        if ( pcp )
         {
             for(unsigned i=0; i<_layers.size(); ++i)
             {
@@ -224,40 +271,15 @@ MPGeometry::renderPrimitiveSets(osg::State& state,
                         // Shared layers need a texture matrix since the terrain engine doesn't
                         // provide a "current texture coordinate set" uniform (i.e. oe_layer_texc)
                         GLint texMatLocation = 0;
-                        if ( pcp )
+                        texMatLocation = pcp->getUniformLocation( layer._texMatUniformID );
+                        if ( texMatLocation >= 0 )
                         {
-                            texMatLocation = pcp->getUniformLocation( layer._texMatUniformID );
-                            if ( texMatLocation >= 0 )
-                            {
-                                ext->glUniformMatrix4fv( texMatLocation, 1, GL_FALSE, layer._texMat.ptr() );
-                            }
+                            ext->glUniformMatrix4fv( texMatLocation, 1, GL_FALSE, layer._texMat.ptr() );
                         }
-
-                        // no texture LOD blending for shared layers for now. maybe later.
                     }
                 }
-
-                // check for min/rax range usage.
-                const ImageLayerOptions& layerOptions = layer._imageLayer->getImageLayerOptions();
-                if ( layerOptions.minVisibleRange().isSet() )
-                    useMinVisibleRange = true;
-                if ( layerOptions.maxVisibleRange().isSet() )
-                    useMaxVisibleRange = true;
             }
         }
-
-        // look up the minRange uniform if necessary
-        if ( useMinVisibleRange && pcp )
-        {
-            minRangeLocation = pcp->getUniformLocation( _minRangeUniformNameID );
-        }
-        
-        // look up the maxRange uniform if necessary
-        if ( useMaxVisibleRange && pcp )
-        {
-            maxRangeLocation = pcp->getUniformLocation( _maxRangeUniformNameID );
-        }
-
         if (renderColor)
         {
             // find the first opaque layer, top-down, and start there:
@@ -265,7 +287,9 @@ MPGeometry::renderPrimitiveSets(osg::State& state,
             for(first = _layers.size()-1; first > 0; --first)
             {
                 const Layer& layer = _layers[first];
-                if (layer._opaque && 
+                if (layer._opaque &&
+                    //Color filters can modify the opacity
+                    layer._imageLayer->getColorFilters().empty() &&
                     layer._imageLayer->getVisible() &&
                     layer._imageLayer->getOpacity() >= 1.0f)
                 {
@@ -291,7 +315,7 @@ MPGeometry::renderPrimitiveSets(osg::State& state,
                     layer._tex->apply( state );
 
                     // in FFP mode, we need to enable the GL mode for texturing:
-                    if (!_supportsGLSL)
+                    if ( !pcp ) //!_supportsGLSL)
                     {
                         state.applyMode(GL_TEXTURE_2D, true);
                     }
@@ -345,13 +369,13 @@ MPGeometry::renderPrimitiveSets(osg::State& state,
                         // assign the min range
                         if ( minRangeLocation >= 0 )
                         {
-                            ext->glUniform1f( minRangeLocation, layer._imageLayer->getImageLayerOptions().minVisibleRange().get() );
+                            ext->glUniform1f( minRangeLocation, layer._imageLayer->options().minVisibleRange().get() );
                         }
 
                         // assign the max range
                         if ( maxRangeLocation >= 0 )
                         {
-                            ext->glUniform1f( maxRangeLocation, layer._imageLayer->getImageLayerOptions().maxVisibleRange().get() );
+                            ext->glUniform1f( maxRangeLocation, layer._imageLayer->options().maxVisibleRange().get() );
                         }
                     }
 
@@ -378,12 +402,15 @@ MPGeometry::renderPrimitiveSets(osg::State& state,
     // if we didn't draw anything, draw the raw tiles anyway with no texture.
     if ( layersDrawn == 0 )
     {
-        if ( opacityLocation >= 0 )
-            ext->glUniform1f( opacityLocation, (GLfloat)1.0f );
-        if ( uidLocation >= 0 )
-            ext->glUniform1i( uidLocation, (GLint)-1 );
-        if ( orderLocation >= 0 )
-            ext->glUniform1i( orderLocation, (GLint)0 );
+        if ( pcp )
+        {
+            if ( opacityLocation >= 0 )
+                ext->glUniform1f( opacityLocation, (GLfloat)1.0f );
+            if ( uidLocation >= 0 )
+                ext->glUniform1i( uidLocation, (GLint)-1 );
+            if ( orderLocation >= 0 )
+                ext->glUniform1i( orderLocation, (GLint)0 );
+        }
 
         // draw the primitives themselves.
         for(unsigned int primitiveSetNum=0; primitiveSetNum!=_primitives.size(); ++primitiveSetNum)
@@ -434,18 +461,13 @@ MPGeometry:: COMPUTE_BOUND() const
         // update the uniform.
         Threading::ScopedMutexLock exclusive(_frameSyncMutex);
         _tileKeyValue.w() = bbox.radius();
-        
-        // make sure everyone's got a vbo.
-        MPGeometry* ncthis = const_cast<MPGeometry*>(this);
 
-        for(std::vector<Layer>::iterator i = _layers.begin(); i != _layers.end(); ++i)
+        // create the patch triangles index if necessary.
+        if ( getNumPrimitiveSets() > 0 && getPrimitiveSet(0)->getMode() == GL_PATCHES )
         {
-            if ( i->_texCoords.valid() && i->_texCoords->getVertexBufferObject() == 0L )
-                i->_texCoords->setVertexBufferObject( ncthis->getVertexArray()->getVertexBufferObject() );
+            _patchTriangles = osg::clone( getPrimitiveSet(0), osg::CopyOp::SHALLOW_COPY );
+            _patchTriangles->setMode( GL_TRIANGLES );
         }
-
-        if ( _tileCoords.valid() && _tileCoords->getVertexBufferObject() == 0L )
-            _tileCoords->setVertexBufferObject( ncthis->getVertexArray()->getVertexBufferObject() );
     }
     return bbox;
 }
@@ -496,19 +518,8 @@ MPGeometry::releaseGLObjects(osg::State* state) const
 {
     osg::Geometry::releaseGLObjects( state );
 
-    for(unsigned i=0; i<_layers.size(); ++i)
-    {
-        const Layer& layer = _layers[i];
-
-        //Moved to TileModel since that's where the texture is created. Releasing it
-        // here could break texture sharing.
-        //if ( layer._tex.valid() )
-        //    layer._tex->releaseGLObjects( state );
-
-        // Check the refcount since texcoords can be cached/shared.
-        if ( layer._texCoords.valid() && layer._texCoords->referenceCount() == 1 )
-            layer._texCoords->releaseGLObjects( state );
-    }
+    // Note: don't release the textures here; instead we release them in the
+    // TileModel where they were created. -gw
 }
 
 
@@ -530,81 +541,47 @@ MPGeometry::resizeGLObjectBuffers(unsigned maxSize)
     }
 }
 
-namespace
-{
-    void compileBufferObject(BufferObject* bo, unsigned contextID)
-    {
-        if ( bo )
-        {
-            GLBufferObject* glBufferObject = bo->getOrCreateGLBufferObject(contextID);
-            if (glBufferObject && glBufferObject->isDirty())
-            {
-                glBufferObject->compileBuffer();
-            }
-        }
-    }
-    void compileBufferObject(osg::Array* a, unsigned contextID)
-    {
-        if ( a )
-        {
-            compileBufferObject( a->getBufferObject(), contextID );
-        }
-    }
-}
-
 
 void 
 MPGeometry::compileGLObjects( osg::RenderInfo& renderInfo ) const
 {
-    //osg::Geometry::compileGLObjects( renderInfo );
-    
     State& state = *renderInfo.getState();
-    unsigned contextID = state.getContextID();
-
-#if OSG_MIN_VERSION_REQUIRED(3,3,3)
-    osg::GLExtensions* extensions = osg::GLExtensions::Get(contextID, true);
-#else
-    GLBufferObject::Extensions* extensions = GLBufferObject::getExtensions(contextID, true);
-#endif
-    if (!extensions)
-        return;
-
-    MPGeometry* ncthis = const_cast<MPGeometry*>(this);
-
-    //ncthis->validate();
-
-    compileBufferObject(ncthis->getVertexArray(), contextID);
-    compileBufferObject(ncthis->getNormalArray(), contextID);
-
-    for(unsigned i=0; i<getVertexAttribArrayList().size(); ++i) 
-    {
-        osg::Array* a = GET_ARRAY( getVertexAttribArrayList()[i] ).get();
-        compileBufferObject( a, contextID );
-    }
     
-    for(PrimitiveSetList::const_iterator i = _primitives.begin(); i != _primitives.end(); ++i )
-    {
-        compileBufferObject( i->get()->getBufferObject(), contextID );
-    }
-    
-    // compile the layer-specific things:
+    // compile the image textures:
     for(unsigned i=0; i<_layers.size(); ++i)
     {
         const Layer& layer = _layers[i];
-
-        compileBufferObject( layer._texCoords.get(), contextID );
-
         if ( layer._tex.valid() )
-            layer._tex->apply( *renderInfo.getState() );
+            layer._tex->apply( state );
     }
 
+    // compile the elevation texture:
     if ( _elevTex.valid() )
-        _elevTex->apply( *renderInfo.getState() );
+    {
+        _elevTex->apply( state );
+    }
 
-    // unbind the BufferObjects
-    extensions->glBindBuffer(GL_ARRAY_BUFFER_ARB,0);
-    extensions->glBindBuffer(GL_ELEMENT_ARRAY_BUFFER_ARB,0);
+    osg::Geometry::compileGLObjects( renderInfo );
 }
+
+#if OSG_MIN_VERSION_REQUIRED(3,5,6)
+
+osg::VertexArrayState*
+#if OSG_MIN_VERSION_REQUIRED(3,5,9)
+MPGeometry::createVertexArrayStateImplementation(osg::RenderInfo& renderInfo) const
+{
+    osg::VertexArrayState* vas = osg::Geometry::createVertexArrayStateImplementation(renderInfo);
+#else
+MPGeometry::createVertexArrayState(osg::RenderInfo& renderInfo) const
+{
+    osg::VertexArrayState* vas = osg::Geometry::createVertexArrayState(renderInfo);
+#endif
+    // make sure we have array dispatchers for the multipass coords
+    vas->assignTexCoordArrayDispatcher(_texCoordList.size() + 2);
+
+    return vas;
+}
+#endif
 
 
 void 
@@ -621,61 +598,44 @@ MPGeometry::drawImplementation(osg::RenderInfo& renderInfo) const
 
     bool hasVertexAttributes = !_vertexAttribList.empty();
 
-    osg::ArrayDispatchers& arrayDispatchers = state.getArrayDispatchers();
-
-    arrayDispatchers.reset();
-    arrayDispatchers.setUseVertexAttribAlias(state.getUseVertexAttributeAliasing());
-
-
-    //Remove?
-#if OSG_VERSION_LESS_THAN(3,1,8)
-    arrayDispatchers.setUseGLBeginEndAdapter(false);
-#endif
-
-#if OSG_MIN_VERSION_REQUIRED(3,1,8)
-    arrayDispatchers.activateNormalArray(_normalArray.get());
+#if OSG_VERSION_LESS_THAN(3,5,6)
+    osg::ArrayDispatchers& dispatchers = state.getArrayDispatchers();
 #else
-    arrayDispatchers.activateNormalArray(_normalData.binding, _normalData.array.get(), _normalData.indices.get());
+    osg::AttributeDispatchers& dispatchers = state.getAttributeDispatchers();
 #endif
-    
+
+    dispatchers.reset();
+    dispatchers.setUseVertexAttribAlias(state.getUseVertexAttributeAliasing());
+    dispatchers.activateNormalArray(_normalArray.get());   
 
     if (hasVertexAttributes)
     {
         for(unsigned int unit=0;unit<_vertexAttribList.size();++unit)
         {
-#if OSG_MIN_VERSION_REQUIRED(3,1,8)
-            arrayDispatchers.activateVertexAttribArray(unit, _vertexAttribList[unit].get());
-#else
-            arrayDispatchers.activateVertexAttribArray(_vertexAttribList[unit].binding, unit, _vertexAttribList[unit].array.get(), _vertexAttribList[unit].indices.get());
-#endif             
+            dispatchers.activateVertexAttribArray(unit, _vertexAttribList[unit].get());
         }
     }
 
     // dispatch any attributes that are bound overall
-    arrayDispatchers.dispatch(BIND_OVERALL,0);
+#if OSG_VERSION_LESS_THAN(3,5,6)
+    dispatchers.dispatch(BIND_OVERALL,0);
+#else
+    dispatchers.dispatch(0);
+#endif
     state.lazyDisablingOfVertexAttributes();
 
 
     // set up arrays
-#if OSG_MIN_VERSION_REQUIRED( 3, 1, 8 )
     if( _vertexArray.valid() )
         state.setVertexPointer(_vertexArray.get());
 
     if (_normalArray.valid() && _normalArray->getBinding()==osg::Array::BIND_PER_VERTEX)
         state.setNormalPointer(_normalArray.get());
-#else
-    if( _vertexData.array.valid() )
-        state.setVertexPointer(_vertexData.array.get());
-
-    if (_normalData.binding==BIND_PER_VERTEX && _normalData.array.valid())
-        state.setNormalPointer(_normalData.array.get());
-#endif
 
     if( hasVertexAttributes )
     {
         for(unsigned int index = 0; index < _vertexAttribList.size(); ++index )
         {
-#if OSG_MIN_VERSION_REQUIRED( 3, 1, 8)
             const Array* array = _vertexAttribList[index].get();
             if (array && array->getBinding()==osg::Array::BIND_PER_VERTEX)
             {
@@ -691,14 +651,6 @@ MPGeometry::drawImplementation(osg::RenderInfo& renderInfo) const
                     state.setVertexAttribPointer( index, array );
                 }
             }
-#else            
-            const osg::Array* array = _vertexAttribList[index].array.get();
-            const AttributeBinding ab = _vertexAttribList[index].binding;
-            if( ab == BIND_PER_VERTEX && array )
-            {
-                state.setVertexAttribPointer( index, array, _vertexAttribList[index].normalize );
-            }
-#endif
         }
     }
 
@@ -708,6 +660,33 @@ MPGeometry::drawImplementation(osg::RenderInfo& renderInfo) const
     renderPrimitiveSets(state, renderColor, true);
 
     // unbind the VBO's if any are used.
-    state.unbindVertexBufferObject();
-    state.unbindElementBufferObject();
+#if OSG_MIN_VERSION_REQUIRED(3,5,6)
+    if (!state.useVertexArrayObject(_useVertexArrayObject) || state.getCurrentVertexArrayState()->getRequiresSetArrays())
+#endif
+    {
+        state.unbindVertexBufferObject();
+        state.unbindElementBufferObject();
+    }
+}
+
+void
+MPGeometry::accept(osg::PrimitiveIndexFunctor& functor) const
+{
+    osg::Geometry::accept(functor);
+
+    if ( getNumPrimitiveSets() > 0 && getPrimitiveSet(0)->getMode() == GL_PATCHES && _patchTriangles.valid() )
+    {
+        _patchTriangles->accept( functor );
+    }
+}
+
+void
+MPGeometry::accept(osg::PrimitiveFunctor& functor) const
+{
+    osg::Geometry::accept(functor);
+
+    if ( getNumPrimitiveSets() > 0 && getPrimitiveSet(0)->getMode() == GL_PATCHES && _patchTriangles.valid() )
+    {
+        _patchTriangles->accept( functor );
+    }
 }

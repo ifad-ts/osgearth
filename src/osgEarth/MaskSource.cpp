@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -28,6 +28,7 @@ using namespace OpenThreads;
 
 MaskSourceOptions::~MaskSourceOptions()
 {
+    //nop
 }
 
 void
@@ -55,16 +56,26 @@ MaskSourceOptions::getConfig() const
 MaskSource::MaskSource( const MaskSourceOptions& options ) :
 _options( options )
 {
+    //nop
 }
 
 MaskSource::~MaskSource()
 {
+    //nop
+}
+
+const Status&
+MaskSource::open(const osgDB::Options* readOptions)
+{
+    _status = initialize(readOptions);
+    return _status;
 }
 
 //------------------------------------------------------------------------
 
 MaskSourceDriver::~MaskSourceDriver()
 {
+    //nop
 }
 
 //------------------------------------------------------------------------
@@ -75,12 +86,13 @@ MaskSourceDriver::~MaskSourceDriver()
 
 MaskSourceFactory::~MaskSourceFactory()
 {
+    //nop
 }
 
 MaskSource*
 MaskSourceFactory::create( const MaskSourceOptions& options )
 {
-    MaskSource* source = 0L;
+    osg::ref_ptr<MaskSource> source;
 
     if ( !options.getDriver().empty() )
     {
@@ -89,7 +101,8 @@ MaskSourceFactory::create( const MaskSourceOptions& options )
         osg::ref_ptr<osgDB::Options> rwopts = Registry::instance()->cloneOrCreateOptions();
         rwopts->setPluginData( MASK_SOURCE_OPTIONS_TAG, (void*)&options );
 
-        source = dynamic_cast<MaskSource*>( osgDB::readObjectFile( driverExt, rwopts.get() ) );
+        osg::ref_ptr<osg::Object> object = osgDB::readRefObjectFile( driverExt, rwopts.get() );
+        source = dynamic_cast<MaskSource*>( object.release() );
         if ( source )
         {
             OE_INFO << "Loaded MaskSource driver \"" << options.getDriver() << "\" OK" << std::endl;
@@ -104,7 +117,7 @@ MaskSourceFactory::create( const MaskSourceOptions& options )
         OE_WARN << LC << "FAIL, illegal null driver specification" << std::endl;
     }
 
-    return source;
+    return source.release();
 }
 
 //------------------------------------------------------------------------
@@ -112,5 +125,7 @@ MaskSourceFactory::create( const MaskSourceOptions& options )
 const MaskSourceOptions&
 MaskSourceDriver::getMaskSourceOptions( const osgDB::ReaderWriter::Options* options ) const
 {
-    return *static_cast<const MaskSourceOptions*>( options->getPluginData( MASK_SOURCE_OPTIONS_TAG ) );
+    static MaskSourceOptions s_default;
+    const void* data = options->getPluginData(MASK_SOURCE_OPTIONS_TAG);
+    return data ? *static_cast<const MaskSourceOptions*>(data) : s_default;
 }

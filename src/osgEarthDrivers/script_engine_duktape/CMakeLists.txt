@@ -1,3 +1,4 @@
+IF(NOT WITH_EXTERNAL_DUKTAPE OR DUKTAPE_FOUND)
 
 IF(WITH_EXTERNAL_DUKTAPE)
 
@@ -19,6 +20,7 @@ ELSE(WITH_EXTERNAL_DUKTAPE)
 
     SET(TARGET_H
         duktape.h
+        duk_config.h
         DuktapeEngine
 		JSGeometry
     )
@@ -39,4 +41,6 @@ SETUP_PLUGIN(osgearth_scriptengine_javascript)
 SET(LIB_NAME scriptengine_javascript)
 SET(LIB_PUBLIC_HEADERS ${TARGET_H} )
 INCLUDE(ModuleInstallOsgEarthDriverIncludes OPTIONAL)
+
+ENDIF(NOT WITH_EXTERNAL_DUKTAPE OR DUKTAPE_FOUND)
 

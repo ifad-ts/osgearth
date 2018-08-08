@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -20,9 +20,10 @@
 #define OSGEARTHFEATURES_FEATURE_H 1
 
 #include <osgEarthFeatures/Common>
-#include <osgEarthFeatures/FilterContext>
+
 #include <osgEarthSymbology/Geometry>
 #include <osgEarthSymbology/Style>
+
 #include <osgEarth/GeoCommon>
 #include <osgEarth/SpatialReference>
 #include <osg/Array>
@@ -34,7 +35,9 @@ namespace osgEarth { namespace Features
 {
     using namespace osgEarth;
     using namespace osgEarth::Symbology;
+
     class FilterContext;
+    class Session;
 
     /**
      * Metadata and schema information for feature data.
@@ -47,13 +50,12 @@ namespace osgEarth { namespace Features
         virtual ~FeatureProfile() { }
 
         /** Gets the spatial extents of the features in this profile. */
-        const GeoExtent& getExtent() const {
-            return _extent; }
+        const GeoExtent& getExtent() const { return _extent; }
 
         /** Gets the spatial reference system of feature shapes in this class. */
-        const SpatialReference* getSRS() const {
-            return _extent.getSRS(); }
+        const SpatialReference* getSRS() const { return _extent.getSRS(); }
 
+        /** Whether the feature data is pre-tiled */
         bool getTiled() const;
         void setTiled(bool tiled);
 
@@ -66,12 +68,17 @@ namespace osgEarth { namespace Features
         const osgEarth::Profile* getProfile() const;
         void setProfile( const osgEarth::Profile* profile );
 
+        /** Interpolation method for geodetic data */
+        optional<GeoInterpolation>& geoInterp() { return _geoInterp; }
+        const optional<GeoInterpolation>& geoInterp() const { return _geoInterp; }
+
     protected:
         osg::ref_ptr< const osgEarth::Profile > _profile;
         GeoExtent _extent;
         bool _tiled;
         int _firstLevel;
         int _maxLevel;
+        optional<GeoInterpolation> _geoInterp;
     };
 
     struct AttributeValueUnion
@@ -101,8 +108,8 @@ namespace osgEarth { namespace Features
         int getInt( int defaultValue =0 ) const;
         bool getBool( bool defaultValue =false ) const;              
     };
-
-    typedef std::map<std::string, AttributeValue> AttributeTable;
+    
+    typedef std::map<std::string, AttributeValue, CIStringComp> AttributeTable;
 
     typedef unsigned long FeatureID;
 
@@ -139,8 +146,6 @@ namespace osgEarth { namespace Features
         /** Copy contructor */
         Feature( const Feature& rhs, const osg::CopyOp& copyop =osg::CopyOp::DEEP_COPY_ALL );
 
-        virtual ~Feature() { }
-
         META_Object( osgEarthFeatures, Feature );
 
     public:
@@ -149,6 +154,16 @@ namespace osgEarth { namespace Features
          * The unique ID of this feature (unique relative to its provider)
          */
         FeatureID getFID() const;
+
+        /**
+         * Set the FID of this feature.
+         */
+        void setFID(FeatureID fid);
+
+        /**
+         * Gets the GeoExtent of this Feature
+         */
+        GeoExtent getExtent() const;
 
         /**
          * The geometry in this feature.
@@ -175,6 +190,18 @@ namespace osgEarth { namespace Features
          */
         bool getWorldBoundingPolytope( const SpatialReference* srs, osg::Polytope& out_polytope ) const;
 
+        /** 
+         * Gets a polytope, in world coordinates (proj or ECEF) that bounds the
+         * world coordinates covered by the given bounding sphere. This is useful for roughly
+         * intersecting features with the terrain graph.
+         */
+        static bool getWorldBoundingPolytope( const osg::BoundingSphered& bs, const SpatialReference* srs, osg::Polytope& out_polytope );
+
+        /**
+         * Calculates the extent of this feature.
+         */
+        GeoExtent calculateExtent() const;
+
 
         const AttributeTable& getAttrs() const { return _attrs; }
 
@@ -182,6 +209,7 @@ namespace osgEarth { namespace Features
         void set( const std::string& name, double value );
         void set( const std::string& name, int value );
         void set( const std::string& name, bool value );
+        void set( const std::string& name, const AttributeValue& value);
 
         /** Sets the attribute to NULL */         
         void setNull( const std::string& name );
@@ -208,17 +236,19 @@ namespace osgEarth { namespace Features
         const optional<GeoInterpolation>& geoInterp() const { return _geoInterp; }
 
         /** populates the variables of an expression with attribute values and evals the expression. */
-        double eval( NumericExpression& expr, FilterContext const* context=0L ) const;
+        double eval(NumericExpression& expr, const FilterContext* context) const;
+        double eval(NumericExpression& expr, Session* session) const;
         
         /** populates the variables of an expression with attribute values and evals the expression. */
-        const std::string& eval( StringExpression& expr, FilterContext const* context=0L ) const;
+        const std::string& eval(StringExpression& expr, const FilterContext* context) const;
+        const std::string& eval(StringExpression& expr, Session* session) const;
 
     public:
         /** Gets a GeoJSON representation of this Feature */
         std::string getGeoJSON() const;
 
         /** Gets a FeatureList as a GeoJSON FeatureCollection */
-        static std::string featuresToGeoJSON( FeatureList& features);
+        static std::string featuresToGeoJSON(const FeatureList& features);
 
     public:
         /**
@@ -226,12 +256,19 @@ namespace osgEarth { namespace Features
          */
         void transform( const SpatialReference* srs );
 
+        /**
+         * Splits this feature into multiple features if it is a geodetic feature and cross the date line.
+         */
+        void splitAcrossDateLine(FeatureList& splitFeatures);
+
     protected:
 
         Feature( FeatureID fid =0L );
 
+        virtual ~Feature();
+
         FeatureID                            _fid;
-        osg::ref_ptr<Symbology::Geometry>    _geom;
+        osg::ref_ptr<Geometry>               _geom;
         osg::ref_ptr<const SpatialReference> _srs;
         AttributeTable                       _attrs;
         optional<Style>                      _style;

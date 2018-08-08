@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -33,6 +36,8 @@ using namespace osgEarth::Symbology;
 using namespace geos;
 using namespace geos::operation;
 #endif
+
+#define GEOS_OUT OE_INFO
 
 #define LC "[Geometry] "
 
@@ -102,7 +107,7 @@ Geometry::cloneAs( const Geometry::Type& newType ) const
 }
 
 osg::Vec3Array*
-Geometry::toVec3Array() const 
+Geometry::createVec3Array() const 
 {
     osg::Vec3Array* result = new osg::Vec3Array( this->size() );
     std::copy( begin(), end(), result->begin() );
@@ -110,7 +115,7 @@ Geometry::toVec3Array() const
 }
 
 osg::Vec3dArray*
-Geometry::toVec3dArray() const 
+Geometry::createVec3dArray() const 
 {
     osg::Vec3dArray* result = new osg::Vec3dArray( this->size() );
     std::copy( begin(), end(), result->begin() );
@@ -248,8 +253,14 @@ Geometry::crop( const Polygon* cropPoly, osg::ref_ptr<Geometry>& output ) const
                 cropGeom,
                 overlay::OverlayOp::opINTERSECTION );
         }
+        catch (const geos::util::TopologyException& ex) {
+            GEOS_OUT << LC << "Crop(GEOS): "
+                << (ex.what()? ex.what() : " no error message")
+                << std::endl;
+            outGeom = 0L;
+        }
         catch(const geos::util::GEOSException& ex) {
-            OE_NOTICE << LC << "Crop(GEOS): "
+            OE_INFO << LC << "Crop(GEOS): "
                 << (ex.what()? ex.what() : " no error message")
                 << std::endl;
             outGeom = 0L;
@@ -300,6 +311,97 @@ Geometry::crop( const Polygon* cropPoly, osg::ref_ptr<Geometry>& output ) const
 }
 
 bool
+Geometry::crop( const Bounds& bounds, osg::ref_ptr<Geometry>& output ) const
+{
+    osg::ref_ptr<Polygon> poly = new Polygon;
+    poly->resize( 4 );        
+    (*poly)[0].set(bounds.xMin(), bounds.yMin(), 0);
+    (*poly)[1].set(bounds.xMax(), bounds.yMin(), 0);
+    (*poly)[2].set(bounds.xMax(), bounds.yMax(), 0);
+    (*poly)[3].set(bounds.xMin(), bounds.yMax(), 0);
+    return crop(poly.get(), output);
+}
+
+bool
+Geometry::geounion( const Geometry* other, osg::ref_ptr<Geometry>& output ) const
+{
+#ifdef OSGEARTH_HAVE_GEOS
+    bool success = false;
+    output = 0L;
+
+    GEOSContext gc;
+
+    //Create the GEOS Geometries
+    geom::Geometry* inGeom   = gc.importGeometry( this );
+    geom::Geometry* otherGeom = gc.importGeometry( other );
+
+    if ( inGeom )
+    {    
+        geom::Geometry* outGeom = 0L;
+        try {
+            outGeom = overlay::OverlayOp::overlayOp(
+                inGeom,
+                otherGeom,
+                overlay::OverlayOp::opUNION );
+        }
+        catch (const geos::util::TopologyException& ex) {
+            GEOS_OUT << LC << "Crop(GEOS): "
+                << (ex.what()? ex.what() : " no error message")
+                << std::endl;
+            outGeom = 0L;
+        }
+        catch(const geos::util::GEOSException& ex) {
+            OE_INFO << LC << "Union(GEOS): "
+                << (ex.what()? ex.what() : " no error message")
+                << std::endl;
+            outGeom = 0L;
+        }
+
+        if ( outGeom )
+        {
+            output = gc.exportGeometry( outGeom );
+
+            if ( output.valid())
+            {
+                if ( output->isValid() )
+                {
+                    success = true;
+                }
+                else
+                {
+                    // GEOS result is invalid
+                    output = 0L;
+                }
+            }
+            else
+            {
+                // set output to empty geometry to indicate the (valid) empty case,
+                // still returning false but allows for check.
+                if (outGeom->getNumPoints() == 0)
+                {
+                    output = new osgEarth::Symbology::Geometry();
+                }
+            }
+
+            gc.disposeGeometry( outGeom );
+        }
+    }
+
+    //Destroy the geometry
+    gc.disposeGeometry( otherGeom );
+    gc.disposeGeometry( inGeom );
+
+    return success;
+
+#else // OSGEARTH_HAVE_GEOS
+
+    OE_WARN << LC << "Union failed - GEOS not available" << std::endl;
+    return false;
+
+#endif // OSGEARTH_HAVE_GEOS
+}
+
+bool
 Geometry::difference( const Polygon* diffPolygon, osg::ref_ptr<Geometry>& output ) const
 {
 #ifdef OSGEARTH_HAVE_GEOS
@@ -319,8 +421,14 @@ Geometry::difference( const Polygon* diffPolygon, osg::ref_ptr<Geometry>& output
                 diffGeom,
                 overlay::OverlayOp::opDIFFERENCE );
         }
+        catch (const geos::util::TopologyException& ex) {
+            GEOS_OUT << LC << "Crop(GEOS): "
+                << (ex.what()? ex.what() : " no error message")
+                << std::endl;
+            outGeom = 0L;
+        }
         catch(const geos::util::GEOSException& ex) {
-            OE_NOTICE << LC << "Diff(GEOS): "
+            OE_INFO << LC << "Diff(GEOS): "
                 << (ex.what()? ex.what() : " no error message")
                 << std::endl;
             outGeom = 0L;
@@ -347,6 +455,35 @@ Geometry::difference( const Polygon* diffPolygon, osg::ref_ptr<Geometry>& output
 #else // OSGEARTH_HAVE_GEOS
 
     OE_WARN << LC << "Difference failed - GEOS not available" << std::endl;
+    return false;
+
+#endif // OSGEARTH_HAVE_GEOS
+}
+
+bool
+Geometry::intersects(
+            const class Geometry* other
+            ) const
+{
+#ifdef OSGEARTH_HAVE_GEOS
+
+    GEOSContext gc;
+
+    //Create the GEOS Geometries
+    geom::Geometry* inGeom   = gc.importGeometry( this );
+    geom::Geometry* otherGeom = gc.importGeometry( other );
+
+    bool intersects = inGeom->intersects( otherGeom );
+
+    //Destroy the geometry
+    gc.disposeGeometry( otherGeom );
+    gc.disposeGeometry( inGeom );
+
+    return intersects;
+
+#else // OSGEARTH_HAVE_GEOS
+
+    OE_WARN << LC << "Intersects failed - GEOS not available" << std::endl;
     return false;
 
 #endif // OSGEARTH_HAVE_GEOS
@@ -421,6 +558,30 @@ void Geometry::removeDuplicates()
     }
 }
 
+void
+Geometry::removeColinearPoints()
+{
+    if ( size() >= 3 )
+    {
+        std::vector<unsigned> ind;
+
+        for(unsigned i=0; i<size()-2; ++i)
+        {
+            osg::Vec3d v0( at(i+1) - at(i) );
+            v0.normalize();
+            osg::Vec3d v1( at(i+2) - at(i) );
+            v1.normalize();
+            if ( osg::equivalent(v0*v1, 1.0) )
+                ind.push_back(i+1);
+        }
+
+        for(std::vector<unsigned>::reverse_iterator r = ind.rbegin(); r != ind.rend(); ++r)
+        {
+            erase( begin() + (*r) );
+        }
+    }
+}
+
 Geometry::Orientation 
 Geometry::getOrientation() const
 {
@@ -469,6 +630,30 @@ Geometry::getOrientation() const
         Geometry::ORIENTATION_DEGENERATE;
 }
 
+double
+Geometry::getLength() const
+{
+    if (empty())
+        return 0.0;
+
+    double length = 0;
+    for (unsigned int i = 0; i < size()-1; ++i)
+    {
+        osg::Vec3d current = (*this)[i];
+        osg::Vec3d next    = (*this)[i+1];
+        length += (next - current).length();
+    }
+    return length;
+}
+
+// ensures that the first and last points are idential.
+void 
+Geometry::close()
+{
+    if ( size() > 0 && front() != back() )
+        push_back( front() );
+}
+
 //----------------------------------------------------------------------------
 
 PointSet::PointSet( const PointSet& rhs ) :
@@ -479,6 +664,12 @@ Geometry( rhs )
 
 PointSet::~PointSet()
 {
+}
+
+void
+PointSet::close()
+{
+    //NOP. Don't close point sets..
 }
 
 //----------------------------------------------------------------------------
@@ -499,19 +690,6 @@ LineString::~LineString()
 {
 }
 
-double
-LineString::getLength() const
-{
-    double length = 0;
-    for (unsigned int i = 0; i < size()-1; ++i)
-    {
-        osg::Vec3d current = (*this)[i];
-        osg::Vec3d next    = (*this)[i+1];
-        length += (next - current).length();
-    }
-    return length;
-}
-
 bool
 LineString::getSegment(double length, osg::Vec3d& start, osg::Vec3d& end)
 {
@@ -529,6 +707,12 @@ LineString::getSegment(double length, osg::Vec3d& start, osg::Vec3d& end)
         }
     }
     return false;
+}
+
+void
+LineString::close()
+{
+    //NOP - dont' close line strings.
 }
 
 //----------------------------------------------------------------------------
@@ -562,6 +746,20 @@ Ring::cloneAs( const Geometry::Type& newType ) const
     else return Geometry::cloneAs( newType );
 }
 
+double
+Ring::getLength() const
+{
+    if (empty())
+        return 0.0;
+
+    double length = Geometry::getLength();
+    if ( isOpen() )
+    {
+        length += (front()-back()).length();
+    }
+    return length;
+}
+
 // ensures that the first and last points are not idential.
 void 
 Ring::open()
@@ -570,12 +768,17 @@ Ring::open()
         erase( end()-1 );
 }
 
-// ensures that the first and last points are idential.
-void 
+void
 Ring::close()
 {
-    if ( size() > 0 && front() != back() )
-        push_back( front() );
+    Geometry::close();
+}
+
+// whether the ring is open.
+bool
+Ring::isOpen() const
+{
+    return size() > 1 && front() != back();
 }
 
 // gets the signed area.
@@ -691,6 +894,14 @@ Polygon::removeDuplicates()
         (*i)->removeDuplicates();
 }
 
+void
+Polygon::removeColinearPoints()
+{
+    Ring::removeColinearPoints();
+    for( RingCollection::const_iterator i = _holes.begin(); i != _holes.end(); ++i )
+        (*i)->removeColinearPoints();
+}
+
 //----------------------------------------------------------------------------
 
 MultiGeometry::MultiGeometry( const MultiGeometry& rhs ) :
@@ -713,8 +924,13 @@ MultiGeometry::~MultiGeometry()
 Geometry::Type
 MultiGeometry::getComponentType() const
 {
-    // dicey.
-    return _parts.size() > 0 ? _parts.front()->getType() : TYPE_UNKNOWN;
+    if (_parts.size() == 0)
+        return TYPE_UNKNOWN;
+
+    if (_parts.front()->getType() == TYPE_MULTI)
+        return _parts.front()->getComponentType();
+
+    return _parts.front()->getType();
 }
 
 int
@@ -723,6 +939,15 @@ MultiGeometry::getTotalPointCount() const
     int total = 0;
     for( GeometryCollection::const_iterator i = _parts.begin(); i != _parts.end(); ++i )
         total += i->get()->getTotalPointCount();
+    return total;
+}
+
+double
+MultiGeometry::getLength() const
+{
+    double total = 0.0;
+    for( GeometryCollection::const_iterator i = _parts.begin(); i != _parts.end(); ++i )
+        total += i->get()->getLength();
     return total;
 }
 
@@ -773,6 +998,15 @@ MultiGeometry::isValid() const
     return valid;
 }
 
+void
+MultiGeometry::close()
+{
+    for( GeometryCollection::const_iterator i = _parts.begin(); i != _parts.end(); ++i )
+    {
+        i->get()->close();
+    }
+}
+
 // opens and rewinds the polygon to the specified orientation.
 void 
 MultiGeometry::rewind( Orientation orientation )
@@ -780,6 +1014,15 @@ MultiGeometry::rewind( Orientation orientation )
     for( GeometryCollection::const_iterator i = _parts.begin(); i != _parts.end(); ++i )
     {
         i->get()->rewind( orientation );
+    }
+}
+
+void
+MultiGeometry::removeColinearPoints()
+{
+    for( GeometryCollection::const_iterator i = _parts.begin(); i != _parts.end(); ++i )
+    {
+        i->get()->removeColinearPoints();
     }
 }
 

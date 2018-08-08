@@ -29,7 +29,7 @@ DataScanner
 
 The ``DataScanner`` will recursively search a directory tree on the local filesystem
 for files that it can load as ``ImageLayer`` objects. It is a quick and easy way to 
-load a full directory of images at layers.
+load a full directory of images as layers.
 
 **NOTE** that only the *MP Terrain Engine* supports an unlimited number of image layers,
 so it is wise to use that engine in conjunction with the DataScanner.
@@ -51,7 +51,7 @@ DetailTexture
 -------------
 
 ``DetailTexture`` is a terrain controller that will apply a non-geospatial texture
-cross the terrain. This is an old trick that you can use to generate "noise" that makes
+across the terrain. This is an old trick that you can use to generate "noise" that makes
 a low resolution terrain appear more detailed::
 
     DetailTexture* detail = new DetailTexture();
@@ -158,7 +158,7 @@ You can also specify options for the output string:
 MGRSFormatter
 ~~~~~~~~~~~~~
 
-The ``MGRSFormatter`` echos a string according to the `Military Grid Reference System`_. 
+The ``MGRSFormatter`` constructs a string according to the `Military Grid Reference System`_. 
 Technically, an MGRS coordinate represents a *region* rather than an exact point, so you
 have to specifiy a *precision* qualifier to control the size of the represented region.
 Example::
@@ -225,7 +225,7 @@ this. The setup looks like this in the earth file::
         <normal_map>true</normal_map>
     </image>
     
-The **noise driver** generates Perlin noise; this will will the image with pseudo-
+The **noise driver** generates Perlin noise; this will fill the image with pseudo-
 random normal vectors. (Setting ``normal_map`` to ``true`` is what tells the driver
 to make normal vectors instead of RGB values. You should also set ``shared`` to 
 ``true``; this will make the normal map available to the shader pipeline so that it

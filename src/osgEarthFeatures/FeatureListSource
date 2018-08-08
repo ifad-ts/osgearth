@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -22,7 +25,6 @@
 
 #include <osgEarthFeatures/Common>
 #include <osgEarthFeatures/Feature>
-#include <osgEarthFeatures/FeatureCursor>
 #include <osgEarthFeatures/FeatureSource>
 
 #include <osgEarth/Profile>
@@ -30,7 +32,12 @@
 
 namespace osgEarth { namespace Features
 {   
-    class OSGEARTHFEATURES_EXPORT FeatureListSource : public osgEarth::Features::FeatureSource
+    class FeatureCursor;
+
+    /**
+     * @deprecated - use a FeatureNode instead
+     */
+    class OSGEARTHFEATURES_EXPORT FeatureListSource : public FeatureSource
     {
     public:
         /**
@@ -46,17 +53,21 @@ namespace osgEarth { namespace Features
         FeatureListSource(const GeoExtent& defaultExtent );
 
         virtual ~FeatureListSource() { }
+        
+        virtual Status initialize(const osgDB::Options* readOptions) { return Status::OK();  }
 
         virtual FeatureCursor* createFeatureCursor( const Symbology::Query& query );
 
         virtual bool isWritable() const { return true; }
         virtual bool deleteFeature(FeatureID fid);
         virtual int getFeatureCount() const { return _features.size(); }
+        virtual bool supportsGetFeature() const { return true; }
         virtual Feature* getFeature( FeatureID fid );
         virtual bool insertFeature(Feature* feature);
         virtual Geometry::Type getGeometryType() const { return Geometry::TYPE_UNKNOWN; }
 
         FeatureList& getFeatures() { return _features; }
+
 
     public: // Styling
 

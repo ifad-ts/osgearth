@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -20,6 +23,7 @@
 #include <osgViewer/Viewer>
 #include <osgEarth/MapNode>
 #include <osgEarth/TimeControl>
+#include <osgEarth/ImageLayer>
 #include <osgEarthUtil/ExampleResources>
 #include <osgEarthUtil/EarthManipulator>
 
@@ -48,7 +52,7 @@ struct UpdateLabel : public osg::Operation
     {
         osgViewer::View* view = dynamic_cast<osgViewer::View*>(obj);
         unsigned index = _sc->getCurrentSequenceFrameIndex(view->getFrameStamp());
-        if ( index >= 0 && index != _prevIndex )
+        if ( index != _prevIndex )
         {
             const std::vector<osgEarth::SequenceFrameInfo>& frames = _sc->getSequenceFrameInfo();
             _label->setText( frames[index].timeIdentifier );
@@ -75,7 +79,7 @@ main(int argc, char** argv)
     // find the first layer with sequence control.
     bool found = false;
     osgEarth::ImageLayerVector layers;
-    mapNode->getMap()->getImageLayers( layers );
+    mapNode->getMap()->getLayers( layers );
     for( osgEarth::ImageLayerVector::const_iterator i = layers.begin(); i != layers.end(); ++i )
     {
         // get the sequence control interface for the layer, if there is one.

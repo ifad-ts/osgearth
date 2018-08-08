@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -20,6 +20,7 @@
 #include <osgEarth/StringUtils>
 #include <osgDB/FileNameUtils>
 #include <cctype>
+#include <cstring>
 
 using namespace osgEarth;
 
@@ -31,9 +32,9 @@ _trimTokens  ( true )
     addQuotes( quotes );
 }
 
-StringTokenizer::StringTokenizer(const std::string& input, 
+StringTokenizer::StringTokenizer(const std::string& input,
                                  StringVector&      output,
-                                 const std::string& delims, 
+                                 const std::string& delims,
                                  const std::string& quotes,
                                  bool               allowEmpties,
                                  bool               trimTokens ) :
@@ -55,7 +56,7 @@ void
 StringTokenizer::addDelims( const std::string& delims, bool keep )
 {
     for( unsigned i=0; i<delims.size(); ++i )
-        addDelim( delims.at(i), keep );
+        addDelim( delims[i], keep );
 }
 
 void
@@ -68,7 +69,7 @@ void
 StringTokenizer::addQuotes( const std::string& quotes, bool keep )
 {
     for( unsigned i=0; i<quotes.size(); ++i )
-        addQuote( quotes.at(i), keep );
+        addQuote( quotes[i], keep );
 }
 
 void
@@ -82,7 +83,7 @@ StringTokenizer::tokenize( const std::string& input, StringVector& output ) cons
 
     for( std::string::const_iterator i = input.begin(); i != input.end(); ++i )
     {
-        char c = *i;    
+        char c = *i;
 
         TokenMap::const_iterator q = _quotes.find( c );
 
@@ -118,9 +119,9 @@ StringTokenizer::tokenize( const std::string& input, StringVector& output ) cons
                 }
                 else
                 {
-                    std::string bufstr;
-                    bufstr = buf.str();
-                    std::string token = _trimTokens ? trim(bufstr) : bufstr;
+                    std::string token = buf.str();
+                    if ( _trimTokens )
+                        trim2( token );
 
                     if ( _allowEmpties || !token.empty() )
                         output.push_back( token );
@@ -133,14 +134,14 @@ StringTokenizer::tokenize( const std::string& input, StringVector& output ) cons
                     buf.str("");
                 }
             }
-        }       
+        }
     }
 
-    std::string bufstr;
-    bufstr = buf.str();
-    std::string last = _trimTokens ? trim(bufstr) : bufstr;
-    if ( !last.empty() )
-        output.push_back( last );
+    std::string bufstr = buf.str();
+    if ( _trimTokens )
+        trim2( bufstr );
+    if ( !bufstr.empty() )
+        output.push_back( bufstr );
 }
 
 //--------------------------------------------------------------------------
@@ -159,7 +160,7 @@ osgEarth::toLegalFileName( const std::string& input )
     std::stringstream buf;
     for( ; pos < input.size(); ++pos )
     {
-        std::string::const_reference c = input.at(pos);
+        std::string::const_reference c = input[pos];
         if ( ::isprint(c) && !::isspace(c) && illegal.find(c) == std::string::npos )
             buf << c;
         else
@@ -185,10 +186,10 @@ osgEarth::hashString( const std::string& input )
     while(len >= 4)
     {
         unsigned int k = *(unsigned int *)data;
-        k *= m; 
-        k ^= k >> r; 
-        k *= m;     		
-        h *= m; 
+        k *= m;
+        k ^= k >> r;
+        k *= m;
+        h *= m;
         h ^= k;
         data += 4;
         len -= 4;
@@ -207,6 +208,12 @@ osgEarth::hashString( const std::string& input )
     h ^= h >> 15;
 
     return h;
+}
+
+std::string
+osgEarth::hashToString(const std::string& input)
+{
+    return Stringify() << std::hex << std::setw(8) << std::setfill('0') << hashString(input);
 }
 
 
@@ -327,7 +334,7 @@ std::string&
 osgEarth::ciReplaceIn( std::string& s, const std::string& pattern, const std::string& replacement )
 {
     if ( pattern.empty() ) return s;
-    
+
     std::string upperSource = s;
     std::transform( upperSource.begin(), upperSource.end(), upperSource.begin(), (int(*)(int))std::toupper );
 
@@ -351,11 +358,10 @@ osgEarth::ciReplaceIn( std::string& s, const std::string& pattern, const std::st
 * by Rodrigo C F Dias
 * http://www.codeproject.com/KB/stl/stdstringtrim.aspx
 */
-std::string 
-osgEarth::trim( const std::string& in )
+void
+osgEarth::trim2( std::string& str )
 {
-    std::string whitespace (" \t\f\v\n\r");
-    std::string str = in;
+    static const std::string whitespace (" \t\f\v\n\r");
     std::string::size_type pos = str.find_last_not_of( whitespace );
     if(pos != std::string::npos) {
         str.erase(pos + 1);
@@ -363,6 +369,17 @@ osgEarth::trim( const std::string& in )
         if(pos != std::string::npos) str.erase(0, pos);
     }
     else str.erase(str.begin(), str.end());
+}
+
+/**
+* Trims whitespace from the ends of a string, returning a
+* copy of the string with whitespace removed.
+*/
+std::string
+osgEarth::trim( const std::string& in )
+{
+    std::string str = in;
+    trim2( str );
     return str;
 }
 
@@ -417,7 +434,7 @@ osgEarth::prettyPrintSize( double mb )
     {
         buf << (mb / 1024.0) << " GB";
     }
-    else 
+    else
     {
         buf << mb << " MB";
     }
@@ -450,6 +467,17 @@ osgEarth::ciEquals(const std::string& lhs, const std::string& rhs, const std::lo
     }
 
     return true;
+}
+
+#if defined(WIN32) && !defined(__CYGWIN__)
+#  define STRICMP ::stricmp
+#else
+#  define STRICMP ::strcasecmp
+#endif
+
+bool CIStringComp::operator()(const std::string& lhs, const std::string& rhs) const
+{
+    return STRICMP( lhs.c_str(), rhs.c_str() ) < 0;
 }
 
 bool

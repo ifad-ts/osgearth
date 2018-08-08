@@ -10,9 +10,7 @@
         <styles>
             <style type="text/css">
                 points {
-                   model:               "../data/red_flag.osg.25.scale";
-                   model-scale:         auto;    
-                   altitude-clamping:   terrain;
+                   model: "../data/red_flag.osg.2500.scale";
                 }                                            
             </style>
         </styles>   
@@ -23,10 +21,8 @@
         <url>http://readymap.org/readymap/tiles/1.0.0/7/</url>
     </image>
 	
-    <external>	  
-		<viewpoints>
-			<viewpoint name="Models" lat="25.311" long="-80.807" pitch="-21" range="177351"/>
-		</viewpoints>
-    </external>
+    <viewpoints>
+        <viewpoint name="Models" lat="25.311" long="-80.807" pitch="-21" range="177351"/>
+    </viewpoints>
   
 </map>

@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
- * Copyright 2008-2014 Pelican Mapping
+ * Copyright 2016 Pelican Mapping
  * http://osgearth.org
  *
  * osgEarth is free software; you can redistribute it and/or modify
@@ -23,6 +23,7 @@
 #include <osgEarth/TimeControl>
 #include <osgEarth/XmlUtils>
 #include <osgEarth/ImageUtils>
+#include <osgEarth/Containers>
 #include <osgEarthUtil/WMS>
 #include <osgDB/FileNameUtils>
 #include <osgDB/FileUtils>
@@ -116,7 +117,7 @@ public:
         osg::ref_ptr<WMSCapabilities> capabilities = WMSCapabilitiesReader::read( capUrl.full(), dbOptions );
         if ( !capabilities.valid() )
         {
-            return Status::Error( "Unable to read WMS GetCapabilities." );
+            return Status::Error( Status::ResourceUnavailable, "Unable to read WMS GetCapabilities." );
         }
         else
         {
@@ -150,8 +151,8 @@ public:
             << "&FORMAT=" << ( wmsFormatToUse.empty() ? std::string("image/") + _formatToUse : wmsFormatToUse )
             << "&STYLES=" << _options.style().value()
             << (_options.wmsVersion().value() == "1.3.0" ? "&CRS=" : "&SRS=") << _srsToUse            
-            << "&WIDTH="<< _options.tileSize().value()
-            << "&HEIGHT="<< _options.tileSize().value()
+            << "&WIDTH="<< getPixelsPerTile()
+            << "&HEIGHT=" << getPixelsPerTile()
             << "&BBOX=%lf,%lf,%lf,%lf";
 
         // then the optional keys:
@@ -167,9 +168,9 @@ public:
         osg::ref_ptr<SpatialReference> wms_srs = SpatialReference::create( _srsToUse );
 
         // check for spherical mercator:
-        if ( wms_srs.valid() && wms_srs->isEquivalentTo( osgEarth::Registry::instance()->getGlobalMercatorProfile()->getSRS() ) )
+        if ( wms_srs.valid() && wms_srs->isEquivalentTo( osgEarth::Registry::instance()->getSphericalMercatorProfile()->getSRS() ) )
         {
-            result = osgEarth::Registry::instance()->getGlobalMercatorProfile();
+            result = osgEarth::Registry::instance()->getSphericalMercatorProfile();
         }
         else if (wms_srs.valid() && wms_srs->isEquivalentTo( osgEarth::Registry::instance()->getGlobalGeodeticProfile()->getSRS()))
         {
@@ -245,8 +246,8 @@ public:
                 _formatToUse,
                 _options.style().value(),
                 _srsToUse,
-                _options.tileSize().value(),
-                _options.tileSize().value(),
+                getPixelsPerTile(),
+                getPixelsPerTile(),
                 patterns );
 
             if (patterns.size() > 0)
@@ -274,7 +275,7 @@ public:
             _dbOptions = Registry::instance()->cloneOrCreateOptions( dbOptions );       
 			CachePolicy::NO_CACHE.apply(_dbOptions.get());
 
-            return STATUS_OK;
+            return Status::OK();
         }
         else
         {
@@ -448,7 +449,7 @@ public:
             return ImageUtils::createEmptyImage();
         }
 
-        _sequenceCache.insert( seq );
+        _sequenceCache.insert( seq.get() );
         return seq.release();
     }
 
@@ -490,11 +491,6 @@ public:
             uri = replaceIn(uri, " ", "%20");
 
         return uri;
-    }
-
-    virtual int getPixelsPerTile() const
-    {
-        return _options.tileSize().value();
     }
 
     virtual std::string getExtension()  const 
@@ -570,7 +566,7 @@ private:
     bool                             _isPlaying;
     std::vector<SequenceFrameInfo>   _seqFrameInfoVec;
 
-    mutable Threading::ThreadSafeObserverSet<osg::ImageSequence> _sequenceCache;
+    mutable ThreadSafeObserverSet<osg::ImageSequence> _sequenceCache;
 };
 
 
@@ -579,7 +575,7 @@ class WMSSourceFactory : public TileSourceDriver
     public:
         WMSSourceFactory() {}
 
-        virtual const char* className()
+        virtual const char* className() const
         {
             return "WMS Reader";
         }

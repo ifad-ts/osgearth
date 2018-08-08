@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -32,7 +35,7 @@ using namespace osgEarth::Util;
 
 OceanOptions::OceanOptions(const ConfigOptions& options) :
 DriverConfigOptions( options ),
-_maxAltitude       ( 250000.0 )
+_maxAltitude       ( 20000.0 )
 {
     fromConfig(_conf);
 }
@@ -65,7 +68,8 @@ OceanOptions::getConfig() const
 
 OceanNode::OceanNode(const OceanOptions& options) :
 _options ( options ),
-_seaLevel( 0.0f )
+_seaLevel( 0.0f ),
+_alpha( 1.0f )
 {
     //NOP
 }
@@ -83,6 +87,13 @@ OceanNode::setSeaLevel(float value)
 }
 
 void
+OceanNode::setAlpha(float value)
+{
+    _alpha = value;
+    onSetAlpha();
+}
+
+void
 OceanNode::traverse(osg::NodeVisitor& nv)
 {
     if ( nv.getVisitorType() == nv.CULL_VISITOR && _srs.valid() )
@@ -97,7 +108,7 @@ OceanNode::traverse(osg::NodeVisitor& nv)
             _srs->transformFromWorld(eye, local, &altitude);
 
             // check against max altitude:
-            if ( _options.maxAltitude().isSet() && altitude > *_options.maxAltitude() )
+            if ( altitude > _options.maxAltitude().get() )
                 return;
             
             // Set the near clip plane to account for an ocean sphere.
@@ -139,36 +150,34 @@ OceanNode::traverse(osg::NodeVisitor& nv)
 #define OPTIONS_TAG "__osgEarth::Util::OceanOptions"
 
 OceanNode*
-OceanNode::create(const OceanOptions& options,
-                  MapNode*            mapNode)
+OceanNode::create(const OceanOptions& options, MapNode* mapNode)
 {
-    OceanNode* result = 0L;
-
-    std::string driver = options.getDriver();
-    if ( driver.empty() )
-    {
-        OE_INFO << LC << "No driver in options; defaulting to \"simple\"." << std::endl;
-        OE_INFO << LC << options.getConfig().toJSON(true) << std::endl;
-        driver = "simple";
+    if ( !mapNode ) {
+        OE_WARN << LC << "Internal error; null map node passed to OceanNode::Create\n";
+        return 0L;
     }
 
-    std::string driverExt = std::string(".osgearth_ocean_") + driver;
+    std::string driverName = options.getDriver();
+    if ( driverName.empty() )
+        driverName = "simple";
 
-    osg::ref_ptr<osgDB::Options> rwopts = Registry::instance()->cloneOrCreateOptions();
-    rwopts->setPluginData( MAPNODE_TAG, (void*)mapNode );
-    rwopts->setPluginData( OPTIONS_TAG, (void*)&options );
+    std::string extensionName = std::string("ocean_") + driverName;
 
-    result = dynamic_cast<OceanNode*>( osgDB::readNodeFile( driverExt, rwopts.get() ) );
-    if ( result )
-    {
-        OE_INFO << LC << "Loaded ocean driver \"" << driver << "\" OK." << std::endl;
-    }
-    else
-    {
-        OE_WARN << LC << "FAIL, unable to load ocean driver \"" << driver << "\"" << std::endl;
+    osg::ref_ptr<Extension> extension = Extension::create( extensionName, options );
+    if ( !extension.valid() ) {
+        OE_WARN << LC << "Failed to load extension for sky driver \"" << driverName << "\"\n";
+        return 0L;
     }
 
-    return result;
+    OceanNodeFactory* factory = extension->as<OceanNodeFactory>();
+    if ( !factory ) {
+        OE_WARN << LC << "Internal error; extension \"" << extensionName << "\" does not implement OceanNodeFactory\n";
+        return 0L;
+    }
+
+    osg::ref_ptr<OceanNode> result = factory->createOceanNode(mapNode);
+
+    return result.release();
 }
 
 OceanNode*
@@ -183,7 +192,9 @@ OceanNode::create(MapNode* mapNode)
 const OceanOptions&
 OceanDriver::getOceanOptions(const osgDB::Options* options) const
 {
-    return *static_cast<const OceanOptions*>( options->getPluginData(OPTIONS_TAG) );
+    static OceanOptions s_default;
+    const void* data = options->getPluginData(OPTIONS_TAG);
+    return data ? *static_cast<const OceanOptions*>(data) : s_default;
 }
 
 

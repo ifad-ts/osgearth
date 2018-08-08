@@ -15,8 +15,12 @@ SET(LIB_PUBLIC_HEADERS
 #   header files go here
     AGG.h
     AltitudeSymbol
+    BBoxSymbol
+    BillboardResource
+    BillboardSymbol
     Common
     Color
+    CoverageSymbol
     CssUtils
     Expression
     ExtrusionSymbol
@@ -33,6 +37,7 @@ SET(LIB_PUBLIC_HEADERS
     MarkerResource
     MarkerSymbol
     MeshConsolidator
+    MeshFlattener
     MeshSubdivider
     ModelResource
     ModelSymbol
@@ -58,7 +63,11 @@ ADD_LIBRARY(${LIB_NAME} ${OSGEARTH_USER_DEFINED_DYNAMIC_OR_STATIC}
     ${LIB_PUBLIC_HEADERS}
 #  .cpp files go here
     AltitudeSymbol.cpp
+    BBoxSymbol.cpp
+    BillboardResource.cpp
+    BillboardSymbol.cpp
     Color.cpp
+    CoverageSymbol.cpp
     CssUtils.cpp
     Expression.cpp
     ExtrusionSymbol.cpp
@@ -75,6 +84,7 @@ ADD_LIBRARY(${LIB_NAME} ${OSGEARTH_USER_DEFINED_DYNAMIC_OR_STATIC}
     MarkerResource.cpp
     MarkerSymbol.cpp
     MeshConsolidator.cpp
+    MeshFlattener.cpp
     MeshSubdivider.cpp
     ModelResource.cpp
     ModelSymbol.cpp

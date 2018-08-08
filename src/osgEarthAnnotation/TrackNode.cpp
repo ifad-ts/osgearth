@@ -1,6 +1,6 @@
 /* -*-c++-*- */
 /* osgEarth - Dynamic map generation toolkit for OpenSceneGraph
-* Copyright 2008-2014 Pelican Mapping
+* Copyright 2016 Pelican Mapping
 * http://osgearth.org
 *
 * osgEarth is free software; you can redistribute it and/or modify
@@ -8,10 +8,13 @@
 * the Free Software Foundation; either version 2 of the License, or
 * (at your option) any later version.
 *
-* This program is distributed in the hope that it will be useful,
-* but WITHOUT ANY WARRANTY; without even the implied warranty of
-* MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-* GNU Lesser General Public License for more details.
+* THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+* IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+* FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+* AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+* LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+* FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+* IN THE SOFTWARE.
 *
 * You should have received a copy of the GNU Lesser General Public License
 * along with this program.  If not, see <http://www.gnu.org/licenses/>
@@ -22,6 +25,9 @@
 #include <osgEarth/MapNode>
 #include <osgEarth/Registry>
 #include <osgEarth/ShaderGenerator>
+#include <osgEarth/ScreenSpaceLayout>
+#include <osgEarth/NodeUtils>
+#include <osgEarth/Lighting>
 #include <osg/Depth>
 #include <osgText/Text>
 
@@ -38,7 +44,7 @@ TrackNode::TrackNode(MapNode*                    mapNode,
                      osg::Image*                 image,
                      const TrackNodeFieldSchema& fieldSchema ) :
 
-OrthoNode   ( mapNode, position )
+GeoPositionNode   ( mapNode, position )
 {
     if ( image )
     {
@@ -54,7 +60,7 @@ TrackNode::TrackNode(MapNode*                    mapNode,
                      const Style&                style,
                      const TrackNodeFieldSchema& fieldSchema ) :
 
-OrthoNode   ( mapNode, position ),
+GeoPositionNode   ( mapNode, position ),
 _style      ( style )
 {
     init( fieldSchema );
@@ -63,6 +69,16 @@ _style      ( style )
 void
 TrackNode::init( const TrackNodeFieldSchema& schema )
 {
+    osg::StateSet* ss = this->getOrCreateStateSet();
+
+    ScreenSpaceLayout::activate(ss);
+    
+    // Disable lighting for place nodes by default
+    ss->setDefine(OE_LIGHTING_DEFINE, osg::StateAttribute::OFF);
+
+
+    osgEarth::clearChildren( getPositionAttitudeTransform() );
+
     _geode = new osg::Geode();
 
     IconSymbol* icon = _style.get<IconSymbol>();
@@ -81,6 +97,10 @@ TrackNode::init( const TrackNodeFieldSchema& schema )
         if ( imageGeom )
         {
             _geode->addDrawable( imageGeom );
+
+            ScreenSpaceLayoutData* layout = new ScreenSpaceLayoutData();
+            layout->setPriority(getPriority());
+            imageGeom->setUserData(layout);
         }
     }
 
@@ -93,10 +113,15 @@ TrackNode::init( const TrackNodeFieldSchema& schema )
             const TrackNodeField& field = i->second;
             if ( field._symbol.valid() )
             {
+                osg::Vec3 offset(
+                    field._symbol->pixelOffset()->x(),
+                    field._symbol->pixelOffset()->y(),
+                    0.0);
+
                 osg::Drawable* drawable = AnnotationUtils::createTextDrawable( 
                     field._symbol->content()->expr(),   // text
                     field._symbol.get(),                // symbol
-                    osg::Vec3(0,0,0) );                 // offset
+                    offset );                           // offset
 
                 if ( drawable )
                 {
@@ -121,13 +146,33 @@ TrackNode::init( const TrackNodeFieldSchema& schema )
 
     setLightingIfNotSet( false );
 
-    getAttachPoint()->addChild( _geode );
+    getPositionAttitudeTransform()->addChild( _geode );
     
     // generate shaders:
     Registry::shaderGenerator().run(
         this,
         "osgEarth.TrackNode",
         Registry::stateSetCache() );
+}
+
+void
+TrackNode::setPriority(float value)
+{
+    GeoPositionNode::setPriority( value );
+    updateLayoutData();
+}
+
+void
+TrackNode::updateLayoutData()
+{
+    osg::ref_ptr<ScreenSpaceLayoutData> data = new ScreenSpaceLayoutData();
+    data->setPriority(getPriority());
+
+    // re-apply annotation drawable-level stuff as neccesary.
+    for (unsigned i = 0; i<_geode->getNumDrawables(); ++i)
+    {
+        _geode->getDrawable(i)->setUserData(data.get());
+    }
 }
 
 void
@@ -160,12 +205,9 @@ TrackNode::setFieldValue( const std::string& name, const osgText::String& value 
 void
 TrackNode::addDrawable( const std::string& name, osg::Drawable* drawable )
 {
-    // attach the annotation data to the drawable:
-    if ( _annoData.valid() )
-        drawable->setUserData( _annoData.get() );
-
     _namedDrawables[name] = drawable;
     _geode->addDrawable( drawable );
+    updateLayoutData();
 }
 
 osg::Drawable*
@@ -173,16 +215,4 @@ TrackNode::getDrawable( const std::string& name ) const
 {
     NamedDrawables::const_iterator i = _namedDrawables.find(name);
     return i != _namedDrawables.end() ? i->second : 0L;
-}
-
-void
-TrackNode::setAnnotationData( AnnotationData* data )
-{
-    OrthoNode::setAnnotationData( data );
-
-    // override this method so we can attach the anno data to the drawables.
-    for(unsigned i=0; i<_geode->getNumDrawables(); ++i)
-    {
-        _geode->getDrawable(i)->setUserData( data );
-    }
 }
