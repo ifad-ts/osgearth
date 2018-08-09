@@ -132,7 +132,6 @@ namespace osgEarth { namespace Symbology
         osg::ref_ptr<osg::Node>      _node;
         optional<double>             _minAutoScale;
         optional<double>             _maxAutoScale;
-        osg::ref_ptr<osg::Node>      _node;
         optional<StringExpression>   _name;
         optional<float>              _maxSizeX;
         optional<float>              _maxSizeY;
