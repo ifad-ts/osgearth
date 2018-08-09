@@ -106,8 +106,8 @@ struct MyGraphicsContext
 
 #define SAYBOOL(X) (X?"yes":"no")
 
-// Original parameterless ctor that creates a graphics context.
-Capabilities::Capabilities() : Capabilities(MyGraphicsContext mgc) {}
+// Original parameterless ctor that creates a temporary graphics context.
+Capabilities::Capabilities() : Capabilities(MyGraphicsContext()._gc) {}
 
 // IFAD version that uses an existing graphics context.
 Capabilities::Capabilities(osg::GraphicsContext* gc) :
@@ -163,9 +163,8 @@ _maxTextureBufferSize   ( 0 )
     _isGLES = false;
 #endif
 
-    if ( mgc.valid() )
+    if ( gc )
     {
-        osg::GraphicsContext* gc = mgc._gc.get();
         unsigned int id = gc->getState()->getContextID();
         const osg::GL2Extensions* GL2 = osg::GL2Extensions::Get( id, true );
 

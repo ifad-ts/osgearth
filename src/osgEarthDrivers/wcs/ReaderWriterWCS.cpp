@@ -21,7 +21,6 @@
 #include <osgDB/FileUtils>
 #include <osgDB/Registry>
 #include <osgDB/ReadFile>
-#include "WCS10Source.h"
 #include "WCS11Source.h"
 #include <sstream>
 #include <stdlib.h>
@@ -52,12 +51,7 @@ public:
         }
         
         WCSOptions wcsOpt(getTileSourceOptions(opt));
-        if (wcsOpt.version().value() == std::string("1.0") ||
-            wcsOpt.version().value() == std::string("1.0.0"))
-        {
-            return new WCS10Source(wcsOpt);
-        }
-        else if (wcsOpt.version().value() == std::string("1.1") ||
+        if (wcsOpt.version().value() == std::string("1.1") ||
                  wcsOpt.version().value() == std::string("1.1.0"))
         {
             return new WCS11Source(wcsOpt);
