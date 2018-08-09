@@ -152,6 +152,9 @@ namespace osgEarth
         int getMaxTextureBufferSize() const { return _maxTextureBufferSize; }
 
 
+        /** IFAD version that uses an existing graphics context. */
+        Capabilities(osg::GraphicsContext* gc);
+        
     protected:
         Capabilities();
 
