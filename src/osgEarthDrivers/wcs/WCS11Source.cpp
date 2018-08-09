@@ -50,7 +50,6 @@ osgEarth::Status WCS11Source::initialize(const osgDB::Options* dbOptions)
     osg::ref_ptr<const Profile> profile;
     
     _dbOptions = Registry::instance()->cloneOrCreateOptions( dbOptions );
-	CachePolicy::NO_CACHE.apply(_dbOptions.get());
 
     std::string capUrl;
 
@@ -120,8 +119,8 @@ const Profile *WCS11Source::createProfileFromCapabilities(WCSCoverage* coverage)
 			maxDataLevel = i;
 			double w, h;
 			profile->getTileDimensions(i, w, h);
-			double resX = (w / (double)_options.tileSize().value());
-			double resY = (h / (double)_options.tileSize().value());
+			double resX = (w / (double)getTileSize());
+			double resY = (h / (double)getTileSize());
 
 			if (resX < maxResolution || resY < maxResolution)
 			{
