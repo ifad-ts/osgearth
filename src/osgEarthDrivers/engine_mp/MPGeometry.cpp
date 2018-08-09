@@ -222,7 +222,7 @@ MPGeometry::renderPrimitiveSets(osg::State& state,
     }
 
     // activate the tile coordinate set - same for all layers
-    if ( renderColor )
+    if ( renderColor && _layers.size() > 0 )
     {
         state.setTexCoordPointer( _imageUnit+1, _tileCoords.get() );
     }
@@ -488,7 +488,7 @@ MPGeometry::validate()
 
         else if ( de->getNumIndices() % 3 != 0 )
         {
-            OE_WARN << LC << "Invalid primitive set - wrong number of indicies" << std::endl;
+            OE_WARN << LC << "Invalid primitive set - wrong number of indices" << std::endl;
             //_primitives.clear();
             osg::DrawElementsUShort* deus = static_cast<osg::DrawElementsUShort*>(de);
             int extra = de->getNumIndices() % 3;

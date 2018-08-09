@@ -89,7 +89,7 @@ int
         << "    --seed file.earth                   ; Seeds the cache in a .earth file"  << std::endl
         << "        [--estimate]                    ; Print out an estimation of the number of tiles, disk space and time it will take to perform this seed operation" << std::endl
         << "        [--min-level level]             ; Lowest LOD level to seed (default=0)" << std::endl
-        << "        [--max-level level]             ; Highest LOD level to seed (defaut=highest available)" << std::endl
+        << "        [--max-level level]             ; Highest LOD level to seed (default=highest available)" << std::endl
         << "        [--bounds xmin ymin xmax ymax]* ; Geospatial bounding box to seed (in map coordinates; default=entire map)" << std::endl
         << "        [--index shapefile]             ; Use the feature extents in a shapefile to set the bounding boxes for seeding" << std::endl
         << "        [--mp]                          ; Use multiprocessing to process the tiles.  Useful for GDAL sources as this avoids the global GDAL lock" << std::endl
@@ -198,7 +198,7 @@ seed( osg::ArgumentParser& args )
         }
     }
 
-    // If they requested to do an estimate then don't do the the seed, just print out the estimated values.
+    // If they requested to do an estimate then don't do the seed, just print out the estimated values.
     if (estimate)
     {        
         CacheEstimator est;
@@ -406,8 +406,8 @@ int list( osg::ArgumentParser& args )
     MapNode* mapNode = MapNode::findMapNode( node.get() );
     if ( !mapNode )
         return usage( "Input file was not a .earth file" );
-
-    Map* map = mapNode->getMap();
+    
+    const Map* map = mapNode->getMap();
     const Cache* cache = map->getCache();
 
     if ( !cache )
@@ -417,12 +417,9 @@ int list( osg::ArgumentParser& args )
         << "Cache config: " << std::endl
         << cache->getCacheOptions().getConfig().toJSON(true) << std::endl;
 
-    MapFrame mapf( mapNode->getMap() );
 
     TerrainLayerVector layers;
-    mapf.getLayers(layers);
-    //std::copy( mapf.imageLayers().begin(), mapf.imageLayers().end(), std::back_inserter(layers) );
-    //std::copy( mapf.elevationLayers().begin(), mapf.elevationLayers().end(), std::back_inserter(layers) );
+    map->getLayers(layers);
 
     for( TerrainLayerVector::iterator i =layers.begin(); i != layers.end(); ++i )
     {
@@ -573,7 +570,7 @@ purge( osg::ArgumentParser& args )
                 if ( input == "y" || input == "Y" )
                 {
                     std::cout << "Purging.." << std::flush;
-                    entries[k-1]._bin->purge();
+                    entries[k-1]._bin->clear();
                 }
                 else
                 {

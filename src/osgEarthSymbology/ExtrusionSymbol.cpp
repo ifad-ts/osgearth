@@ -31,7 +31,6 @@ Symbol(rhs, copyop)
 	_max_roof_height = rhs._max_roof_height;
     _flatten = rhs._flatten;
     _heightExpr = rhs._heightExpr;
-    _heightRef = rhs._heightRef;
     _wallStyleName = rhs._wallStyleName;
     _roofStyleName = rhs._roofStyleName;
     _wallGradientPercentage = rhs._wallGradientPercentage;
@@ -42,7 +41,6 @@ ExtrusionSymbol::ExtrusionSymbol( const Config& conf ) :
 Symbol    ( conf ),
 _height   ( 10.0 ),
 _flatten  ( true ),
-_heightRef( HEIGHT_REFERENCE_Z ),
 _wallGradientPercentage( 0.0f ),
 _roofPitch ( 0.0f ),
 _max_roof_height(7.0f)
@@ -60,8 +58,6 @@ ExtrusionSymbol::getConfig() const
 	conf.addIfSet   ( "max_roof_height",    _max_roof_height);
     conf.addIfSet   ( "flatten",           _flatten );
     conf.addObjIfSet( "height_expression", _heightExpr );
-    conf.addIfSet   ( "height_reference", "z",   _heightRef, HEIGHT_REFERENCE_Z );
-    conf.addIfSet   ( "height_reference", "msl", _heightRef, HEIGHT_REFERENCE_MSL );
     conf.addIfSet   ( "wall_style", _wallStyleName );
     conf.addIfSet   ( "roof_style", _roofStyleName );
     conf.addIfSet   ( "wall_gradient", _wallGradientPercentage );
@@ -76,8 +72,6 @@ ExtrusionSymbol::mergeConfig( const Config& conf )
 	conf.getIfSet   ("max_roof_height", _max_roof_height);
     conf.getIfSet   ( "flatten", _flatten );
     conf.getObjIfSet( "height_expression", _heightExpr );
-    conf.getIfSet   ( "height_reference", "z",   _heightRef, HEIGHT_REFERENCE_Z );
-    conf.getIfSet   ( "height_reference", "msl", _heightRef, HEIGHT_REFERENCE_MSL );
     conf.getIfSet   ( "wall_style", _wallStyleName );
     conf.getIfSet   ( "roof_style", _roofStyleName );
     conf.getIfSet   ( "wall_gradient", _wallGradientPercentage );

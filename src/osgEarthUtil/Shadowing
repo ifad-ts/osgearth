@@ -67,7 +67,7 @@ namespace osgEarth { namespace Util
         unsigned getTraversalMask() const { return _traversalMask; }
 
         /**
-         * Slice ranges. Each slice (the space beteen each value in the list)
+         * Slice ranges. Each slice (the space between each value in the list)
          * represents a single shadow map in the Cascading Shadow Maps 
          * implementation.
          */
@@ -131,6 +131,7 @@ namespace osgEarth { namespace Util
         osg::ref_ptr<osg::Uniform>  _shadowMapTexGenUniform;
         osg::ref_ptr<osg::Uniform>  _shadowBlurUniform;
         osg::ref_ptr<osg::Uniform>  _shadowColorUniform;
+        osg::ref_ptr<osg::Uniform>  _shadowToPrimaryMatrix;
     };
 
 } } // namespace osgEarth::Util

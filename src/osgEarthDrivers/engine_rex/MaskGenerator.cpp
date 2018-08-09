@@ -20,6 +20,8 @@
 
 #include <osgEarth/MaskLayer>
 #include <osgEarth/Locators>
+#include <osgEarth/Map>
+#include <osgEarth/MapInfo>
 #include <osgEarthSymbology/Geometry>
 
 #include <osgUtil/DelaunayTriangulator>
@@ -151,9 +153,9 @@ namespace
 MaskGenerator::MaskGenerator(const TileKey& key, unsigned tileSize, const Map* map) :
 _key( key ), _tileSize(tileSize)
 {
-    MapFrame frame(map);
     MaskLayerVector maskLayers;
-    frame.getLayers(maskLayers);
+    map->getLayers(maskLayers);
+
     for(MaskLayerVector::const_iterator it = maskLayers.begin();
         it != maskLayers.end(); 
         ++it)
@@ -161,7 +163,7 @@ _key( key ), _tileSize(tileSize)
         MaskLayer* layer = it->get();
         if ( layer->getMinLevel() <= key.getLevelOfDetail() )
         {
-            setupMaskRecord(frame.getMapInfo(), layer->getOrCreateMaskBoundary( 1.0, key.getExtent().getSRS(), (ProgressCallback*)0L ) );
+            setupMaskRecord(MapInfo(map), layer->getOrCreateMaskBoundary( 1.0, key.getExtent().getSRS(), (ProgressCallback*)0L ) );
         }
     }
 }
@@ -479,7 +481,7 @@ MaskGenerator::createMaskPrimitives(const MapInfo& mapInfo,
         for (osg::Vec3Array::iterator it = it_start; it != constraintVerts->end(); ++it)
         {
             //If the z-value was set from a mask vertex there is no need to change it.  If
-            //it was set from a vertex from the patch polygon it may need to be overriden if
+            //it was set from a vertex from the patch polygon it may need to be overridden if
             //the vertex lies along a mask edge.  Or if it is unset, it will need to be set.
             //if (isZSet[count] < 2)
             if (!isZSet[count])
@@ -622,7 +624,7 @@ MaskGenerator::createMaskPrimitives(const MapInfo& mapInfo,
             neighbors->push_back( local );  
 
         // set up text coords
-        texCoords->push_back( osg::Vec3f(it->x(), it->y(), isBoundary ? MASK_MARKER_BOUNDARY : MASK_MARKER_PATCH) );
+        texCoords->push_back( osg::Vec3f(it->x(), it->y(), isBoundary ? VERTEX_MARKER_BOUNDARY : VERTEX_MARKER_PATCH) );
     }
 
     // Get triangles from triangulator and add as primitive set to the geometry
@@ -679,7 +681,7 @@ MaskGenerator::getMinMax(osg::Vec3d& min, osg::Vec3d& max)
 float
 MaskGenerator::getMarker(float nx, float ny) const
 {
-    float marker = MASK_MARKER_NORMAL;
+    float marker = VERTEX_MARKER_GRID;
 
     if (_maskRecords.size() > 0)
     {
@@ -693,14 +695,14 @@ MaskGenerator::getMarker(float nx, float ny) const
 
         if (i > min_i && i < max_i && j > min_j && j < max_j)
         {
-            marker = MASK_MARKER_DISCARD; // contained by boundary
+            marker = VERTEX_MARKER_DISCARD; // contained by patch
         }
         else if ((i == min_i && j >= min_j && j <= max_j) ||
                  (i == max_i && j >= min_j && j <= max_j) ||
                  (j == min_j && i >= min_i && i <= max_i) ||
                  (j == max_j && i >= min_i && i <= max_i))
         {
-            marker = MASK_MARKER_PATCH;
+            marker = VERTEX_MARKER_PATCH;
         }
     }
 

@@ -34,7 +34,7 @@ _context(context),
 _enableCancel(true)
 {
     this->setTileKey(tilenode->getKey());
-    _mapFrame.setMap(context->getMap());
+    _map = context->getMap();
     _engine = context->getEngine();
 }
 
@@ -43,7 +43,11 @@ namespace
     struct MyProgress : public ProgressCallback {
         LoadTileData* _req;
         MyProgress(LoadTileData* req) : _req(req) {}
-        bool isCanceled() { return _req->isIdle(); }
+        bool isCanceled() {
+            if (_canceled == false && _req->isIdle())
+                _canceled = true;
+            return ProgressCallback::isCanceled();
+        }
     };
 }
 
@@ -52,12 +56,6 @@ namespace
 void
 LoadTileData::invoke()
 {
-    if (!_mapFrame.isValid())
-        return;
-
-    // we're in a pager thread, so must lock safe pointers
-    // (don't access _context from here!)
-
     osg::ref_ptr<TileNode> tilenode;
     if (!_tilenode.lock(tilenode))
         return;
@@ -66,26 +64,26 @@ LoadTileData::invoke()
     if (!_engine.lock(engine))
         return;
 
-    // ensure the map frame is up to date:
-    if (_mapFrame.needsSync())
-        _mapFrame.sync();
+    osg::ref_ptr<const Map> map;
+    if (!_map.lock(map))
+        return;
 
-    // Only use a progress callback is cancelation is enabled.    
+    // Only use a progress callback is cancelation is enabled.
     osg::ref_ptr<ProgressCallback> progress = _enableCancel ? new MyProgress(this) : 0L;
 
     // Assemble all the components necessary to display this tile
     _dataModel = engine->createTileModel(
-        _mapFrame,
-        tilenode->getKey(),           
+        map.get(),
+        tilenode->getKey(),
         _filter,
-        progress.get() );
-}
+        progress.get());
 
-
-bool
-LoadTileData::isCanceled()
-{
-    return isIdle();
+    // if the operation was canceled, set the request to idle and delete any existing data.
+    if (progress && (progress->isCanceled() || progress->needsRetry()))
+    {
+        _dataModel = 0L;
+        setState(Request::IDLE);
+    }
 }
 
 
@@ -93,37 +91,31 @@ LoadTileData::isCanceled()
 void
 LoadTileData::apply(const osg::FrameStamp* stamp)
 {
+    osg::ref_ptr<EngineContext> context;
+    if (!_context.lock(context))
+        return;
+
+    osg::ref_ptr<const Map> map;
+    if (!_map.lock(map))
+        return;
+
     // ensure we got an actual datamodel:
     if (_dataModel.valid())
     {
         // ensure it's in sync with the map revision (not out of date):
-        if (_dataModel->getRevision() == _context->getMap()->getDataModelRevision())
+        if (map.valid() && _dataModel->getRevision() == map->getDataModelRevision())
         {
             // ensure the tile node hasn't expired:
             osg::ref_ptr<TileNode> tilenode;
             if ( _tilenode.lock(tilenode) )
             {
-                const RenderBindings& bindings = _context->getRenderBindings();
+                const RenderBindings& bindings = context->getRenderBindings();
 
                 // Merge the new data into the tile.
                 tilenode->merge(_dataModel.get(), bindings);
 
                 // Mark as complete. TODO: per-data requests will do something different.
                 tilenode->setDirty( false );
-
-#if 0 // gw - moved the notifications to TileNode.
-
-                // Notify listeners that we've added a tile. The patch must be in world space
-                // (include a transform). Only need to fire onTileAdded if there's real elevation data...right?
-                if (_dataModel->elevationModel().valid())
-                {
-                    // Notify the terrain of the new tile. The "graph" needs to be
-                    // the entire terrain graph since REX can load tiles out of order.
-                    _context->getEngine()->getTerrain()->notifyTileAdded(
-                        _dataModel->getKey(),
-                        _context->getEngine()->getTerrain()->getGraph() );
-                }
-#endif
 
                 OE_DEBUG << LC << "apply " << _dataModel->getKey().str() << "\n";
             }
@@ -140,4 +132,57 @@ LoadTileData::apply(const osg::FrameStamp* stamp)
         // Delete the model immediately
         _dataModel = 0L;
     }
+}
+
+namespace
+{
+    // Fake attribute that compiles everything in the TerrainTileModel
+    // when the ICO is active.
+    struct ModelCompilingAttribute : public osg::Texture2D
+    {
+        osg::observer_ptr<TerrainTileModel> _dataModel;
+        
+        // the ICO calls apply() directly instead of compileGLObjects
+        void apply(osg::State& state) const
+        {
+            osg::ref_ptr<TerrainTileModel> dataModel;
+            if (_dataModel.lock(dataModel))
+                dataModel->compileGLObjects(state);
+        }
+
+        // no need to override release or resize since this is a temporary object
+        // that exists only to service the ICO.
+
+        META_StateAttribute(osgEarth, ModelCompilingAttribute, osg::StateAttribute::TEXTURE);
+        int compare(const StateAttribute& sa) const { return 0; }
+        ModelCompilingAttribute() { }
+        ModelCompilingAttribute(const ModelCompilingAttribute& rhs, const osg::CopyOp& copy) { }
+    };
+}
+
+osg::StateSet*
+LoadTileData::createStateSet() const
+{
+    osg::ref_ptr<osg::StateSet> out;
+
+    osg::ref_ptr<EngineContext> context;
+    if (!_context.lock(context))
+        return NULL;
+
+    osg::ref_ptr<const Map> map;
+    if (!_map.lock(map))
+        return NULL;
+
+    if (_dataModel.valid() && map.valid() &&
+        _dataModel->getRevision() == map->getDataModelRevision())
+    {
+        // This stateset contains a "fake" attribute that the ICO will
+        // try to GL-compile, thereby GL-compiling everything in the TerrainTileModel.
+        out = new osg::StateSet();
+        ModelCompilingAttribute* mca = new ModelCompilingAttribute();
+        mca->_dataModel = _dataModel.get();
+        out->setTextureAttribute(0, mca, 1);
+    }
+
+    return out.release();
 }

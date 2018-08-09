@@ -40,7 +40,7 @@ REGISTER_OSGEARTH_LAYER(geodetic_graticule, GeodeticGraticule);
 
 namespace
 {
-    // Helper class to find a MapNode and set it in the graticule 
+    // Helper class to find a MapNode and set it in the graticule
     // so it can install the terrain effect.
     struct MyGroup : public osg::Group
     {
@@ -50,7 +50,7 @@ namespace
         MyGroup(GeodeticGraticule* grat, osg::ref_ptr<MapNode>& mapNode)
             : _grat(grat), _mapNode(mapNode)
         {
-            // Require an update traversal to udpate the labels.
+            // Require an update traversal to update the labels.
             setNumChildrenRequiringUpdateTraversal(1);
         }
 
@@ -163,7 +163,7 @@ GeodeticGraticule::init()
         for (unsigned int i = 0; i < tokens.size(); i++)
         {
             double r = as<double>(tokens[i], -1.0);
-            if (r > 0) 
+            if (r > 0)
             {
                 _resolutions.push_back( r );
             }
@@ -193,6 +193,8 @@ GeodeticGraticule::init()
 
     // Initialize the formatter
     _formatter = new LatLongFormatter(osgEarth::Util::LatLongFormatter::FORMAT_DEGREES_MINUTES_SECONDS_TERSE, LatLongFormatter::USE_SYMBOLS |LatLongFormatter::USE_PREFIXES);
+    
+    _root = new MyGroup(this, _mapNode);
 }
 
 void
@@ -219,14 +221,8 @@ GeodeticGraticule::removedFromMap(const Map* map)
 }
 
 osg::Node*
-GeodeticGraticule::getOrCreateNode()
+GeodeticGraticule::getNode() const
 {
-    if (_root.valid() == false)
-    {
-        _root = new MyGroup(this, _mapNode);
-        rebuild();
-    }
-
     return _root.get();
 }
 
@@ -234,11 +230,54 @@ void
 GeodeticGraticule::setVisible(bool value)
 {
     VisibleLayer::setVisible(value);
+    updateGridLineVisibility();
+}
 
-    if (getVisible())
+void
+GeodeticGraticule::updateGridLineVisibility()
+{
+    if (getVisible() && *_options->gridLinesVisible())
         installEffect();
     else
         removeEffect();
+}
+
+bool
+GeodeticGraticule::getGridLinesVisible() const
+{
+    return *_options->gridLinesVisible();
+}
+
+void
+GeodeticGraticule::setGridLinesVisible(bool gridLinesVisible)
+{
+    _options->gridLinesVisible() = gridLinesVisible;
+    updateGridLineVisibility();
+}
+
+
+bool
+GeodeticGraticule::getGridLabelsVisible() const
+{
+    return *_options->gridLabelsVisible();
+}
+
+void
+GeodeticGraticule::setGridLabelsVisible(bool gridLabelsVisible)
+{
+    _options->gridLabelsVisible() = gridLabelsVisible;
+}
+
+bool
+GeodeticGraticule::getEdgeLabelsVisible() const
+{
+    return *_options->edgeLabelsVisible();
+}
+
+void
+GeodeticGraticule::setEdgeLabelsVisible(bool edgeLabelsVisible)
+{
+    _options->edgeLabelsVisible() = edgeLabelsVisible;
 }
 
 void
@@ -274,6 +313,9 @@ GeodeticGraticule::rebuild()
     }
 
     setVisible(getVisible());
+
+    _labelingEngine = new GeodeticLabelingEngine(_mapNode->getMapSRS());
+    _root->addChild(_labelingEngine);
 }
 
 #define RESOLUTION_UNIFORM "oe_GeodeticGraticule_resolution"
@@ -294,7 +336,7 @@ GeodeticGraticule::installEffect()
     Shaders package;
     package.load(vp, package.Graticule_Vertex);
     package.load(vp, package.Graticule_Fragment);
-    
+
     stateset->addUniform(new osg::Uniform(COLOR_UNIFORM, options().color().get()));
     stateset->addUniform(new osg::Uniform(WIDTH_UNIFORM, options().lineWidth().get()));
 }
@@ -435,7 +477,7 @@ GeodeticGraticule::getViewExtent(osgUtil::CullVisitor* cullVisitor) const
     osg::Matrixd mv = *cullVisitor->getModelViewMatrix();
     osg::Matrixd invmv = osg::Matrixd::inverse( mv );
 
-    // clamp the projection far plane so it's not on the other 
+    // clamp the projection far plane so it's not on the other
     // side of the globe
     osg::Vec3d eye = osg::Vec3d(0,0,0) * invmv;
 
@@ -444,7 +486,7 @@ GeodeticGraticule::getViewExtent(osgUtil::CullVisitor* cullVisitor) const
     double nearPlane, farPlane;
     double nLeft, nRight, nTop, nBottom;
     double fLeft, fRight, fTop, fBottom;
-    
+
     if (osg::equivalent(proj(3,3), 1.0)) // ORTHOGRAPHIC
     {
         proj.getOrtho(nLeft, nRight, nBottom, nTop, nearPlane, farPlane);
@@ -466,7 +508,7 @@ GeodeticGraticule::getViewExtent(osgUtil::CullVisitor* cullVisitor) const
         proj.getPerspective(f,a,zn,zf);
         zf = std::min(zf, eye.length()-1000.0);
         proj.makePerspective(f, a, zn, zf);
-       
+
         nearPlane = proj(3,2) / (proj(2,2)-1.0);
         farPlane = proj(3,2) / (1.0+proj(2,2));
 
@@ -512,7 +554,7 @@ GeodeticGraticule::getViewExtent(osgUtil::CullVisitor* cullVisitor) const
     center.fromWorld(srs, bs.center());
 
     double radiusDegrees = bs.radius() / 111000.0;
-    
+
     // Try to clamp the maximum radius so far out views don't go wacky.
     radiusDegrees = osg::minimum(radiusDegrees, 90.0);
 
@@ -527,15 +569,15 @@ GeodeticGraticule::getViewExtent(osgUtil::CullVisitor* cullVisitor) const
 }
 
 
-void 
+void
 GeodeticGraticule::updateLabels()
 {
     const osgEarth::SpatialReference* srs = osgEarth::SpatialReference::create("wgs84");
-    
+
     Threading::ScopedMutexLock lock(_cameraDataMapMutex);
-    for (CameraDataMap::iterator i = _cameraDataMap.begin(); i != _cameraDataMap.end(); ++i)
+    for (CameraDataMap::iterator itr = _cameraDataMap.begin(); itr != _cameraDataMap.end(); ++itr)
     {
-        CameraData& cdata = i->second;
+        CameraData& cdata = itr->second;
 
         std::vector< GeoExtent > extents;
         if (cdata._viewExtent.crossesAntimeridian())
@@ -550,11 +592,15 @@ GeodeticGraticule::updateLabels()
             extents.push_back( cdata._viewExtent );
         }
 
+        _labelingEngine->setResolution(cdata._resolution);
+
+        bool showSideLabels = *_options->edgeLabelsVisible() && cdata._resolution < 0.03;
+        _labelingEngine->setNodeMask(showSideLabels ? ~0u : 0);
+
         double resDegrees = cdata._resolution * 180.0;
         // We want half the resolution so the labels don't appear as often as the grid lines
         resDegrees *= 2.0;
 
-    
         // Hide all the labels
         for (unsigned int i = 0; i < cdata._labelPool.size(); i++)
         {
@@ -563,54 +609,58 @@ GeodeticGraticule::updateLabels()
 
         // Approximate offset in degrees
         double degOffset = cdata._metersPerPixel / 111000.0;
-     
+
         unsigned int labelIndex = 0;
 
 
-        bool done = false;
-        for (unsigned int extentIndex = 0; extentIndex < extents.size() && !done; extentIndex++)
+        // Only show the centered labels if the side labels aren't visible.
+        if (*_options->gridLabelsVisible() && (!showSideLabels || !_labelingEngine->getVisible(itr->first)))
         {
-            GeoExtent extent = extents[extentIndex];
-
-            int minLonIndex = floor(((extent.xMin() + 180.0)/resDegrees));
-            int maxLonIndex = ceil(((extent.xMax() + 180.0)/resDegrees));
-
-            int minLatIndex = floor(((extent.yMin() + 90)/resDegrees));
-            int maxLatIndex = ceil(((extent.yMax() + 90)/resDegrees));
-
-            // Generate horizontal labels
-            for (int i = minLonIndex; i <= maxLonIndex && !done; i++)
+            bool done = false;
+            for (unsigned int extentIndex = 0; extentIndex < extents.size() && !done; extentIndex++)
             {
-                GeoPoint point(srs, -180.0 + (double)i * resDegrees, cdata._lat + (_centerOffset.y() * degOffset), 0, ALTMODE_ABSOLUTE);
-                LabelNode* label = cdata._labelPool[labelIndex++].get();
+                GeoExtent extent = extents[extentIndex];
 
-                label->setNodeMask(~0u);
-                label->setPosition(point);
-                std::string text = getText( point, false);
-                label->setText( text );
-                if (labelIndex == cdata._labelPool.size() - 1)
-                {
-                    done = true;
-                }
-            }
+                int minLonIndex = floor(((extent.xMin() + 180.0) / resDegrees));
+                int maxLonIndex = ceil(((extent.xMax() + 180.0) / resDegrees));
 
-            // Generate the vertical labels
-            for (int i = minLatIndex; i <= maxLatIndex && !done; i++)
-            {
-                GeoPoint point(srs, cdata._lon + (_centerOffset.x() * degOffset), -90.0 + (double)i * resDegrees, 0, ALTMODE_ABSOLUTE);
-                // Skip drawing labels at the poles
-                if (osg::equivalent(osg::absolute( point.y()), 90.0, 0.1))
+                int minLatIndex = floor(((extent.yMin() + 90) / resDegrees));
+                int maxLatIndex = ceil(((extent.yMax() + 90) / resDegrees));
+
+                // Generate horizontal labels
+                for (int i = minLonIndex; i <= maxLonIndex && !done; i++)
                 {
-                    continue;
+                    GeoPoint point(srs, -180.0 + (double)i * resDegrees, cdata._lat + (_centerOffset.y() * degOffset), 0, ALTMODE_ABSOLUTE);
+                    LabelNode* label = cdata._labelPool[labelIndex++].get();
+
+                    label->setNodeMask(~0u);
+                    label->setPosition(point);
+                    std::string text = getText(point, false);
+                    label->setText(text);
+                    if (labelIndex == cdata._labelPool.size() - 1)
+                    {
+                        done = true;
+                    }
                 }
-                LabelNode* label = cdata._labelPool[labelIndex++].get();
-                label->setNodeMask(~0u);
-                label->setPosition(point);
-                std::string text = getText( point, true);
-                label->setText( text );
-                if (labelIndex == cdata._labelPool.size() - 1)
+
+                // Generate the vertical labels
+                for (int i = minLatIndex; i <= maxLatIndex && !done; i++)
                 {
-                    done = true;
+                    GeoPoint point(srs, cdata._lon + (_centerOffset.x() * degOffset), -90.0 + (double)i * resDegrees, 0, ALTMODE_ABSOLUTE);
+                    // Skip drawing labels at the poles
+                    if (osg::equivalent(osg::absolute(point.y()), 90.0, 0.1))
+                    {
+                        continue;
+                    }
+                    LabelNode* label = cdata._labelPool[labelIndex++].get();
+                    label->setNodeMask(~0u);
+                    label->setPosition(point);
+                    std::string text = getText(point, true);
+                    label->setText(text);
+                    if (labelIndex == cdata._labelPool.size() - 1)
+                    {
+                        done = true;
+                    }
                 }
             }
         }
@@ -645,7 +695,7 @@ GeodeticGraticule::getCameraData(osg::Camera* cam) const
 
 std::string
 GeodeticGraticule::getText(const GeoPoint& location, bool lat)
-{ 
+{
     double value = lat ? location.y() : location.x();
     return _formatter->format(value, lat);
 }

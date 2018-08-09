@@ -25,12 +25,16 @@
 #include <osgEarth/Capabilities>
 #include <osgEarth/DrapeableNode>
 #include <osgEarth/ClampableNode>
-#include <osgEarth/Lighting>
+#include <osgEarth/GLUtils>
 #include <osg/Notify>
 
 using namespace osgEarth;
 using namespace osgEarth::Features;
 using namespace osgEarth::Symbology;
+
+#ifndef GL_CLIP_DISTANCE0
+#define GL_CLIP_DISTANCE0 0x3000
+#endif
 
 #define LC "[FeatureModelSource] "
 
@@ -55,7 +59,6 @@ FeatureModelOptions::fromConfig(const Config& conf)
 
     conf.getObjIfSet( "styles",           _styles );
     conf.getObjIfSet( "layout",           _layout );
-    conf.getObjIfSet( "paging",           _layout ); // backwards compat.. to be deprecated
     conf.getObjIfSet( "fading",           _fading );
     conf.getObjIfSet( "feature_name",     _featureNameExpr );
     conf.getObjIfSet( "feature_indexing", _featureIndexing );
@@ -120,7 +123,6 @@ FeatureModelSourceOptions::fromConfig( const Config& conf )
     
     conf.getObjIfSet( "styles",           _styles );
     conf.getObjIfSet( "layout",           _layout );
-    conf.getObjIfSet( "paging",           _layout ); // backwards compat.. to be deprecated
     conf.getObjIfSet( "fading",           _fading );
     conf.getObjIfSet( "feature_name",     _featureNameExpr );
     conf.getObjIfSet( "feature_indexing", _featureIndexing );
@@ -208,7 +210,9 @@ FeatureModelSource::initialize(const osgDB::Options* readOptions)
         return Status::Error(Status::ServiceUnavailable, "Failed to create a feature driver");
 
     // open the feature source if it exists:
-    const Status& featuresStatus = _features->open(_readOptions.get());
+    _features->setReadOptions(_readOptions.get());
+
+    const Status& featuresStatus = _features->open();
     if (featuresStatus.isError())
         return featuresStatus;
 
@@ -287,7 +291,7 @@ FeatureModelSource::createNodeImplementation(const Map*        map,
 
     // Graph that will render feature models. May included paged data.
     FeatureModelGraph* graph = new FeatureModelGraph(session, _options, factory, getSceneGraphCallbacks());
-    graph->setSceneGraphCallbacks(getSceneGraphCallbacks());
+
     return graph;
 }
 
@@ -339,16 +343,9 @@ FeatureNodeFactory::getOrCreateStyleGroup(const Style& style,
         {
             osg::StateSet* stateset = group->getOrCreateStateSet();
 
-            stateset->setMode(
-                GL_LIGHTING,
+            GLUtils::setLighting(
+                stateset,
                 (render->lighting() == true ? osg::StateAttribute::ON : osg::StateAttribute::OFF) | osg::StateAttribute::OVERRIDE );
-
-            if ( Registry::capabilities().supportsGLSL() )
-            {
-                stateset->setDefine(OE_LIGHTING_DEFINE, render->lighting().get());
-                //stateset->addUniform( Registry::shaderFactory()->createUniformForGLMode(
-                //    GL_LIGHTING, render->lighting().value()));
-            }
         }
 
         if ( render->backfaceCulling().isSet() )
@@ -358,10 +355,10 @@ FeatureNodeFactory::getOrCreateStyleGroup(const Style& style,
                 (render->backfaceCulling() == true ? osg::StateAttribute::ON : osg::StateAttribute::OFF) | osg::StateAttribute::OVERRIDE );
         }
 
-#if !(defined(OSG_GLES2_AVAILABLE) || defined(OSG_GLES3_AVAILABLE) || defined(OSG_GL3_AVAILABLE) )
+#if !(defined(OSG_GLES2_AVAILABLE) || defined(OSG_GLES3_AVAILABLE))
         if ( render->clipPlane().isSet() )
         {
-            GLenum mode = GL_CLIP_PLANE0 + (render->clipPlane().value());
+            GLenum mode = GL_CLIP_DISTANCE0 + (render->clipPlane().value());
             group->getOrCreateStateSet()->setMode(mode, 1);
         }
 #endif

@@ -151,9 +151,11 @@ namespace osgEarth
         /** Maximum size of a texture buffer, when supportsTextureBuffer() is true. */
         int getMaxTextureBufferSize() const { return _maxTextureBufferSize; }
 
+        /** whether OpenGL core profile is active */
+        bool isCoreProfile() const { return _isCoreProfile; }
 
     protected:
-        Capabilities();
+        Capabilities(osg::GraphicsContext* gc);
 
         /** dtor */
         virtual ~Capabilities() { }
@@ -196,6 +198,7 @@ namespace osgEarth
         bool _isGLES;
         bool _supportsTextureBuffer;
         int  _maxTextureBufferSize;
+        bool _isCoreProfile;
 
     public:
         friend class Registry;

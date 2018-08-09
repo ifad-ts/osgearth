@@ -12,12 +12,15 @@ SET(HEADERS_ROOT
     ActivityMonitorTool
     AnnotationEvents
     AutoClipPlaneHandler
+    AutoScaleCallback
     ArcGIS
     AtlasBuilder
+    ClipSpace
     Common
     Controls
     ContourMap
     ClampCallback
+    ClusterNode
     DataScanner
     EarthManipulator
     Ephemeris
@@ -29,6 +32,8 @@ SET(HEADERS_ROOT
     FractalElevationLayer
     GARSGraticule
     GeodeticGraticule
+    GeodeticLabelingEngine
+    GraticuleLabelingEngine
     HTM
     LatLongFormatter
     LineOfSight
@@ -106,6 +111,8 @@ SET(SOURCES_ROOT
     AtlasBuilder.cpp
     AutoClipPlaneHandler.cpp
     ClampCallback.cpp
+    ClipSpace.cpp
+    ClusterNode.cpp
     Controls.cpp
     ContourMap.cpp
     DataScanner.cpp
@@ -117,6 +124,8 @@ SET(SOURCES_ROOT
     FractalElevationLayer.cpp
     GARSGraticule.cpp
     GeodeticGraticule.cpp
+    GeodeticLabelingEngine.cpp
+    GraticuleLabelingEngine.cpp
     HTM.cpp
     LatLongFormatter.cpp
     LinearLineOfSight.cpp

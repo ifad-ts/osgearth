@@ -110,7 +110,7 @@ main(int argc, char** argv)
 
         LatLongFormatter llf;
         llf.setOptions( LatLongFormatter::Options(llf.FORMAT_DEGREES_MINUTES_SECONDS) );
-        llf.setPrecision( 4 );
+        llf.setPrecision( 8 );
 
         viewer.setSceneData( root );
 
@@ -122,19 +122,19 @@ main(int argc, char** argv)
             {
                 const DateTime& dt = app.sky->getDateTime();
 
-                osg::Vec3d sunECEF = ephemeris->getSunPositionECEF(dt);
-                GeoPoint sun;
-                sun.fromWorld(mapNode->getMapSRS(), sunECEF);
-                sun.alt() = 0.0;
-                app.sunPos->setPosition( sun );
-                app.sunPos->setText( "Sun\n" + llf.format(sun) );
+                CelestialBody sun = ephemeris->getSunPosition(dt);
+                GeoPoint sunPos;
+                sunPos.fromWorld(mapNode->getMapSRS(), sun.geocentric);
+                sunPos.alt() = 0.0;
+                app.sunPos->setPosition( sunPos );
+                app.sunPos->setText( "Sun\n" + llf.format(sunPos) );
 
-                osg::Vec3d moonECEF = ephemeris->getMoonPositionECEF(dt);
-                GeoPoint moon;
-                moon.fromWorld(mapNode->getMapSRS(), moonECEF);
-                moon.alt() = 0.0;
-                app.moonPos->setPosition( moon );
-                app.moonPos->setText( "Moon\n" + llf.format(moon) );
+                CelestialBody moon = ephemeris->getMoonPosition(dt);
+                GeoPoint moonPos;
+                moonPos.fromWorld(mapNode->getMapSRS(), moon.geocentric);
+                moonPos.alt() = 0.0;
+                app.moonPos->setPosition( moonPos );
+                app.moonPos->setText( "Moon\n" + llf.format(moonPos) );
             }
         }
     }

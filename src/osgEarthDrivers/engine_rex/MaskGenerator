@@ -20,14 +20,19 @@
 #define OSGEARTH_DRIVERS_REX_MASK_GENERATOR 1
 
 #include "Common"
-#include <osgEarth/MapFrame>
 #include <osgEarth/TileKey>
+#include <osgEarth/MapInfo>
 #include <osg/Geometry>
 
-#define MASK_MARKER_DISCARD  0.0f    // do not draw
-#define MASK_MARKER_NORMAL   1.0f    // normal vertex
-#define MASK_MARKER_PATCH    2.0f    // not subject to morphing
-#define MASK_MARKER_BOUNDARY 3.0f    // not subject to elevation texture
+#define VERTEX_MARKER_DISCARD   1    // do not draw
+#define VERTEX_MARKER_GRID      2    // regular grid vertex (not part of mask)
+#define VERTEX_MARKER_PATCH     4    // not subject to morphing
+#define VERTEX_MARKER_BOUNDARY  8    // not subject to elevation texture
+#define VERTEX_MARKER_SKIRT    16    // it's a skirt vertex (bitmask)
+
+namespace osgEarth {
+    class Map;
+}
 
 namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
 {
@@ -75,16 +80,10 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
         //! whether a texcoord indicates that the corresponding vert is masked.
         bool isMasked(const osg::Vec3f& texCoord) const
         {
-            return texCoord.z() == MASK_MARKER_DISCARD;
+            return (VERTEX_MARKER_DISCARD & (int)texCoord.z()) != 0;
         }
 
-        //! True if the texcoord indicates a bounary vertex
-        bool isBoundary(const osg::Vec3f& texCoord) const
-        {
-            return texCoord.z() == MASK_MARKER_BOUNDARY;
-        }
-
-        //! returns once of the MASK_MARKER_* defines for the given NDC location
+        //! returns once of the VERTEX_MARKER_* defines for the given NDC location
         float getMarker(float nx, float ny) const;
 
         //! Gets the LL and UR corners of the "patch rectangle" in NDC space

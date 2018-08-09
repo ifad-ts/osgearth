@@ -28,7 +28,7 @@
 #include <osgEarth/Progress>
 
 namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
-{    
+{
     class LoadTileData : public Loader::Request
     {
     public:
@@ -46,18 +46,17 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
         /** Applies the fetched data to the tile node (scene-graph safe) */
         void apply(const osg::FrameStamp*);
 
-    public: // ProgressCallback
-
-        bool isCanceled();
+        //! Creates a stateset containing GL compilable objects from the model
+        osg::StateSet* createStateSet() const;
 
     protected:
         osg::observer_ptr<TileNode> _tilenode;
         osg::observer_ptr<TerrainEngineNode> _engine;
-        EngineContext* _context;
+        osg::observer_ptr<EngineContext> _context;
         osg::ref_ptr<TerrainTileModel> _dataModel;
         TileRenderModel _renderModel;
         CreateTileModelFilter _filter;
-        MapFrame _mapFrame;
+        osg::observer_ptr< const Map > _map;
         bool _enableCancel;
 
         virtual ~LoadTileData() { }

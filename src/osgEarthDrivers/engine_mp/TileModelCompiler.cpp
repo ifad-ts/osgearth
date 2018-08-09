@@ -357,25 +357,22 @@ namespace
         d.surface->setVertexArray( d.surfaceVerts.get() );
 
         // allocate and assign normals
-        d.normals = new osg::Vec3Array();
+        d.normals = new osg::Vec3Array(osg::Array::BIND_PER_VERTEX);
         d.normals->reserve( d.numVerticesInSurface );
         d.surface->setNormalArray( d.normals.get() );
-        d.surface->setNormalBinding( osg::Geometry::BIND_PER_VERTEX );
 
         // vertex attribution
         // for each vertex, a vec4 containing a unit extrusion vector in [0..2] and the raw elevation in [3]
-        d.surfaceAttribs = new osg::Vec4Array();
+        d.surfaceAttribs = new osg::Vec4Array(osg::Array::BIND_PER_VERTEX);
+        d.surfaceAttribs->setNormalize(false);
         d.surfaceAttribs->reserve( d.numVerticesInSurface );
         d.surface->setVertexAttribArray( osg::Drawable::ATTRIBUTE_6, d.surfaceAttribs.get() );
-        d.surface->setVertexAttribBinding( osg::Drawable::ATTRIBUTE_6, osg::Geometry::BIND_PER_VERTEX );
-        d.surface->setVertexAttribNormalize( osg::Drawable::ATTRIBUTE_6, false );
 
         // for each vertex, index 0 holds the interpolated elevation from the lower lod (for morphing)
-        d.surfaceAttribs2 = new osg::Vec4Array();
+        d.surfaceAttribs2 = new osg::Vec4Array(osg::Array::BIND_PER_VERTEX);
+        d.surfaceAttribs2->setNormalize(false);
         d.surfaceAttribs2->reserve( d.numVerticesInSurface );
         d.surface->setVertexAttribArray( osg::Drawable::ATTRIBUTE_7, d.surfaceAttribs2.get() );
-        d.surface->setVertexAttribBinding( osg::Drawable::ATTRIBUTE_7, osg::Geometry::BIND_PER_VERTEX );
-        d.surface->setVertexAttribNormalize( osg::Drawable::ATTRIBUTE_7, false );
         
         // temporary data structures for triangulation support
         d.elevations = new osg::FloatArray();
@@ -724,7 +721,7 @@ namespace
 
     /**
      * If there are masking records, calculate the vertices to bound the masked area
-     * and the internal verticies to populate it. Then build a triangulation of the
+     * and the internal vertices to populate it. Then build a triangulation of the
      * area inside the masking bounding box and add this to the surface geode.
      */
     void createMaskGeometry( Data& d )
@@ -957,7 +954,7 @@ namespace
                 for (osg::Vec3Array::iterator it = maskConstraint->begin(); it != maskConstraint->end(); ++it)
                 {
                     //If the z-value was set from a mask vertex there is no need to change it.  If
-                    //it was set from a vertex from the stitching polygon it may need overriden if
+                    //it was set from a vertex from the stitching polygon it may need overridden if
                     //the vertex lies along a mask edge.  Or if it is unset, it will need to be set.
                     //if (isZSet[count] < 2)
                     if (!isZSet[count])
@@ -1063,25 +1060,22 @@ namespace
             stitch_verts->reserve(trig->getInputPointArray()->size());
             stitch_geom->setVertexArray(stitch_verts.get());
 
-            osg::ref_ptr<osg::Vec3Array> stitch_norms = new osg::Vec3Array(trig->getInputPointArray()->size());
+            osg::ref_ptr<osg::Vec3Array> stitch_norms = new osg::Vec3Array(osg::Array::BIND_PER_VERTEX, trig->getInputPointArray()->size());
             stitch_geom->setNormalArray( stitch_norms.get() );
-            stitch_geom->setNormalBinding( osg::Geometry::BIND_PER_VERTEX );
 
 
             // vertex attribution
             // for each vertex, a vec4 containing a unit extrusion vector in [0..2] and the raw elevation in [3]
-            osg::ref_ptr<osg::Vec4Array> surfaceAttribs = new osg::Vec4Array();
+            osg::ref_ptr<osg::Vec4Array> surfaceAttribs = new osg::Vec4Array(osg::Array::BIND_PER_VERTEX);
+            surfaceAttribs->setNormalize(false);
             surfaceAttribs->reserve( trig->getInputPointArray()->size() );
             stitch_geom->setVertexAttribArray( osg::Drawable::ATTRIBUTE_6, surfaceAttribs.get() );
-            stitch_geom->setVertexAttribBinding( osg::Drawable::ATTRIBUTE_6, osg::Geometry::BIND_PER_VERTEX );
-            stitch_geom->setVertexAttribNormalize( osg::Drawable::ATTRIBUTE_6, false );
 
             // for each vertex, index 0 holds the interpolated elevation from the lower lod (for morphing)
-            osg::ref_ptr<osg::Vec4Array> surfaceAttribs2 = new osg::Vec4Array();
+            osg::ref_ptr<osg::Vec4Array> surfaceAttribs2 = new osg::Vec4Array(osg::Array::BIND_PER_VERTEX);
+            surfaceAttribs2->setNormalize(false);
             surfaceAttribs2->reserve( trig->getInputPointArray()->size() );
             stitch_geom->setVertexAttribArray( osg::Drawable::ATTRIBUTE_7, surfaceAttribs2.get() );
-            stitch_geom->setVertexAttribBinding( osg::Drawable::ATTRIBUTE_7, osg::Geometry::BIND_PER_VERTEX );
-            stitch_geom->setVertexAttribNormalize( osg::Drawable::ATTRIBUTE_7, false );
 
 
             //Initialize tex coords
@@ -1179,7 +1173,7 @@ namespace
             }
 
 
-            // Get triangles from triangulator and add as primative set to the geometry
+            // Get triangles from triangulator and add as primitive set to the geometry
             osg::ref_ptr<osg::DrawElementsUInt> tris = trig->getTriangles();
             if ( tris && tris->getNumIndices() >= 3 )
             {
@@ -2110,10 +2104,9 @@ namespace
             de->push_back(2); de->push_back(6);
             geom->addPrimitiveSet(de);
 
-            osg::Vec4Array* c= new osg::Vec4Array();
+            osg::Vec4Array* c= new osg::Vec4Array(osg::Array::BIND_OVERALL);
             c->push_back(osg::Vec4(0,1,1,1));
             geom->setColorArray(c);
-            geom->setColorBinding(geom->BIND_OVERALL);
 
             geode->addDrawable(geom);
 
@@ -2135,7 +2128,7 @@ namespace
         geode->addDrawable(t);
 
         geode->getOrCreateStateSet()->setAttributeAndModes(new osg::Program(),0);
-        geode->getOrCreateStateSet()->setMode(GL_LIGHTING,0);
+        geode->getOrCreateStateSet()->setMode(GL_LIGHTING,0); // ok .. FFP debugging code
 
         return geode;
     }
@@ -2224,7 +2217,7 @@ TileModelCompiler::compile(TileModel*        model,
     {
         d.surfaceGeode->addDrawable( d.surface );
 
-        // tesselate the surface verts into triangles.
+        // tessellate the surface verts into triangles.
         tessellateSurfaceGeometry( d, _optimizeTriOrientation, *_options.normalizeEdges() );
 
         // build the skirts.

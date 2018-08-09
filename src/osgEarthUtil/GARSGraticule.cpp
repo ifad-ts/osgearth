@@ -18,14 +18,21 @@
  */
 #include <osgEarthUtil/GARSGraticule>
 #include <osgEarthAnnotation/FeatureNode>
+#include <osgEarthFeatures/TextSymbolizer>
 #include <osgEarthFeatures/Feature>
 #include <osgEarth/PagedNode>
+#include <osgEarth/Registry>
+#include <osgEarth/GLUtils>
 
 using namespace osgEarth;
 using namespace osgEarth::Util;
 using namespace osgEarth::Annotation;
 using namespace osgEarth::Features;
 using namespace osgEarth::Symbology;
+
+#ifndef GL_CLIP_DISTANCE0
+#define GL_CLIP_DISTANCE0 0x3000
+#endif
 
 namespace
 {
@@ -189,28 +196,38 @@ namespace
         // Add the node to the attachpoint.
         _attachPoint->addChild(featureNode);
        
-        GeoPoint centroid(_extent.getSRS(), lon, lat, 1000.0);
-        GeoPoint west(_extent.getSRS(), _extent.west(), lat, 0.0);
-        GeoPoint east(_extent.getSRS(), _extent.east(), lat, 0.0);   
-        double widthInMeters = west.distanceTo(east);
+        GeoPoint centroid(_extent.getSRS(), lon, lat, 0.0f);
+        GeoPoint ll(_extent.getSRS(), _extent.west(), _extent.south(), 0.0f);
 
-        osgText::Text* text = new osgText::Text;
-        text->setFont(osgText::readRefFontFile("arial.ttf"));
-        text->setText(label);
+        const TextSymbol* textSymPrototype = style.get<TextSymbol>();
+        osg::ref_ptr<TextSymbol> textSym = textSymPrototype ? new TextSymbol(*textSymPrototype) : new TextSymbol();
 
-        text->setCharacterSize(widthInMeters / (double)label.size());
-        text->setAlignment(osgText::Text::CENTER_CENTER);
+        if (textSym->size().isSet() == false)
+            textSym->size() = 32.0f;
+
+        if (textSym->alignment().isSet() == false)
+            textSym->alignment() = textSym->ALIGN_LEFT_BASE_LINE;
+
+        TextSymbolizer symbolizer(textSym.get());                
+
+        osgText::Text* text = symbolizer.create(label);
+        text->setCharacterSizeMode(osgText::Text::SCREEN_COORDS);
+        text->getOrCreateStateSet()->setRenderBinToInherit();
+
         osg::Geode* textGeode = new osg::Geode;
         textGeode->addDrawable(text);
 
         osg::MatrixTransform* mt = new osg::MatrixTransform;
         mt->addChild(textGeode);
 
+        // Position the label at the bottom left of the grid cell.
         osg::Matrixd local2World;
-        centroid.createLocalToWorld(local2World);
+        ll.createLocalToWorld(local2World);
         mt->setMatrix(local2World);
 
        _attachPoint->addChild(mt);
+
+       //Registry::shaderGenerator().run(this, Registry::stateSetCache());
     }
 
     osg::BoundingSphere GridNode::getChildBound() const
@@ -312,8 +329,9 @@ GARSGraticule::init()
 
     osg::StateSet* ss = this->getOrCreateStateSet();
     ss->setMode( GL_DEPTH_TEST, 0 );
-    ss->setMode( GL_LIGHTING, 0 );
+    GLUtils::setLighting(ss, 0);
     ss->setMode( GL_BLEND, 1 );
+
 
     // force it to render after the terrain.
     ss->setRenderBinDetails(1, "RenderBin");
@@ -321,11 +339,21 @@ GARSGraticule::init()
     if (options().style().isSet() == false)
     {
         options().style()->getOrCreateSymbol<LineSymbol>()->stroke()->color() = Color::Blue;
-        options().style()->getOrCreateSymbol<LineSymbol>()->tessellation() = 20;
+        options().style()->getOrCreateSymbol<LineSymbol>()->tessellation() = 10;
     }
 
+    // Always use draping.
+    // Note: since we use draping we do NOT need to activate a horizon clip plane!
     options().style()->getOrCreateSymbol<AltitudeSymbol>()->clamping() = AltitudeSymbol::CLAMP_TO_TERRAIN;
     options().style()->getOrCreateSymbol<AltitudeSymbol>()->technique() = AltitudeSymbol::TECHNIQUE_DRAPE;
+
+    _root = new osg::Group();
+    _root->getOrCreateStateSet()->setAttribute(new osg::Program(), osg::StateAttribute::OFF);
+
+    if (getEnabled() == true)
+    {
+        rebuild();
+    }
 }
 
 void
@@ -341,15 +369,8 @@ GARSGraticule::removedFromMap(const Map* map)
 }
 
 osg::Node*
-GARSGraticule::getOrCreateNode()
+GARSGraticule::getNode() const
 {
-    if (_root.valid() == false)
-    {
-        _root = new osg::Group();
-        _root->getOrCreateStateSet()->setAttribute(new osg::Program(), osg::StateAttribute::OFF);
-        rebuild();
-    }
-
     return _root.get();
 }
 

@@ -46,17 +46,6 @@ Loader::Request::Request()
     _lastTick = 0;
 }
 
-osg::StateSet*
-Loader::Request::getStateSet()
-{
-    if ( !_stateSet.valid() )
-    {
-        _stateSet = new osg::StateSet();
-        _stateSet->setDataVariance( osg::Object::DYNAMIC );
-    }
-    return _stateSet.get();
-}
-
 void
 Loader::Request::addToChangeSet(osg::Node* node)
 {
@@ -83,11 +72,18 @@ SimpleLoader::load(Loader::Request* request, float priority, osg::NodeVisitor& n
         // take a reference, which will cause an unref after load.
         osg::ref_ptr<Request> r = request;
 
+        r->setState(Request::RUNNING);
+
         //OE_INFO << LC << "Request invoke : UID = " << request->getUID() << "\n";
         request->invoke();
         
         //OE_INFO << LC << "Request apply : UID = " << request->getUID() << "\n";
-        request->apply( nv.getFrameStamp() );
+        if (r->isRunning())
+        {
+            request->apply( nv.getFrameStamp() );
+        }
+
+        r->setState(Request::IDLE);
     }
     return request != 0L;
 }
@@ -133,10 +129,15 @@ namespace
                     {
                         TileKey key = loader->getTileKeyForRequest(requestUID);
 
-                        MapFrame frame(engine->getMap());
-                        if ( frame.isCached(key) )
+                        const Map* map = engine->getMap();
+                        if (map)
                         {
-                            result = LOCAL_FILE;
+                            LayerVector layers;
+                            map->getLayers(layers);
+                            if (map->isFast(key, layers))
+                            {
+                                result = LOCAL_FILE;
+                            }
                         }
                     }
 
@@ -158,8 +159,9 @@ namespace
 
 namespace
 {
-    struct RequestResultNode : public osg::Node
+    class RequestResultNode : public osg::Node
     {
+    public:
         RequestResultNode(Loader::Request* request)
             : _request(request)
         {
@@ -169,7 +171,7 @@ namespace
             {
                 // TODO: for some reason pre-compiling is causing texture flashing issues 
                 // with things like classification maps when using --ico. Figure out why.
-                setStateSet( _request->getStateSet() );
+                setStateSet( _request->createStateSet() );
             }
         }
 
@@ -403,7 +405,9 @@ PagerLoader::addChild(osg::Node* node)
         Request* req = result->getRequest();
         if ( req )
         {
-            if ( req->_lastTick >= _checkpoint )
+            // Make sure the request is both current (newer than the last checkpoint)
+            // and running (i.e. has not been canceled along the way)
+            if (req->_lastTick >= _checkpoint && req->isRunning())
             {
                 if ( _mergesPerFrame > 0 )
                 {
@@ -421,6 +425,7 @@ PagerLoader::addChild(osg::Node* node)
 
             else
             {
+                OE_DEBUG << LC << "Request " << req->getName() << " canceled" << std::endl;
                 req->setState( Request::FINISHED );
                 if ( REPORT_ACTIVITY )
                     Registry::instance()->endActivity( req->getName() );
@@ -516,10 +521,18 @@ namespace osgEarth { namespace Drivers { namespace RexTerrainEngine
                 osg::ref_ptr<PagerLoader> loader;
                 if (OptionsData<PagerLoader>::lock(dboptions, "osgEarth.PagerLoader", loader))
                 {
-                    Loader::Request* req = loader->invokeAndRelease( requestUID );
-                    return new RequestResultNode(req);
+                    osg::ref_ptr<Loader::Request> req = loader->invokeAndRelease( requestUID );
+
+                    // make sure the request is still running (not canceled)
+                    if (req.valid() && req->isRunning())
+                        return new RequestResultNode(req.release());
+                    else
+                        return ReadResult::FILE_LOADED; // fail silenty (cancelation)
                 }
-                return ReadResult::FILE_NOT_FOUND;
+
+                // fail silently - this could happen if the Loader disappears from
+                // underneath, if say the terrain is destroyed
+                return ReadResult::FILE_LOADED;
             }
             else
             {

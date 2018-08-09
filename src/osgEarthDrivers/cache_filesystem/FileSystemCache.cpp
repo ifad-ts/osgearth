@@ -40,7 +40,6 @@ using namespace osgEarth::Threading;
 
 #define OSG_FORMAT "osgb"
 #define OSG_EXT   ".osgb"
-#define OSG_COMPRESS
 
 namespace
 {
@@ -301,19 +300,19 @@ namespace
 
         _zlibOptions = Registry::instance()->cloneOrCreateOptions();
 
-#ifdef OSG_COMPRESS
-#ifdef OSGEARTH_HAVE_ZLIB
-        _zlibOptions->setPluginStringData("Compressor", "zlib");
-        _compressorName = "zlib";
-#endif        
-#endif
-        if (::getenv(OSGEARTH_ENV_DEFAULT_COMPRESSOR) != 0L){
-           _compressorName = ::getenv(OSGEARTH_ENV_DEFAULT_COMPRESSOR);
+        if (::getenv(OSGEARTH_ENV_DEFAULT_COMPRESSOR) != 0L)
+        {
+            _compressorName = ::getenv(OSGEARTH_ENV_DEFAULT_COMPRESSOR);
         }
-        if (_compressorName.length() > 0){
-           _zlibOptions->setPluginStringData("Compressor", _compressorName);
+        else
+        {
+            _compressorName = "zlib";
         }
-     
+
+        if (_compressorName.length() > 0)
+        {
+            _zlibOptions->setPluginStringData("Compressor", _compressorName);
+        }
     }
 
     const osgDB::Options*
@@ -330,8 +329,9 @@ namespace
         else
         {
             osgDB::Options* merged = Registry::cloneOrCreateOptions(dbo);
-            if (_compressorName.length()){
-               merged->setPluginStringData("Compressor", _compressorName);
+            if (_compressorName.length())
+            {
+                merged->setPluginStringData("Compressor", _compressorName);
             }
             return merged;
         }
@@ -614,7 +614,7 @@ namespace
 
 /**
  * This driver defers loading of the source data to the appropriate OSG plugin. You
- * must explicity set an override profile when using this driver.
+ * must explicitly set an override profile when using this driver.
  *
  * For example, use this driver to load a simple jpeg file; then set the profile to
  * tell osgEarth its projection.

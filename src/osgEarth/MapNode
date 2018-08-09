@@ -138,9 +138,6 @@ namespace osgEarth
          */
         osg::Group* getLayerNodeGroup() const;
 
-        // @deprecated - use getLayerNodeGroup
-        osg::Group* getModelLayerGroup() const { return getLayerNodeGroup(); }
-
         /**
          * Accesses the root node for a specific ModelLayer.
          */

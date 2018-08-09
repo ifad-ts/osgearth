@@ -85,7 +85,7 @@ ENDMACRO(DETECT_OSG_VERSION)
 #  full path of the library name. in order to differentiate release and debug, this macro get the
 #  NAME of the variables, so the macro gets as arguments the target name and the following list of parameters
 #  is intended as a list of variable names each one containing  the path of the libraries to link to
-#  The existance of a variable name with _DEBUG appended is tested and, in case it' s value is used
+#  The existence of a variable name with _DEBUG appended is tested and, in case it's value is used
 #  for linking to when in debug mode
 #  the content of this library for linking when in debugging
 #######################################################################################################
@@ -169,12 +169,13 @@ MACRO(SETUP_LINK_LIBRARIES)
 #    ENDFOREACH(LINKLIB)
     LINK_INTERNAL(${TARGET_TARGETNAME} ${TARGET_LIBRARIES})
 
+    IF(TARGET_LIBRARIES_VARS)
+            LINK_WITH_VARIABLES(${TARGET_TARGETNAME} ${TARGET_LIBRARIES_VARS})
+    ENDIF(TARGET_LIBRARIES_VARS)
+
     FOREACH(LINKLIB ${TARGET_EXTERNAL_LIBRARIES})
             TARGET_LINK_LIBRARIES(${TARGET_TARGETNAME} ${LINKLIB})
     ENDFOREACH(LINKLIB)
-        IF(TARGET_LIBRARIES_VARS)
-            LINK_WITH_VARIABLES(${TARGET_TARGETNAME} ${TARGET_LIBRARIES_VARS})
-        ENDIF(TARGET_LIBRARIES_VARS)
 ENDMACRO(SETUP_LINK_LIBRARIES)
 
 ############################################################################################

@@ -53,7 +53,7 @@ _shaderPolicy( osgEarth::SHADERPOLICY_GENERATE )
         }
         else
         {
-            _resourceCache = new ResourceCache(); // session->getDBOptions() );
+            _resourceCache = new ResourceCache();
         }
     }
 

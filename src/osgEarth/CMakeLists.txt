@@ -38,6 +38,7 @@ ENDIF(WIN32)
 SET(LIB_NAME osgEarth)
 
 set(TARGET_GLSL
+    ClipPlane.glsl
     DepthOffset.vert.glsl
     Draping.vert.glsl
     Draping.frag.glsl
@@ -45,8 +46,12 @@ set(TARGET_GLSL
     GPUClamping.vert.lib.glsl
     GPUClamping.frag.glsl
     Instancing.vert.glsl
+    LineDrawable.glsl
     PhongLighting.vert.glsl
-    PhongLighting.frag.glsl)
+    PhongLighting.frag.glsl
+    Text.vert.glsl
+    Text.frag.glsl
+    )
 
 set(SHADERS_CPP "${CMAKE_CURRENT_BINARY_DIR}/AutoGenShaders.cpp")
 
@@ -90,6 +95,7 @@ SET(LIB_PUBLIC_HEADERS
     ElevationLOD
     ElevationPool
     ElevationQuery
+    EllipsoidIntersector
     Endian
     Export
     Extension
@@ -102,8 +108,10 @@ SET(LIB_PUBLIC_HEADERS
     GeoTransform
     GeometryClamper
     GLSLChunker
+    GLUtils
     HeightFieldUtils
     Horizon
+    HorizonClipPlane
     HTTPClient
     ImageLayer
     ImageMosaic
@@ -117,6 +125,7 @@ SET(LIB_PUBLIC_HEADERS
     Layer
     LayerListener
     Lighting
+    LineDrawable
     LineFunctor
     Locators
     LocalTangentPlane
@@ -266,6 +275,7 @@ set(TARGET_SRC
     ElevationLOD.cpp
     ElevationPool.cpp
     ElevationQuery.cpp
+    EllipsoidIntersector.cpp
     Extension.cpp
     FadeEffect.cpp
     FileUtils.cpp
@@ -275,8 +285,10 @@ set(TARGET_SRC
     GeoTransform.cpp
     GeometryClamper.cpp
     GLSLChunker.cpp
+    GLUtils.cpp
     HeightFieldUtils.cpp
     Horizon.cpp
+    HorizonClipPlane.cpp
     HTTPClient.cpp
     ImageLayer.cpp
     ImageMosaic.cpp
@@ -289,6 +301,7 @@ set(TARGET_SRC
     LandCoverLayer.cpp
     Layer.cpp
     Lighting.cpp
+    LineDrawable.cpp
     Locators.cpp
     LocalTangentPlane.cpp
     Map.cpp
@@ -392,9 +405,9 @@ ENDIF(WIN32)
 
 OPTION(NRL_STATIC_LIBRARIES "Link osgEarth against static GDAL and cURL, including static OpenSSL, Proj4, JPEG, PNG, and TIFF." OFF)
 if(NOT NRL_STATIC_LIBRARIES)
-  LINK_WITH_VARIABLES(${LIB_NAME} OSG_LIBRARY OSGUTIL_LIBRARY OSGSIM_LIBRARY OSGTERRAIN_LIBRARY OSGDB_LIBRARY OSGFX_LIBRARY OSGVIEWER_LIBRARY OSGTEXT_LIBRARY OSGGA_LIBRARY OSGSHADOW_LIBRARY OPENTHREADS_LIBRARY CURL_LIBRARY GDAL_LIBRARY ZLIB_LIBRARY OSGMANIPULATOR_LIBRARY)
+  LINK_WITH_VARIABLES(${LIB_NAME} OSG_LIBRARY OSGUTIL_LIBRARY OSGSIM_LIBRARY OSGTERRAIN_LIBRARY OSGDB_LIBRARY OSGFX_LIBRARY OSGVIEWER_LIBRARY OSGTEXT_LIBRARY OSGGA_LIBRARY OSGSHADOW_LIBRARY OPENTHREADS_LIBRARY CURL_LIBRARY GDAL_LIBRARY OSGMANIPULATOR_LIBRARY)
 else(NOT NRL_STATIC_LIBRARIES)
-  LINK_WITH_VARIABLES(${LIB_NAME} OSG_LIBRARY OSGUTIL_LIBRARY OSGSIM_LIBRARY OSGTERRAIN_LIBRARY OSGDB_LIBRARY OSGFX_LIBRARY OSGVIEWER_LIBRARY OSGTEXT_LIBRARY OSGGA_LIBRARY OSGSHADOW_LIBRARY OPENTHREADS_LIBRARY CURL_LIBRARY GDAL_LIBRARY ZLIB_LIBRARY OSGMANIPULATOR_LIBRARY SSL_EAY_RELEASE LIB_EAY_RELEASE TIFF_LIBRARY PROJ4_LIBRARY PNG_LIBRARY JPEG_LIBRARY)
+  LINK_WITH_VARIABLES(${LIB_NAME} OSG_LIBRARY OSGUTIL_LIBRARY OSGSIM_LIBRARY OSGTERRAIN_LIBRARY OSGDB_LIBRARY OSGFX_LIBRARY OSGVIEWER_LIBRARY OSGTEXT_LIBRARY OSGGA_LIBRARY OSGSHADOW_LIBRARY OPENTHREADS_LIBRARY CURL_LIBRARY GDAL_LIBRARY OSGMANIPULATOR_LIBRARY SSL_EAY_RELEASE LIB_EAY_RELEASE TIFF_LIBRARY PROJ4_LIBRARY PNG_LIBRARY JPEG_LIBRARY)
 endif(NOT NRL_STATIC_LIBRARIES)
 
 LINK_CORELIB_DEFAULT(${LIB_NAME} ${CMAKE_THREAD_LIBS_INIT} ${MATH_LIBRARY})
