@@ -109,7 +109,7 @@ struct MyGraphicsContext
 // Original parameterless ctor that creates a graphics context.
 Capabilities::Capabilities() : Capabilities(MyGraphicsContext mgc) {}
 
-// our version that uses an existing graphics context.
+// IFAD version that uses an existing graphics context.
 Capabilities::Capabilities(osg::GraphicsContext* gc) :
 _maxFFPTextureUnits     ( 1 ),
 _maxGPUTextureUnits     ( 1 ),

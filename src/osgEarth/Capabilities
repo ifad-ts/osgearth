@@ -154,8 +154,11 @@ namespace osgEarth
         /** whether OpenGL core profile is active */
         bool isCoreProfile() const { return _isCoreProfile; }
 
-    protected:
+        /** IFAD version that uses an existing graphics context. */
         Capabilities(osg::GraphicsContext* gc);
+        
+    protected:
+        Capabilities();
 
         /** dtor */
         virtual ~Capabilities() { }
