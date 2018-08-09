@@ -14,12 +14,10 @@ ENDIF(WIN32)
 
 SET(TARGET_SRC 
     ReaderWriterWCS.cpp
-    WCS10Source.cpp
     WCS11Source.cpp
 )
 
 SET(TARGET_H
-    WCS10Source.h
     WCS11Source.h
     WCSOptions
 )
