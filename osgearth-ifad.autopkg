@@ -20,8 +20,7 @@ nuget {
     
     dependencies {
         packages : {
-            osgvisual-3rdparty-full/9.0,
-            OpenSceneGraphIFAD/3.2.1.4,
+            OpenSceneGraphIFAD/3.6.3.1,
             geos/3.4.2
         };
     }
