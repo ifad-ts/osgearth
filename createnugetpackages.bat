@@ -3,14 +3,15 @@ rem Requires nuget.exe, cmake.exe in the path and the Visual Studio x64 setup (v
 rem Also requires a NuGet feed containing the dependent packages (most easily setup from within Visual Studio
 rem as that setup is picked up by the command-line nuget.exe)
 
-set OSG_VERSION=3.2.1.4
+set OSGVISUAL_VERSION=10.0.1
+set OSG_VERSION=3.6.3.1
 
 rem get dependencies
-nuget install -OutputDirectory packages osgvisual-3rdparty-full -version 9.0
+nuget install -OutputDirectory packages osgvisual-3rdparty-full -version %OSGVISUAL_VERSION%
 nuget install -OutputDirectory packages geos -version 3.4.2
 nuget install -OutputDirectory packages OpenSceneGraphIFAD -version %OSG_VERSION%
 
-call convert-nugetinstall-to-cmake-friendly-layout.bat packages\osgvisual-3rdparty-full.9.0 packages\osgvisual-3rdparty-temp\x64
+call convert-nugetinstall-to-cmake-friendly-layout.bat packages\osgvisual-3rdparty-full.%OSGVISUAL_VERSION% packages\osgvisual-3rdparty-temp\x64
 call convert-nugetinstall-to-cmake-friendly-layout.bat packages\OpenSceneGraphIFAD.%OSG_VERSION% packages\openscenegraph-temp
 call convert-nugetinstall-to-cmake-friendly-layout.bat packages\geos.3.4.2 packages\geos-temp
 

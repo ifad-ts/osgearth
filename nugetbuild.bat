@@ -9,7 +9,7 @@ CALL :RESOLVE "target\install" INSTALLDIR
 
 rmdir /s /q target\tempinstall
 mkdir target\install
-move target\install target\tempinstall || exit 
+move target\install target\tempinstall || GOTO :EOF
 
 CALL :MKANDPUSHD target\nugetbuild
 
@@ -22,20 +22,21 @@ cmake -G "Visual Studio 12 Win64" ^
 -D ZLIB_INCLUDE_DIR=%THIRDPARTY%/include ^
 -D ZLIB_LIBRARY=%THIRDPARTY%/lib/zlib.lib ^
 -D CURL_INCLUDE_DIR=%THIRDPARTY%/include ^
--D CURL_LIBRARY=%THIRDPARTY%/lib/libcurl.lib ^
--D CURL_LIBRARY_DEBUG=%THIRDPARTY%/lib/libcurld.lib ^
+-D CURL_LIBRARY=%THIRDPARTY%/lib/libcurl_imp.lib ^
+-D CURL_LIBRARY_DEBUG=%THIRDPARTY%/lib/libcurl_impd.lib ^
 -D OSGEARTH_USE_QT=OFF ^
 -D CMAKE_INSTALL_PREFIX=%INSTALLDIR% ^
 -D OSG_VERSION_EXE=%OSGDIR%/bin/release/osgversion.exe ^
 -D WIN32_USE_MP=ON ^
 -D ENABLE_FASTDXT=ON ^
+-D OSGEARTH_ENABLE_NVTT_CPU_MIPMAPS=ON ^
 -D CMAKE_CXX_FLAGS_RELEASE:STRING="/MD /O2 /Ob2 /D NDEBUG /Zi /Oy-" ^
 -D CMAKE_SHARED_LINKER_FLAGS_RELEASE:STRING="/DEBUG /OPT:REF /OPT:ICF /INCREMENTAL:NO" ^
 -D CMAKE_EXE_LINKER_FLAGS_RELEASE:STRING="/DEBUG /OPT:REF /OPT:ICF /INCREMENTAL:NO" ^
 -D CMAKE_MODULE_LINKER_FLAGS_RELEASE:STRING="/DEBUG /OPT:REF /OPT:ICF /INCREMENTAL:NO" ^
-%CURRENT_DIR% || exit 
+%CURRENT_DIR% || GOTO :EOF 
 
-devenv.com %NAME%.sln /build %1 /Project INSTALL || exit 
+devenv.com %NAME%.sln /build %1 /Project INSTALL || GOTO :EOF 
 popd
 for /r %INSTALLDIR% %%p in (*.dll) do (
 	for /f "delims=" %%i in ('dir target\nugetbuild\lib\%%~np.pdb /b /s') do ( xcopy /y %%~dpnxi  %%~dpp )
@@ -44,9 +45,9 @@ for /r %INSTALLDIR% %%p in (*.dll) do (
 
 rmdir /s /q target\nugetinstall\%1
 mkdir target\nugetinstall
-move target\install target\nugetinstall\%1 || exit 
-move target\tempinstall target\install || exit 
-xcopy target\nugetinstall\%1 target\install /e /y || exit 
+move target\install target\nugetinstall\%1 || GOTO :EOF 
+move target\tempinstall target\install || GOTO :EOF 
+xcopy target\nugetinstall\%1 target\install /e /y || GOTO :EOF 
 GOTO :EOF
 
 :RESOLVE
