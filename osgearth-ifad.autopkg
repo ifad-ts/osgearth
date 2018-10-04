@@ -3,7 +3,7 @@
 nuget {
     nuspec {
         id = osgearth-ifad;
-        version: 2.6.11;
+        version: 2.9.1;
         title: osgEarth IFAD;
         authors: { Pelican Mapping, amo. };
         owners: { IFAD TS, Michael Bach };
