@@ -3,8 +3,8 @@ rem Requires nuget.exe, cmake.exe in the path and the Visual Studio x64 setup (v
 rem Also requires a NuGet feed containing the dependent packages (most easily setup from within Visual Studio
 rem as that setup is picked up by the command-line nuget.exe)
 
-set OSGVISUAL_VERSION=10.0.1
-set OSG_VERSION=3.6.3.1
+set OSGVISUAL_VERSION=10.0.2
+set OSG_VERSION=3.5.10.1
 
 rem get dependencies
 nuget install -OutputDirectory packages osgvisual-3rdparty-full -version %OSGVISUAL_VERSION%

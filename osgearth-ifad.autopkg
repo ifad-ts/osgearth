@@ -3,7 +3,7 @@
 nuget {
     nuspec {
         id = osgearth-ifad;
-        version: 2.9.1;
+        version: 2.9.2;
         title: osgEarth IFAD;
         authors: { Pelican Mapping, amo. };
         owners: { IFAD TS, Michael Bach };
@@ -15,12 +15,12 @@ nuget {
         and go! osgEarth supports all kinds of data and comes with lots of examples to help you get up and running quickly and easily.";
         copyright: "None";
         tags: { native, gis, openscenegraph, ifadts };
-        releaseNotes: "First nupkg release.";
+        releaseNotes: "Downgrade OpenSceneGraphIFAD from 3.6.3.1 to 3.5.10.1.";
     }
     
     dependencies {
         packages : {
-            OpenSceneGraphIFAD/3.6.3.1,
+            OpenSceneGraphIFAD/3.5.10.1,
             geos/3.4.2
         };
     }
