@@ -167,7 +167,7 @@ public:
             {
                 if (_options.layers().isSet())
                 {
-                    OE_NOTICE << LC << "Both layers and titles specified - ignoring layers specification" << std::endl;
+                    OE_NOTICE << LC << "Both layers and titles specified - using titles \"" << _options.titles().value() << "\"" << std::endl;
                 }
 
                 osgDB::StringList titleList;
