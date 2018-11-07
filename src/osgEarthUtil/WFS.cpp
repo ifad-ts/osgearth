@@ -66,6 +66,16 @@ WFSCapabilities::getFeatureTypeByName(const std::string& name)
     return NULL;
 }
 
+WFSFeatureType*
+WFSCapabilities::getFeatureTypeByTitle(const std::string& title)
+{
+    for (FeatureTypeList::iterator itr = _featureTypes.begin(); itr != _featureTypes.end(); ++itr)
+    {
+        if (osgDB::equalCaseInsensitive(itr->get()->getTitle(), title)) return itr->get();
+    }
+    return NULL;
+}
+
 #define ATTR_VERSION "version"
 #define ELEM_CAPABILITY "capability"
 #define ELEM_SERVICE "service"

@@ -145,10 +145,34 @@ public:
             {
                 FeatureProfile* result = 0L;
 
+                _typeName = _options.typeName().get();
+
                 if (_capabilities.valid())
                 {
+                    osg::ref_ptr< WFSFeatureType > featureType;
+                    if (_options.title().isSet())
+                    {
+                        if (_options.typeName().isSet())
+                        {
+                            OE_NOTICE << LC << "Both typename and title specified - using title \"" << _options.title().value() << "\"" << std::endl;
+                        }
+
+                        featureType = _capabilities->getFeatureTypeByTitle(_options.title().get());
+                        if (featureType)
+                        {
+                            _typeName = featureType->getName();
+                            OE_INFO << LC << "Matched title \"" << _options.title().value() << "\" to feature type \"" << _typeName << "\"" << std::endl;
+                        }
+                        else
+                        {
+                            OE_WARN << LC << "Could not find coverage with title \"" << _options.title().value() << "\"" << std::endl;
+                        }
+                    }
+                    else
+                    {
+                        featureType = _capabilities->getFeatureTypeByName(_options.typeName().get());
+                    }
                     //Find the feature type by name
-                    osg::ref_ptr< WFSFeatureType > featureType = _capabilities->getFeatureTypeByName( _options.typeName().get() );
                     if (featureType.valid())
                     {
                         if (featureType->getExtent().isValid())
@@ -309,7 +333,7 @@ public:
     {
         std::stringstream buf;
         buf << _options.url()->full() << "?SERVICE=WFS&VERSION=1.0.0&REQUEST=GetFeature";
-        buf << "&TYPENAME=" << _options.typeName().get();
+        buf << "&TYPENAME=" << _typeName;
         
         std::string outputFormat = "geojson";
         if (_options.outputFormat().isSet()) outputFormat = _options.outputFormat().get();
@@ -435,6 +459,7 @@ private:
     FeatureSchema                   _schema;
     osg::ref_ptr<CacheBin>          _cacheBin;
     osg::ref_ptr<osgDB::Options>    _dbOptions;    
+    std::string                     _typeName;
 };
 
 
