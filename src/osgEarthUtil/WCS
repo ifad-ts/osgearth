@@ -99,9 +99,10 @@ namespace osgEarth { namespace Util
 
         WCSCoverage* getCoverageByIdentifier(const std::string& title);
 
+        WCSCoverage* getCoverageByTitle(const std::string& title);
+
         CoverageList& getCoverages() { return _coverages; }
 
-                
     protected:
         CoverageList _coverages;
 
