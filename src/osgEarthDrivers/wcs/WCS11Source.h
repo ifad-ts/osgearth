@@ -58,7 +58,7 @@ private:
 
     const WCSOptions _options;
     osg::ref_ptr< WCSCapabilities > _capabilities;
-    std::string _covFormat, _osgFormat;
+    std::string _covFormat, _osgFormat, _identifier;
 
     osg::ref_ptr<osgDB::Options> _dbOptions;
 

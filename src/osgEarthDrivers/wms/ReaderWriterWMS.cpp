@@ -35,6 +35,7 @@
 #include <string.h>
 #include <limits.h>
 #include <iomanip>
+#include <numeric>
 
 #include "TileService"
 #include "WMSOptions"
@@ -61,6 +62,13 @@ namespace
             osg::ImageSequence::update( nv );
         }
     };
+
+    std::string joinStringList(const osgDB::StringList &stringList, const std::string& separator = ",")
+    {
+        return std::accumulate(stringList.begin(), stringList.end(), std::string(""), [&](const std::string& a, const std::string& b) {
+            return a.empty() ? b : a + separator + b;
+        });
+    }
 }
 
 //----------------------------------------------------------------------------
@@ -137,33 +145,6 @@ public:
 
         std::string wmsFormatToUse = _options.wmsFormat().value();
 
-        //Initialize the WMS request prototype
-        std::stringstream buf;
-
-        // first the mandatory keys:
-        buf
-            << std::fixed << _options.url()->full() << sep
-	    << "SERVICE=WMS"
-            << "&VERSION=" << _options.wmsVersion().value()
-            << "&REQUEST=GetMap"
-            << "&LAYERS=" << _options.layers().value()
-            << "&FORMAT=" << ( wmsFormatToUse.empty() ? std::string("image/") + _formatToUse : wmsFormatToUse )
-            << "&STYLES=" << _options.style().value()
-            << (_options.wmsVersion().value() == "1.3.0" ? "&CRS=" : "&SRS=") << _srsToUse            
-            << "&WIDTH="<< _options.tileSize().value()
-            << "&HEIGHT="<< _options.tileSize().value()
-            << "&BBOX=%lf,%lf,%lf,%lf";
-
-        // then the optional keys:
-        if ( _options.transparent().isSet() )
-            buf << "&TRANSPARENT=" << (_options.transparent() == true ? "TRUE" : "FALSE");
-            
-
-        _prototype = "";
-        _prototype = buf.str();
-
-        //OE_NOTICE << "Prototype " << _prototype << std::endl;
-
         osg::ref_ptr<SpatialReference> wms_srs = SpatialReference::create( _srsToUse );
 
         // check for spherical mercator:
@@ -176,14 +157,49 @@ public:
             result = osgEarth::Registry::instance()->getGlobalGeodeticProfile();
         }
 
-        // Next, try to glean the extents from the layer list
-        if ( capabilities.valid() )
+        std::string layerNames = _options.layers().value();
+
+        // try looking up layer names from titles
+        if (capabilities.valid())
+        {
+            osgDB::StringList layerNameList;
+            if (_options.titles().isSet())
+            {
+                if (_options.layers().isSet())
+                {
+                    OE_NOTICE << LC << "Both layers and titles specified - using titles \"" << _options.titles().value() << "\"" << std::endl;
+                }
+
+                osgDB::StringList titleList;
+                osgDB::split(_options.titles().value(), titleList, ',');
+                for (auto title : titleList)
+                {
+                    WMSLayer* layer = capabilities->getLayerByTitle(title);
+                    if (layer == nullptr)
+                    {
+                        OE_WARN << LC << "Could not find layer with title \"" << title << "\"" << std::endl;
+                    }
+                    else
+                    {
+                        layerNameList.push_back(layer->getName());
+                        OE_INFO << LC << "Matched title \"" << title << "\" to layer \"" << layer->getName() << "\"" << std::endl;
+                    }
+                }
+                layerNames = joinStringList(layerNameList, ",");
+            }
+        }
+
+        // Next, try to glean the extents from the layer list and get layer by title if title was specified
+        if (capabilities.valid())
         {
             //TODO: "layers" mights be a comma-separated list. need to loop through and
             //combine the extents?? yes
-            WMSLayer* layer = capabilities->getLayerByName( _options.layers().value() );
+            WMSLayer* layer = capabilities->getLayerByName( layerNames );
+
             if ( layer )
             {
+                layerNames = layer->getName();
+
                 double minx, miny, maxx, maxy;                
                 minx = miny = maxx = maxy = 0;
 
@@ -219,6 +235,33 @@ public:
                 }
             }
         }
+
+        //Initialize the WMS request prototype
+        std::stringstream buf;
+
+        // first the mandatory keys:
+        buf
+            << std::fixed << _options.url()->full() << sep
+            << "SERVICE=WMS"
+            << "&VERSION=" << _options.wmsVersion().value()
+            << "&REQUEST=GetMap"
+            << "&LAYERS=" << layerNames
+            << "&FORMAT=" << (wmsFormatToUse.empty() ? std::string("image/") + _formatToUse : wmsFormatToUse)
+            << "&STYLES=" << _options.style().value()
+            << (_options.wmsVersion().value() == "1.3.0" ? "&CRS=" : "&SRS=") << _srsToUse
+            << "&WIDTH=" << _options.tileSize().value()
+            << "&HEIGHT=" << _options.tileSize().value()
+            << "&BBOX=%lf,%lf,%lf,%lf";
+
+        // then the optional keys:
+        if (_options.transparent().isSet())
+            buf << "&TRANSPARENT=" << (_options.transparent() == true ? "TRUE" : "FALSE");
+
+
+        _prototype = "";
+        _prototype = buf.str();
+
+        //OE_NOTICE << "Prototype " << _prototype << std::endl;
 
         // Last resort: create a global extent profile (only valid for global maps)
         if ( !result.valid() && wms_srs->isGeographic())

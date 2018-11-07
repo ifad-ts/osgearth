@@ -75,13 +75,38 @@ osgEarth::TileSource::Status WCS11Source::initialize(const osgDB::Options* dbOpt
         OE_INFO << LC << "Got capabilities from " << capUrl << std::endl;
     }
 
+    _identifier = _options.identifier().value();
+
     // Next, try to glean the extents from the coverage list
     if (_capabilities.valid())
     {
-        WCSCoverage* coverage = _capabilities->getCoverageByIdentifier(_options.identifier().value());
+        WCSCoverage* coverage;
+        if (_options.title().isSet())
+        {
+            if (_options.identifier().isSet())
+            {
+                OE_NOTICE << LC << "Both identifier and title specified - using title \"" << _options.title().value() << "\"" << std::endl;
+            }
+            
+            // try to get the coverage by title instead of by identifier
+            coverage = _capabilities->getCoverageByTitle(_options.title().value());
+            if (coverage)
+            {
+                _identifier = coverage->getIdentifier();
+                OE_INFO << LC << "Matched title \"" << _options.title().value() << "\" to coverage \"" << coverage->getIdentifier() << "\"" << std::endl;
+            }
+            else
+            {
+                OE_WARN << LC << "Could not find coverage with title \"" << _options.title().value() << "\"" << std::endl;
+            }
+        }
+        else
+        {
+            coverage = _capabilities->getCoverageByIdentifier(_options.identifier().value());
+        }
         if (!coverage)
         {
-            OE_WARN << LC << "Using global extents since no coverage with the following identifier could be found: " << _options.identifier().value() << std::endl;
+            OE_WARN << LC << "Using global extents since no coverage with the following identifier could be found: " << _identifier << std::endl;
         }
         else
         {
@@ -218,7 +243,7 @@ WCS11Source::createRequest( const TileKey& key ) const
     req.addParameter( "SERVICE",    "WCS" );
     req.addParameter( "VERSION",    "1.1.0" );
     req.addParameter( "REQUEST",    "GetCoverage" );
-    req.addParameter( "IDENTIFIER", _options.identifier().value() );
+    req.addParameter( "IDENTIFIER", _identifier );
     req.addParameter( "FORMAT",     _covFormat );
 
     req.addParameter( "GridBaseCRS", "urn:ogc:def:crs:EPSG::4326" );
