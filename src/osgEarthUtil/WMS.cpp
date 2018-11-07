@@ -39,6 +39,17 @@ namespace
         }
         return 0;
     }
+
+    WMSLayer* getLayerByTitle(const string &title, WMSLayer::LayerList& layers)
+    {
+        for (WMSLayer::LayerList::iterator i = layers.begin(); i != layers.end(); ++i)
+        {
+            if (osgDB::equalCaseInsensitive(i->get()->getTitle(), title)) return i->get();
+            WMSLayer *l = getLayerByTitle(title, i->get()->getLayers());
+            if (l) return l;
+        }
+        return 0;
+    }
 }
 
 WMSStyle::WMSStyle()
@@ -133,7 +144,13 @@ WMSCapabilities::getLayerByName(const std::string &name)
     return ::getLayerByName(name, _layers);
 }
 
-WMSCapabilities* 
+WMSLayer*
+WMSCapabilities::getLayerByTitle(const std::string &title)
+{
+    return ::getLayerByTitle(title, _layers);
+}
+
+WMSCapabilities*
 WMSCapabilitiesReader::read( const std::string &location, const osgDB::ReaderWriter::Options* options )
 {
     WMSCapabilities *caps = NULL;
