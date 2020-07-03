@@ -46,6 +46,10 @@ namespace osgEarth { namespace Drivers
         optional<std::string>& typeName() { return _typename; }
         const optional<std::string>& typeName() const { return _typename; }
 
+        /** Title to use for looking up typename (overrides typename) */
+        optional<std::string>& title() { return _title; }
+        const optional<std::string>& title() const { return _title; }
+
         /** Cap on the number of features that the WFS service will return on a single request */
         optional<unsigned int>& maxFeatures() { return _maxFeatures; }
         const optional<unsigned int>& maxFeatures() const { return _maxFeatures;}
@@ -84,6 +88,7 @@ namespace osgEarth { namespace Drivers
             conf.set( "url", _url ); 
             conf.set( "geometry_profile", _geometryProfileConf );
             conf.set( "typename", _typename );
+            conf.set( "title", _title );
             conf.set( "outputformat", _outputFormat);
             conf.set( "maxfeatures", _maxFeatures );
             conf.set( "disable_tiling", _disableTiling );
@@ -103,6 +108,7 @@ namespace osgEarth { namespace Drivers
             conf.getIfSet( "url", _url );
             conf.getIfSet( "geometry_profile", _geometryProfileConf );
             conf.getIfSet( "typename", _typename);
+            conf.getIfSet( "title", _title );
             conf.getIfSet( "outputformat", _outputFormat );
             conf.getIfSet( "maxfeatures", _maxFeatures );
             conf.getIfSet( "disable_tiling", _disableTiling);
@@ -111,6 +117,7 @@ namespace osgEarth { namespace Drivers
 
         optional<URI>         _url;        
         optional<std::string> _typename;
+        optional<std::string> _title;
         optional<Config>      _geometryProfileConf;
         optional<std::string> _outputFormat;
         optional<unsigned>    _maxFeatures;            

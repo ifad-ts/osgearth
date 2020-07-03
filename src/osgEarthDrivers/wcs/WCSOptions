@@ -37,6 +37,9 @@ namespace osgEarth { namespace Drivers
         optional<std::string>& identifier() { return _identifier; }
         const optional<std::string>& identifier() const { return _identifier; }
 
+        optional<std::string>& title() { return _title; }
+        const optional<std::string>& title() const { return _title; }
+
         optional<std::string>& format() { return _format; }
         const optional<std::string>& format() const { return _format; }
 
@@ -75,6 +78,7 @@ namespace osgEarth { namespace Drivers
             Config conf = TileSourceOptions::getConfig();
             conf.set("url", _url);
             conf.set("identifier", _identifier);
+            conf.set("title". _title);
             conf.set("format", _format);
             conf.set("elevation_unit", _elevationUnit);
             conf.set("srs", _srs);
@@ -95,6 +99,7 @@ namespace osgEarth { namespace Drivers
         void fromConfig( const Config& conf ) {
             conf.getIfSet("url", _url);
             conf.getIfSet("identifier", _identifier);
+            conf.getIfSet("title", _title);
             conf.getIfSet("format", _format);
             conf.getIfSet("elevation_unit", _elevationUnit);
             conf.getIfSet("srs", _srs);
@@ -105,9 +110,9 @@ namespace osgEarth { namespace Drivers
         }
 
         optional<URI>         _url;
-        optional<std::string> _identifier, _format, _elevationUnit, _srs, _rangeSubset, _version;
-        optional<unsigned int> _maxDataLevelOverride;
-        optional<double> _maxResolution;
+        optional<std::string> _identifier, _title, _format, _elevationUnit, _srs, _rangeSubset, _version;
+		optional<unsigned int> _maxDataLevelOverride;
+		optional<double> _maxResolution;
     };
 
 } } // namespace osgEarth::Drivers

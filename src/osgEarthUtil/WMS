@@ -177,6 +177,14 @@ namespace osgEarth { namespace Util
         *       The Layer with the given name or NULL if not found.
         */
         WMSLayer* getLayerByName(const std::string &name);
+
+        /**
+        *Finds the child Layer with the given title.
+        *@returns
+        *       The Layer with the given title or NULL if not found.
+        */
+        WMSLayer* getLayerByTitle(const std::string &title);
+
     protected:
         std::string _name;
         std::string _title;
@@ -240,6 +248,13 @@ namespace osgEarth { namespace Util
         *       The Layer with the given name or NULL if not found.
         */
         WMSLayer* getLayerByName(const std::string &name);
+
+        /**
+        *Finds the child Layer with the given title.
+        *@returns
+        *       The Layer with the given title or NULL if not found.
+        */
+        WMSLayer* getLayerByTitle(const std::string &title);
 
     protected:
         FormatList _formats;

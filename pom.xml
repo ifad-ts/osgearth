@@ -8,7 +8,7 @@
  
     <groupId>dk.ifad.native</groupId>
     <artifactId>osgearth-ifad</artifactId>
-    <version>2.6.11</version>
+    <version>2.6.12</version>
 
     <dependencies>
         <dependency>

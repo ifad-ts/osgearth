@@ -42,6 +42,9 @@ namespace osgEarth { namespace Drivers
         optional<std::string>& layers() { return _layers; }
         const optional<std::string>& layers() const { return _layers; }
 
+        optional<std::string>& titles() { return _titles; }
+        const optional<std::string>& titles() const { return _titles; }
+
         optional<std::string>& style() { return _style; }
         const optional<std::string>& style() const { return _style; }
 
@@ -93,6 +96,7 @@ namespace osgEarth { namespace Drivers
             conf.set("capabilities_url", _capabilitiesUrl);
             conf.set("tile_service_url", _tileServiceUrl);
             conf.set("layers", _layers);
+            conf.set("titles", _titles);
             conf.set("style", _style);
             conf.set("format", _format);
             conf.set("wms_format", _wmsFormat);
@@ -118,6 +122,7 @@ namespace osgEarth { namespace Drivers
             conf.getIfSet("capabilities_url", _capabilitiesUrl);
             conf.getIfSet("tile_service_url", _tileServiceUrl);
             conf.getIfSet("layers", _layers);
+            conf.getIfSet("titles", _titles);
             conf.getIfSet("style", _style);
             conf.getIfSet("format", _format);
             conf.getIfSet("wms_format", _wmsFormat);
@@ -135,6 +140,7 @@ namespace osgEarth { namespace Drivers
         optional<URI>         _capabilitiesUrl;
         optional<URI>         _tileServiceUrl;
         optional<std::string> _layers;
+        optional<std::string> _titles;
         optional<std::string> _style;
         optional<std::string> _format;
         optional<std::string> _wmsFormat;

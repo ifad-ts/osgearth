@@ -66,6 +66,15 @@ WCSCapabilities::getCoverageByIdentifier(const std::string& identifier)
     return NULL;
 }
 
+osgEarth::Util::WCSCoverage* osgEarth::Util::WCSCapabilities::getCoverageByTitle(const std::string& title)
+{
+    for (CoverageList::iterator itr = _coverages.begin(); itr != _coverages.end(); ++itr)
+    {
+        if (osgDB::equalCaseInsensitive(itr->get()->getTitle(), title)) return itr->get();
+    }
+    return NULL;
+}
+
 #define ATTR_VERSION "version"
 #define ELEM_CAPABILITY "capability"
 #define ELEM_SERVICE "serviceidentification"

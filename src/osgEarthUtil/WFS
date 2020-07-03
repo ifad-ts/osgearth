@@ -118,6 +118,8 @@ namespace osgEarth { namespace Util
 
         WFSFeatureType* getFeatureTypeByName(const std::string& name);
 
+        WFSFeatureType* getFeatureTypeByTitle(const std::string& title);
+
         FeatureTypeList& getFeatureTypes() { return _featureTypes; }
 
                 
