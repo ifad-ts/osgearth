@@ -78,7 +78,7 @@ namespace osgEarth { namespace Drivers
             Config conf = TileSourceOptions::getConfig();
             conf.set("url", _url);
             conf.set("identifier", _identifier);
-            conf.set("title". _title);
+            conf.set("title", _title);
             conf.set("format", _format);
             conf.set("elevation_unit", _elevationUnit);
             conf.set("srs", _srs);

@@ -146,33 +146,6 @@ public:
 
         std::string wmsFormatToUse = _options.wmsFormat().value();
 
-        //Initialize the WMS request prototype
-        std::stringstream buf;
-
-        // first the mandatory keys:
-        buf
-            << std::fixed << _options.url()->full() << sep
-	    << "SERVICE=WMS"
-            << "&VERSION=" << _options.wmsVersion().value()
-            << "&REQUEST=GetMap"
-            << "&LAYERS=" << _options.layers().value()
-            << "&FORMAT=" << ( wmsFormatToUse.empty() ? std::string("image/") + _formatToUse : wmsFormatToUse )
-            << "&STYLES=" << _options.style().value()
-            << (_options.wmsVersion().value() == "1.3.0" ? "&CRS=" : "&SRS=") << _srsToUse            
-            << "&WIDTH="<< getPixelsPerTile()
-            << "&HEIGHT=" << getPixelsPerTile()
-            << "&BBOX=%lf,%lf,%lf,%lf";
-
-        // then the optional keys:
-        if ( _options.transparent().isSet() )
-            buf << "&TRANSPARENT=" << (_options.transparent() == true ? "TRUE" : "FALSE");
-            
-
-        _prototype = "";
-        _prototype = buf.str();
-
-        //OE_NOTICE << "Prototype " << _prototype << std::endl;
-
         osg::ref_ptr<SpatialReference> wms_srs = SpatialReference::create( _srsToUse );
 
         // check for spherical mercator:
@@ -277,8 +250,8 @@ public:
             << "&FORMAT=" << (wmsFormatToUse.empty() ? std::string("image/") + _formatToUse : wmsFormatToUse)
             << "&STYLES=" << _options.style().value()
             << (_options.wmsVersion().value() == "1.3.0" ? "&CRS=" : "&SRS=") << _srsToUse
-            << "&WIDTH=" << _options.tileSize().value()
-            << "&HEIGHT=" << _options.tileSize().value()
+            << "&WIDTH=" << getPixelsPerTile()
+            << "&HEIGHT=" << getPixelsPerTile()
             << "&BBOX=%lf,%lf,%lf,%lf";
 
         // then the optional keys:

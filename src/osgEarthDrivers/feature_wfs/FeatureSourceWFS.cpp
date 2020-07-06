@@ -298,7 +298,7 @@ public:
 
         std::stringstream buf;
         buf << _options.url()->full() << sep << "SERVICE=WFS&VERSION=1.0.0&REQUEST=GetFeature";
-        buf << "&TYPENAME=" << _typename;
+        buf << "&TYPENAME=" << _typeName;
         
         std::string outputFormat = "geojson";
         if (_options.outputFormat().isSet()) outputFormat = _options.outputFormat().get();
