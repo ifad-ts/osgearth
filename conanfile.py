@@ -69,7 +69,7 @@ class OsgEarthConan(ConanFile):
         return cmake
 
     def _set_windows_definitions(self, cmake):
-        thirdparty_folder = os.path.join(self.deps_cpp_info["osgvisual"].rootpath, 'x64')
+        thirdparty_folder = self.deps_cpp_info["osgvisual"].rootpath
         thirdparty_include = os.path.join(thirdparty_folder, "include")
         thirdparty_lib = os.path.join(thirdparty_folder, "lib")
         cmake.definitions['GDAL_INCLUDE_DIR'] = thirdparty_include
@@ -102,8 +102,7 @@ class OsgEarthConan(ConanFile):
         cmake.install()
 
     def package_info(self):
+        self.cpp_info.libs = tools.collect_libs(self)
         if self.settings.os != "Windows":
             self.env_info.LD_LIBRARY_PATH.append(os.path.join(self.package_folder, "lib"))
         self.env_info.PATH.append(os.path.join(self.package_folder, "bin"))
-        if self.settings.os == "Windows" and self.settings.compiler == "Visual Studio":
-            self.env_info.PATH.append(os.path.join(self.package_folder, "3rdParty/bin"))
