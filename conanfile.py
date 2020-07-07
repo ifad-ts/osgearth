@@ -14,7 +14,7 @@ class OsgEarthConan(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
     # do all options had to be wrapped to cmake?
     options = {"shared": [True, False]}
-    default_options = "shared=True", "geos:shared=False"
+    default_options = "shared=True", "geos:shared=True"
     generators = "cmake"
     copy_source_to_build_dir = False
     build_policy = "missing"  # "always" #
