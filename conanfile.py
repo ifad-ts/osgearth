@@ -7,7 +7,7 @@ from conans.tools import os_info, SystemPackageTool
 
 class OsgEarthConan(ConanFile):
     name = "osgearth-ifad"
-    version = "2.9"
+    version = "2.9.1"
     license = "https://github.com/gwaldron/osgearth/blob/master/LICENSE.txt"
     url = "https://github.com/ifad-ts/osgearth"
     description = "IFAD version of osgEarth. osgEarth is a C++ geospatial SDK and terrain engine. Just create a simple XML file, point it at your map data, and go! osgEarth supports all kinds of data and comes with lots of examples to help you get up and running quickly and easily."
