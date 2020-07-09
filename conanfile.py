@@ -19,7 +19,7 @@ class OsgEarthConan(ConanFile):
     copy_source_to_build_dir = False
     build_policy = "missing"  # "always" #
     short_paths = True  # for win<10 naming
-    requires = "openscenegraph-ifad/3.6.3.1@ifad/stable", "geos/3.5.1@ifad/stable", "osgvisual/11_full@ifad/stable"
+    requires = "openscenegraph-ifad/3.6.3.2@ifad/stable", "geos/3.5.1@ifad/stable", "osgvisual/11_full@ifad/stable"
     exports_sources = "CMakeModules/*", "data/*", "docs/*", "src/*", "tests/*", "*.txt"
 
     # Manually-specified variables were not used by the project:
