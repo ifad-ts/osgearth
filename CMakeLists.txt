@@ -22,6 +22,11 @@ SET_PROPERTY( GLOBAL PROPERTY PREDEFINED_TARGETS_FOLDER "CMake Targets" )
 
 PROJECT(OSGEARTH)
 
+# inserted manually, based on https://github.com/insaneFactory/conan-osgEarth/blob/stable/2.10.1/conanfile.py
+include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
+conan_basic_setup(TARGETS)
+link_directories(${CONAN_LIB_DIRS})
+
 SET(OSGEARTH_MAJOR_VERSION 2)
 SET(OSGEARTH_MINOR_VERSION 9)
 SET(OSGEARTH_PATCH_VERSION 0)
