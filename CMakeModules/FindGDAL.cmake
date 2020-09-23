@@ -62,7 +62,7 @@ FIND_PATH(GDAL_INCLUDE_DIR gdal.h
 )
 
 FIND_LIBRARY(GDAL_LIBRARY 
-  NAMES gdal gdal_i gdal1.8.0 gdal1.7.0 gdal1.6.0 gdal1.5.0 gdal1.4.0 gdal1.3.2 GDAL 
+  NAMES gdal gdal_d gdal_i gdal_i_d gdal1.8.0 gdal1.7.0 gdal1.6.0 gdal1.5.0 gdal1.4.0 gdal1.3.2 GDAL
   PATHS
   c:/Program Files/FWTools2.1.0/lib 
   ${GDAL_DIR}/lib
@@ -98,6 +98,7 @@ FIND_LIBRARY(GDAL_LIBRARY
 SET(GDAL_FOUND "NO")
 IF(GDAL_LIBRARY AND GDAL_INCLUDE_DIR)
   SET(GDAL_FOUND "YES")
+  MESSAGE(STATUS "Found GDAL: ${GDAL_LIBRARY}")
 ENDIF(GDAL_LIBRARY AND GDAL_INCLUDE_DIR)
 
 
