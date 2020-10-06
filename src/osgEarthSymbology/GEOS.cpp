@@ -61,7 +61,7 @@ namespace
         {
             coords->push_back( coords->front() );
         }
-        geom::CoordinateSequence* seq = factory->create( coords );
+        geom::CoordinateSequence* seq = factory->create( coords ).release();
 
         return seq;
     }
@@ -138,12 +138,12 @@ namespace
                     if ( shell )
                     {
                         const Symbology::Polygon* poly = static_cast<const Symbology::Polygon*>(input);
-                        std::vector<geom::Geometry*>* holes = poly->getHoles().size() > 0 ? new std::vector<geom::Geometry*>() : 0L;
+                        auto holes = poly->getHoles().size() > 0 ? new std::vector<geom::LinearRing*>() : 0L;
                         if (holes)
                         {
                             for( Symbology::RingCollection::const_iterator r = poly->getHoles().begin(); r != poly->getHoles().end(); ++r )
                             {
-                                geom::Geometry* hole = import( r->get(), f );
+                                auto hole = dynamic_cast<geom::LinearRing*>( import( r->get(), f ) );
                                 if ( hole ) holes->push_back( hole );
                             }
                             if (holes->size() == 0)
