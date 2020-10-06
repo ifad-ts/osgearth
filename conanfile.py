@@ -26,6 +26,7 @@ class OsgearthConan(ConanFile):
     requires = (
         "openscenegraph-ifad/3.6.3.3@ifad/stable",
         # "libcurl/7.61.1@bincrafters/stable",
+        "libcurl/7.72.0",
         # "protobuf/3.6.1@bincrafters/stable",
         # "poco/1.8.1",
         "gdal/3.1.2"
