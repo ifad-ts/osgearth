@@ -41,7 +41,7 @@ FIND_PATH(GEOS_INCLUDE_DIR geos/geom/Geometry.h
 )
 
 FIND_LIBRARY(GEOS_LIBRARY
-  NAMES geos
+  NAMES geos geos_i
   PATHS
     ${GEOS_DIR}/lib
     $ENV{GEOS_DIR}
@@ -50,7 +50,7 @@ FIND_LIBRARY(GEOS_LIBRARY
 )
 
 FIND_LIBRARY(GEOS_LIBRARY
-  NAMES geos
+  NAMES geos geos_i
   PATHS
     ~/Library/Frameworks
     /Library/Frameworks
