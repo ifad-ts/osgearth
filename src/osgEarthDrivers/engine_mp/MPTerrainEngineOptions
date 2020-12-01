@@ -114,7 +114,7 @@ namespace osgEarth { namespace Drivers { namespace MPTerrainEngine
             conf.set( "elevation_smoothing", _smoothing );
             conf.set( "normal_maps", _normalMaps );
             conf.set( "adaptive_polar_range_factor", _adaptivePolarRangeFactor);
-            conf.updateIfSet( "cancellation", _cancellation );
+            conf.set( "cancellation", _cancellation );
             
             return conf;
         }

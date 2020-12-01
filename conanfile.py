@@ -5,7 +5,7 @@ import os, shutil
 
 class OsgearthConan(ConanFile):
     name = "osgearth-ifad"
-    version = "2.9.3"
+    version = "2.9.4"
     license = "LGPL-3"
     url = "https://github.com/ifad-ts/osgearth"
     description = "IFAD version of osgEarth. osgEarth is a C++ geospatial SDK and terrain engine. Just create a simple XML file, point it at your map data, and go! osgEarth supports all kinds of data and comes with lots of examples to help you get up and running quickly and easily."
@@ -24,7 +24,7 @@ class OsgearthConan(ConanFile):
     }
     build_requires = "cmake_installer/3.15.4@conan/stable"
     requires = (
-        "openscenegraph-ifad/3.6.3.3@ifad/stable",
+        "openscenegraph-ifad/3.6.3.4@ifad/stable",
         # "libcurl/7.61.1@bincrafters/stable",
         "libcurl/7.72.0",
         # "protobuf/3.6.1@bincrafters/stable",
